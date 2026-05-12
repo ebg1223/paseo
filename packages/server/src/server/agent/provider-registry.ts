@@ -41,6 +41,10 @@ function isNonEmptyStringArray(value: string[]): value is [string, ...string[]] 
   return value.length > 0;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export type { AgentProviderDefinition };
 
 export { AGENT_PROVIDER_DEFINITIONS, getAgentProviderDefinition };
@@ -207,10 +211,12 @@ function mapPersistenceHandle(
   if (!handle) {
     return null;
   }
+  const metadata = isRecord(handle.metadata) ? { ...handle.metadata, provider } : handle.metadata;
 
   return {
     ...handle,
     provider,
+    ...(metadata !== undefined ? { metadata } : {}),
   };
 }
 
@@ -356,7 +362,7 @@ function wrapClientProvider(
           launchContext,
         ),
       ),
-    resumeSession: async (handle, overrides, launchContext) =>
+    resumeSession: async (handle, overrides, launchContext, options) =>
       wrapSessionProvider(
         provider,
         await inner.resumeSession(
@@ -371,6 +377,7 @@ function wrapClientProvider(
               }
             : undefined,
           launchContext,
+          options,
         ),
       ),
     listModels: async (options) =>

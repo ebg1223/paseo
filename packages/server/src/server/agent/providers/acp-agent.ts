@@ -68,6 +68,7 @@ import {
   type AgentPersistenceHandle,
   type AgentPromptContentBlock,
   type AgentPromptInput,
+  type AgentResumeSessionOptions,
   type AgentRunOptions,
   type AgentRunResult,
   type AgentRuntimeInfo,
@@ -268,9 +269,12 @@ interface ACPAgentSessionOptions {
   handle?: AgentPersistenceHandle;
   agentId?: string;
   launchEnv?: Record<string, string>;
+  resumeOptions?: AgentResumeSessionOptions;
   waitForInitialCommands?: boolean;
   initialCommandsWaitTimeoutMs?: number;
 }
+
+type ACPConfigReplayPolicy = NonNullable<AgentResumeSessionOptions["configReplayPolicy"]>;
 
 export interface SpawnedACPProcess {
   child: ChildProcessWithoutNullStreams;
@@ -576,6 +580,7 @@ export class ACPAgentClient implements AgentClient {
     handle: AgentPersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
     launchContext?: AgentLaunchContext,
+    options?: AgentResumeSessionOptions,
   ): Promise<AgentSession> {
     if (handle.provider !== this.provider) {
       throw new Error(`Cannot resume ${handle.provider} handle with ${this.provider} provider`);
@@ -611,6 +616,7 @@ export class ACPAgentClient implements AgentClient {
       handle,
       agentId: launchContext?.agentId,
       launchEnv: launchContext?.env,
+      resumeOptions: options,
       waitForInitialCommands: this.waitForInitialCommands,
       initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
     });
@@ -874,6 +880,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   ) => Promise<void>;
   private readonly agentId?: string;
   private readonly launchEnv?: Record<string, string>;
+  private readonly resumeOptions?: AgentResumeSessionOptions;
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly pendingPermissions = new Map<string, PendingPermission>();
   private readonly messageAssemblies = new Map<string, MessageAssemblyState>();
@@ -927,6 +934,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.availableModes = options.defaultModes;
     this.agentId = options.agentId;
     this.launchEnv = options.launchEnv;
+    this.resumeOptions = options.resumeOptions;
     this.initialHandle = options.handle;
     this.config = { ...config, provider: options.provider };
     this.currentMode = config.modeId ?? null;
@@ -970,29 +978,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.sessionId = handle.sessionId;
     this.bootstrapThreadEventPending = true;
 
+    const historyReplay = this.resumeOptions?.historyReplay === true;
     const sessionCapabilities = this.agentCapabilities?.sessionCapabilities;
-    if (this.agentCapabilities?.loadSession) {
-      this.replayingHistory = true;
+    if (!historyReplay && sessionCapabilities?.resume) {
+      await this.resumeWithoutHistoryReplay(handle);
+    } else if (this.agentCapabilities?.loadSession) {
+      await this.loadWithHistoryReplay(handle);
+    } else if (sessionCapabilities?.resume) {
+      await this.resumeWithoutHistoryReplay(handle);
+    } else {
+      throw new Error(`${this.provider} does not support ACP session resume`);
+    }
+
+    await this.applyConfiguredOverrides({
+      policy: this.resumeOptions?.configReplayPolicy ?? "strict",
+    });
+  }
+
+  private async resumeWithoutHistoryReplay(handle: AgentPersistenceHandle): Promise<void> {
+    if (!this.connection) {
+      throw new Error("ACP session not initialized");
+    }
+    const response = await this.connection.unstable_resumeSession({
+      sessionId: handle.sessionId,
+      cwd: this.config.cwd,
+      mcpServers: normalizeMcpServers(this.config.mcpServers),
+    });
+    this.applySessionState(response);
+  }
+
+  private async loadWithHistoryReplay(handle: AgentPersistenceHandle): Promise<void> {
+    if (!this.connection) {
+      throw new Error("ACP session not initialized");
+    }
+    this.replayingHistory = true;
+    try {
       const response = await this.connection.loadSession({
         sessionId: handle.sessionId,
         cwd: this.config.cwd,
         mcpServers: normalizeMcpServers(this.config.mcpServers),
       });
-      this.replayingHistory = false;
       this.historyPending = this.persistedHistory.length > 0;
       this.applySessionState(response);
-    } else if (sessionCapabilities?.resume) {
-      const response = await this.connection.unstable_resumeSession({
-        sessionId: handle.sessionId,
-        cwd: this.config.cwd,
-        mcpServers: normalizeMcpServers(this.config.mcpServers),
-      });
-      this.applySessionState(response);
-    } else {
-      throw new Error(`${this.provider} does not support ACP session resume`);
+    } finally {
+      this.replayingHistory = false;
     }
-
-    await this.applyConfiguredOverrides();
   }
 
   async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
@@ -1169,9 +1199,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   private async setModeWithSelection({
     modeId,
     selection,
+    allowOptimisticMethod = false,
   }: {
     modeId: string;
     selection: ACPModeSelection;
+    allowOptimisticMethod?: boolean;
   }): Promise<void> {
     if (!this.connection || !this.sessionId) {
       throw new Error("ACP session not initialized");
@@ -1209,6 +1241,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     } else {
       const modeOption = selection.configOption;
       if (!modeOption) {
+        if (allowOptimisticMethod) {
+          await this.connection.setSessionMode({ sessionId: this.sessionId, modeId });
+          this.currentMode = modeId;
+          this.pushEvent({
+            type: "mode_changed",
+            provider: this.provider,
+            currentModeId: this.currentMode,
+            availableModes: [...this.availableModes],
+          });
+          return;
+        }
         throw new Error(`${this.provider} does not expose ACP mode switching`);
       }
       if (!selection.configChoice) {
@@ -1307,9 +1350,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   private async setModelWithSelection({
     modelId,
     selection,
+    allowOptimisticMethod = false,
   }: {
     modelId: string;
     selection: ACPModelSelection;
+    allowOptimisticMethod?: boolean;
   }): Promise<void> {
     if (!this.connection || !this.sessionId) {
       throw new Error("ACP session not initialized");
@@ -1349,6 +1394,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
 
     const modelOption = selection.configOption;
     if (!modelOption) {
+      if (allowOptimisticMethod && typeof this.connection.unstable_setSessionModel === "function") {
+        await this.connection.unstable_setSessionModel({
+          sessionId: this.sessionId,
+          modelId,
+        });
+        this.currentModel = modelId;
+        this.pushEvent({
+          type: "model_changed",
+          provider: this.provider,
+          runtimeInfo: this.runtimeInfo(),
+        });
+        return;
+      }
       throw new Error(`${this.provider} does not expose ACP model selection`);
     }
     if (!selection.configChoice) {
@@ -1825,7 +1883,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     return this.modeIdTransformer ? this.modeIdTransformer(modeId) : modeId;
   }
 
-  private async applyConfiguredOverrides(): Promise<void> {
+  private async applyConfiguredOverrides(options?: {
+    policy?: ACPConfigReplayPolicy;
+  }): Promise<void> {
+    const policy = options?.policy ?? "strict";
     const configuredModeId = this.config.modeId;
     if (configuredModeId && configuredModeId !== this.currentMode) {
       const selection = resolveACPModeSelection({
@@ -1833,7 +1894,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         availableModes: this.availableModes,
         configOptions: this.configOptions,
       });
-      await this.setModeWithSelection({ modeId: configuredModeId, selection });
+      await this.applyConfiguredOverride(
+        "mode",
+        configuredModeId,
+        () =>
+          this.setModeWithSelection({
+            modeId: configuredModeId,
+            selection,
+            allowOptimisticMethod: true,
+          }),
+        policy,
+      );
     }
     const configuredModelId = this.config.model;
     if (configuredModelId && configuredModelId !== this.currentModel) {
@@ -1842,10 +1913,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         availableModels: this.availableModels,
         configOptions: this.configOptions,
       });
-      await this.setModelWithSelection({ modelId: configuredModelId, selection });
+      await this.applyConfiguredOverride(
+        "model",
+        configuredModelId,
+        () =>
+          this.setModelWithSelection({
+            modelId: configuredModelId,
+            selection,
+            allowOptimisticMethod: true,
+          }),
+        policy,
+      );
     }
-    if (this.config.thinkingOptionId && this.config.thinkingOptionId !== this.thinkingOptionId) {
-      await this.setThinkingOption(this.config.thinkingOptionId);
+    const configuredThinkingOptionId = this.config.thinkingOptionId;
+    if (configuredThinkingOptionId && configuredThinkingOptionId !== this.thinkingOptionId) {
+      await this.applyConfiguredOverride(
+        "thinking option",
+        configuredThinkingOptionId,
+        () => this.setThinkingOption(configuredThinkingOptionId),
+        policy,
+      );
+    }
+  }
+
+  private async applyConfiguredOverride(
+    label: string,
+    value: string,
+    apply: () => Promise<void>,
+    policy: ACPConfigReplayPolicy,
+  ): Promise<void> {
+    try {
+      await apply();
+    } catch (error) {
+      if (policy === "strict") {
+        throw error;
+      }
+      this.logger.warn(
+        { err: error, value },
+        `ACP ${label} replay failed during resume; continuing with provider state`,
+      );
     }
   }
 

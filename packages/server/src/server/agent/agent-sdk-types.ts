@@ -492,6 +492,19 @@ export interface AgentCreateSessionOptions {
   persistSession?: boolean;
 }
 
+export interface AgentResumeSessionOptions {
+  /**
+   * Whether resume should ask the provider to replay native history.
+   * Defaults to false; normal Paseo recall uses durable Paseo timeline rows.
+   */
+  historyReplay?: boolean;
+  /**
+   * Strict replay is for explicit reload/config changes. Best-effort replay is
+   * for automatic recall where unsupported optional ACP settings must not block loading.
+   */
+  configReplayPolicy?: "strict" | "best-effort";
+}
+
 /**
  * Returned by respondToPermission when the permission resolution requires
  * a follow-up turn (e.g. Codex plan approval → implementation).
@@ -560,6 +573,7 @@ export interface AgentClient {
     handle: AgentPersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
     launchContext?: AgentLaunchContext,
+    options?: AgentResumeSessionOptions,
   ): Promise<AgentSession>;
   listModels(options: ListModelsOptions): Promise<AgentModelDefinition[]>;
   listModes?(options: ListModesOptions): Promise<AgentMode[]>;

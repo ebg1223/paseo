@@ -72,7 +72,7 @@ interface ACPConfiguredOverrideInternals {
   availableModels: Array<{ modelId: string; name: string; description?: string | null }> | null;
   currentMode: string | null;
   currentModel: string | null;
-  applyConfiguredOverrides(): Promise<void>;
+  applyConfiguredOverrides(options?: { policy?: "strict" | "best-effort" }): Promise<void>;
 }
 
 function createSession(): ACPAgentSession {
@@ -263,6 +263,94 @@ function prepareConfiguredOverrideSession(
 
   return { internals, setSessionMode, unstableSetSessionModel, setSessionConfigOption };
 }
+
+function stubResumeSpawn(
+  session: ACPAgentSession,
+  options?: {
+    loadSession?: ReturnType<typeof vi.fn>;
+    resumeSession?: ReturnType<typeof vi.fn>;
+    agentCapabilities?: SpawnedACPProcess["initialize"]["agentCapabilities"];
+  },
+): { loadSession: ReturnType<typeof vi.fn>; resumeSession: ReturnType<typeof vi.fn> } {
+  const loadSession = options?.loadSession ?? vi.fn(async () => ({}));
+  const resumeSession = options?.resumeSession ?? vi.fn(async () => ({}));
+  asInternals<{ spawnProcess: () => Promise<SpawnedACPProcess> }>(session).spawnProcess =
+    async () =>
+      ({
+        child: { kill: vi.fn(), exitCode: 0, signalCode: null, once: vi.fn() },
+        connection: {
+          loadSession,
+          unstable_resumeSession: resumeSession,
+        },
+        initialize: {
+          agentCapabilities: options?.agentCapabilities ?? {
+            loadSession: true,
+            sessionCapabilities: { resume: {} },
+          },
+        },
+      }) as unknown as SpawnedACPProcess;
+  return { loadSession, resumeSession };
+}
+
+function createResumedSession(options?: {
+  historyReplay?: boolean;
+  configReplayPolicy?: "strict" | "best-effort";
+}): ACPAgentSession {
+  return new ACPAgentSession(
+    {
+      provider: "claude-acp",
+      cwd: "/tmp/paseo-acp-test",
+    },
+    {
+      provider: "claude-acp",
+      logger: createTestLogger(),
+      defaultCommand: ["claude", "--acp"],
+      defaultModes: [],
+      capabilities: {
+        supportsStreaming: true,
+        supportsSessionPersistence: true,
+        supportsDynamicModes: true,
+        supportsMcpServers: true,
+        supportsReasoningStream: true,
+        supportsToolInvocations: true,
+      },
+      handle: {
+        provider: "claude-acp",
+        sessionId: "session-1",
+        metadata: { cwd: "/tmp/paseo-acp-test" },
+      },
+      resumeOptions: options,
+    },
+  );
+}
+
+test("ACP resume prefers session/resume over session/load for normal recall", async () => {
+  const session = createResumedSession({ historyReplay: false });
+  const { loadSession, resumeSession } = stubResumeSpawn(session);
+
+  await session.initializeResumedSession();
+
+  expect(resumeSession).toHaveBeenCalledWith({
+    sessionId: "session-1",
+    cwd: "/tmp/paseo-acp-test",
+    mcpServers: [],
+  });
+  expect(loadSession).not.toHaveBeenCalled();
+});
+
+test("ACP resume uses session/load when history replay is requested", async () => {
+  const session = createResumedSession({ historyReplay: true, configReplayPolicy: "best-effort" });
+  const { loadSession, resumeSession } = stubResumeSpawn(session);
+
+  await session.initializeResumedSession();
+
+  expect(loadSession).toHaveBeenCalledWith({
+    sessionId: "session-1",
+    cwd: "/tmp/paseo-acp-test",
+    mcpServers: [],
+  });
+  expect(resumeSession).not.toHaveBeenCalled();
+});
 
 test("ACP setModel only uses config-option fallback when the matching select choice contains the model", async () => {
   const logger = createTestLogger();
@@ -696,6 +784,79 @@ describe("ACPAgentSession Zed parity", () => {
 
     await expect(internals.applyConfiguredOverrides()).resolves.toBeUndefined();
     expect(setSessionConfigOption).not.toHaveBeenCalled();
+  });
+
+  test("optimistically replays ACP model and mode when session state omits advertised options", async () => {
+    const session = createSessionWithConfig({ modeId: "auto-high", model: "custom-model" });
+    const { internals, setSessionMode, unstableSetSessionModel, setSessionConfigOption } =
+      prepareConfiguredOverrideSession(session, {
+        currentMode: "normal",
+        currentModel: "default-model",
+        availableModes: [],
+        availableModels: null,
+      });
+
+    await expect(
+      internals.applyConfiguredOverrides({ policy: "best-effort" }),
+    ).resolves.toBeUndefined();
+
+    expect(setSessionMode).toHaveBeenCalledWith({ sessionId: "session-1", modeId: "auto-high" });
+    expect(unstableSetSessionModel).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      modelId: "custom-model",
+    });
+    expect(setSessionConfigOption).not.toHaveBeenCalled();
+  });
+
+  test("best-effort configured override replay warns and continues when optional ACP methods fail", async () => {
+    const logger = createTestLogger();
+    const childLogger = { trace: vi.fn(), warn: vi.fn() };
+    vi.spyOn(logger, "child").mockReturnValue(asInternals<typeof logger>(childLogger));
+    const session = createSessionWithConfig({ modeId: "auto-high", model: "custom-model" }, logger);
+    const { internals } = prepareConfiguredOverrideSession(session, {
+      currentMode: "normal",
+      currentModel: "default-model",
+      availableModes: [],
+      availableModels: null,
+      connection: {
+        setSessionMode: vi.fn(async () => {
+          throw new Error("mode method missing");
+        }),
+        unstable_setSessionModel: vi.fn(async () => {
+          throw new Error("model method missing");
+        }),
+      },
+    });
+
+    await expect(
+      internals.applyConfiguredOverrides({ policy: "best-effort" }),
+    ).resolves.toBeUndefined();
+
+    expect(childLogger.warn).toHaveBeenCalledWith(
+      { err: expect.any(Error), value: "auto-high" },
+      expect.stringContaining("ACP mode replay failed"),
+    );
+    expect(childLogger.warn).toHaveBeenCalledWith(
+      { err: expect.any(Error), value: "custom-model" },
+      expect.stringContaining("ACP model replay failed"),
+    );
+  });
+
+  test("strict configured override replay fails when optional ACP methods fail", async () => {
+    const session = createSessionWithConfig({ modeId: "auto-high" });
+    const { internals } = prepareConfiguredOverrideSession(session, {
+      currentMode: "normal",
+      availableModes: [],
+      connection: {
+        setSessionMode: vi.fn(async () => {
+          throw new Error("mode method missing");
+        }),
+      },
+    });
+
+    await expect(internals.applyConfiguredOverrides({ policy: "strict" })).rejects.toThrow(
+      "mode method missing",
+    );
   });
 
   test("routes config_option_update and refreshes derived mode, model, and thinking state", async () => {

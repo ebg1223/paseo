@@ -379,7 +379,13 @@ test("importProviderSession resumes by provider handle, hydrates the timeline, a
     descriptor.persistence,
     { cwd },
     undefined,
-    { labels: undefined },
+    {
+      labels: undefined,
+      resumeSessionOptions: {
+        historyReplay: true,
+        configReplayPolicy: "best-effort",
+      },
+    },
   );
   expect(agentManager.hydrateTimelineFromProvider).toHaveBeenCalledWith(snapshot.id);
   expect(agentManager.setTitle).toHaveBeenCalledWith(snapshot.id, "Trace recent provider sessions");
@@ -437,7 +443,13 @@ test("importProviderSession builds a fallback handle when a non-OpenCode provide
     },
     { cwd },
     undefined,
-    { labels: undefined },
+    {
+      labels: undefined,
+      resumeSessionOptions: {
+        historyReplay: true,
+        configReplayPolicy: "best-effort",
+      },
+    },
   );
 });
 

@@ -165,6 +165,10 @@ export async function importProviderSession(
     undefined,
     {
       labels,
+      resumeSessionOptions: {
+        historyReplay: true,
+        configReplayPolicy: "best-effort",
+      },
     },
   );
   await unarchiveAgentState(input.agentStorage, input.agentManager, snapshot.id);

@@ -25,6 +25,7 @@ import {
   type AgentPersistenceHandle,
   type AgentPromptInput,
   type AgentProvider,
+  type AgentResumeSessionOptions,
   type AgentRunOptions,
   type AgentRunResult,
   type AgentSession,
@@ -838,6 +839,7 @@ export class AgentManager {
       updatedAt?: Date;
       lastUserMessageAt?: Date | null;
       labels?: Record<string, string>;
+      resumeSessionOptions?: AgentResumeSessionOptions;
     },
   ): Promise<ManagedAgent> {
     const resolvedAgentId = validateAgentId(
@@ -876,6 +878,10 @@ export class AgentManager {
       handle,
       hasResumeOverrides ? resumeOverrides : undefined,
       launchContext,
+      options?.resumeSessionOptions ?? {
+        historyReplay: false,
+        configReplayPolicy: "best-effort",
+      },
     );
     return this.registerSession(session, normalizedConfig, resolvedAgentId, options);
   }
@@ -913,7 +919,10 @@ export class AgentManager {
     const launchContext = this.buildLaunchContext(agentId);
 
     const session = handle
-      ? await client.resumeSession(handle, normalizedConfig, launchContext)
+      ? await client.resumeSession(handle, normalizedConfig, launchContext, {
+          historyReplay: rehydrateFromDisk,
+          configReplayPolicy: "strict",
+        })
       : await client.createSession(normalizedConfig, launchContext);
 
     this.agentStreamCoalescer.flushAndDiscard(agentId);

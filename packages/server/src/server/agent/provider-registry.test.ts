@@ -264,12 +264,53 @@ vi.mock("./providers/generic-acp-agent.js", () => ({
       });
     }
 
-    async createSession(): Promise<never> {
-      throw new Error("not implemented");
+    async createSession() {
+      return this.createMockSession();
     }
 
-    async resumeSession(): Promise<never> {
-      throw new Error("not implemented");
+    async resumeSession() {
+      return this.createMockSession();
+    }
+
+    private createMockSession() {
+      return {
+        provider: "acp",
+        id: "inner-session",
+        capabilities: this.capabilities,
+        async run() {
+          return { text: "" };
+        },
+        async startTurn() {
+          return { turnId: "turn-1" };
+        },
+        subscribe() {
+          return () => undefined;
+        },
+        async *streamHistory() {},
+        async getRuntimeInfo() {
+          return { provider: "acp", sessionId: "inner-session" };
+        },
+        async getAvailableModes() {
+          return [];
+        },
+        async getCurrentMode() {
+          return null;
+        },
+        async setMode() {},
+        getPendingPermissions() {
+          return [];
+        },
+        async respondToPermission() {},
+        describePersistence() {
+          return {
+            provider: "acp",
+            sessionId: "inner-session",
+            metadata: { provider: "acp", cwd: "/tmp/acp" },
+          };
+        },
+        async interrupt() {},
+        async close() {},
+      };
     }
 
     async listModels(): Promise<AgentModelDefinition[]> {
@@ -408,6 +449,30 @@ test("new provider extending acp uses GenericACPAgentClient", () => {
       label: "My Agent",
     },
   ]);
+});
+
+test("custom ACP session persistence rewrites inner metadata provider to outer provider", async () => {
+  const registry = buildProviderRegistry(logger, {
+    providerOverrides: {
+      "my-agent": {
+        extends: "acp",
+        label: "My Agent",
+        command: ["my-agent", "--acp"],
+      },
+    },
+  });
+
+  const session = await registry["my-agent"].createClient(logger).resumeSession({
+    provider: "my-agent",
+    sessionId: "inner-session",
+    metadata: { provider: "my-agent", cwd: "/tmp/acp" },
+  });
+
+  expect(session.describePersistence()).toEqual({
+    provider: "my-agent",
+    sessionId: "inner-session",
+    metadata: { provider: "my-agent", cwd: "/tmp/acp" },
+  });
 });
 
 test('extends: "acp" without command throws', () => {
