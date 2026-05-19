@@ -283,7 +283,15 @@ function stubResumeSpawn(
   asInternals<{ spawnProcess: () => Promise<SpawnedACPProcess> }>(session).spawnProcess =
     async () =>
       ({
-        child: { kill: vi.fn(), exitCode: 0, signalCode: null, once: vi.fn() },
+        child: {
+          kill: vi.fn(),
+          exitCode: 0,
+          signalCode: null,
+          once: vi.fn(),
+          stdin: { destroy: vi.fn() },
+          stdout: { destroy: vi.fn() },
+          stderr: { destroy: vi.fn() },
+        },
         connection: {
           loadSession,
           unstable_resumeSession: resumeSession,
@@ -344,7 +352,7 @@ test("ACP resume prefers session/resume over session/load for normal recall", as
   expect(loadSession).not.toHaveBeenCalled();
 });
 
-test("ACP resume uses session/load when history replay is requested", async () => {
+test("ACP resume uses session/load then session/resume when history replay is requested", async () => {
   const session = createResumedSession({ historyReplay: true, configReplayPolicy: "best-effort" });
   const { loadSession, resumeSession } = stubResumeSpawn(session);
 
@@ -355,7 +363,11 @@ test("ACP resume uses session/load when history replay is requested", async () =
     cwd: "/tmp/paseo-acp-test",
     mcpServers: [],
   });
-  expect(resumeSession).not.toHaveBeenCalled();
+  expect(resumeSession).toHaveBeenCalledWith({
+    sessionId: "session-1",
+    cwd: "/tmp/paseo-acp-test",
+    mcpServers: [],
+  });
 });
 
 test("ACP setModel only uses config-option fallback when the matching select choice contains the model", async () => {
