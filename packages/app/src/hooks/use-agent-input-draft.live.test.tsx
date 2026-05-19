@@ -81,6 +81,25 @@ vi.mock("./use-agent-form-state", () => ({
         ],
       ],
     ]),
+    modelSelectorProviders: [
+      {
+        id: "codex",
+        label: "Codex",
+        modelSelection: {
+          kind: "models",
+          rows: [
+            {
+              favoriteKey: "codex:gpt-5.4",
+              provider: "codex",
+              providerLabel: "Codex",
+              modelId: "gpt-5.4",
+              modelLabel: "gpt-5.4",
+              isDefault: true,
+            },
+          ],
+        },
+      },
+    ],
     isAllModelsLoading: false,
     availableThinkingOptions: [
       { id: "medium", label: "Medium" },

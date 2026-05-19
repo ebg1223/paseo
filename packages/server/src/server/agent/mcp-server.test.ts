@@ -13,7 +13,11 @@ import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
 import type { ProviderDefinition } from "./provider-registry.js";
 import { AgentListItemPayloadSchema, AgentSnapshotPayloadSchema } from "../../shared/messages.js";
 import type { PersistedProjectRecord, PersistedWorkspaceRecord } from "../workspace-registry.js";
-import type { CreateScheduleInput, StoredSchedule } from "../schedule/types.js";
+import type {
+  CreateScheduleInput,
+  StoredSchedule,
+  UpdateScheduleInput,
+} from "../schedule/types.js";
 import type { ScheduleService } from "../schedule/service.js";
 import type { WorkspaceGitService } from "../workspace-git-service.js";
 import {
@@ -47,6 +51,20 @@ interface LooseStructuredContent {
 
 interface RegisteredMcpTool {
   inputSchema: LooseInputSchema;
+  callback?: (
+    input: unknown,
+    extra?: unknown,
+  ) => Promise<{
+    structuredContent: LooseStructuredContent;
+    content?: Array<{ type: string; text?: string }>;
+  }>;
+  handler?: (input: unknown) => Promise<{
+    structuredContent: LooseStructuredContent;
+    content?: Array<{ type: string; text?: string }>;
+  }>;
+}
+
+interface RegisteredMcpToolWithHandler extends RegisteredMcpTool {
   handler: (input: unknown) => Promise<{
     structuredContent: LooseStructuredContent;
     content?: Array<{ type: string; text?: string }>;
@@ -64,12 +82,16 @@ function lookupTool(
 function registeredTool(
   server: Awaited<ReturnType<typeof createAgentMcpServer>>,
   name: string,
-): RegisteredMcpTool {
+): RegisteredMcpToolWithHandler {
   const tool = lookupTool(server, name);
   if (!tool) {
     throw new Error(`MCP tool not registered: ${name}`);
   }
-  return tool;
+  const handler = tool.handler ?? tool.callback;
+  if (!handler) {
+    throw new Error(`MCP tool has no callable handler: ${name}`);
+  }
+  return { ...tool, handler };
 }
 
 function agentsOf(response: {
@@ -95,7 +117,10 @@ function buildAgentManagerSpies() {
     createAgent: vi.fn(),
     waitForAgentEvent: vi.fn(),
     recordUserMessage: vi.fn(),
-    setAgentMode: vi.fn(),
+    setAgentMode: vi.fn().mockResolvedValue(undefined),
+    setAgentModel: vi.fn().mockResolvedValue(undefined),
+    setAgentThinkingOption: vi.fn().mockResolvedValue(undefined),
+    setAgentFeature: vi.fn().mockResolvedValue(undefined),
     setLabels: vi.fn().mockResolvedValue(undefined),
     setTitle: vi.fn().mockResolvedValue(undefined),
     archiveAgent: vi.fn().mockResolvedValue({ archivedAt: new Date().toISOString() }),
@@ -114,6 +139,7 @@ function buildAgentManagerSpies() {
     cancelAgentRun: vi.fn(),
     getPendingPermissions: vi.fn(),
     getRegisteredProviderIds: vi.fn().mockReturnValue(["claude"]),
+    listDraftFeatures: vi.fn(),
   };
 }
 
@@ -422,7 +448,7 @@ describe("create_agent MCP tool", () => {
 
     const missingTitle = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       provider: "codex/gpt-5.4",
       initialPrompt: "test",
     });
@@ -431,7 +457,7 @@ describe("create_agent MCP tool", () => {
 
     const tooLong = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       provider: "codex/gpt-5.4",
       title: "x".repeat(61),
       initialPrompt: "test",
@@ -441,7 +467,7 @@ describe("create_agent MCP tool", () => {
 
     const ok = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       provider: "codex/gpt-5.4",
       title: "Short title",
       initialPrompt: "test",
@@ -455,7 +481,7 @@ describe("create_agent MCP tool", () => {
     const tool = registeredTool(server, "create_agent");
     const parsed = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       provider: "codex/gpt-5.4",
       title: "Short title",
     });
@@ -467,6 +493,44 @@ describe("create_agent MCP tool", () => {
     ).toBe(true);
   });
 
+  it("accepts provider features and passes them through createAgent", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    spies.agentManager.createAgent.mockResolvedValue({
+      id: "feature-agent",
+      cwd: REPO_CWD,
+      lifecycle: "idle",
+      currentModeId: null,
+      availableModes: [],
+      config: { title: "Feature test", featureValues: { fast_mode: true } },
+    } as ManagedAgent);
+
+    const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
+    const tool = registeredTool(server, "create_agent");
+    const input = {
+      cwd: existingCwd,
+      title: "Feature test",
+      provider: "codex/gpt-5.4",
+      initialPrompt: "Do work",
+      background: true,
+      settings: { features: { fast_mode: true } },
+    };
+
+    const parsed = await tool.inputSchema.safeParseAsync(input);
+    expect(parsed.success).toBe(true);
+
+    await tool.handler(input);
+
+    expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "codex",
+        model: "gpt-5.4",
+        featureValues: { fast_mode: true },
+      }),
+      undefined,
+      undefined,
+    );
+  });
+
   it("requires provider as provider/model and rejects the old model field", async () => {
     const { agentManager, agentStorage } = createTestDeps();
     const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
@@ -474,7 +538,7 @@ describe("create_agent MCP tool", () => {
 
     const missingProvider = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       title: "Short title",
       initialPrompt: "test",
     });
@@ -487,7 +551,7 @@ describe("create_agent MCP tool", () => {
 
     const providerWithoutModel = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       title: "Short title",
       provider: "codex",
       initialPrompt: "test",
@@ -496,7 +560,7 @@ describe("create_agent MCP tool", () => {
 
     const providerWithEmptyModel = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       title: "Short title",
       provider: "codex/",
       initialPrompt: "test",
@@ -505,7 +569,7 @@ describe("create_agent MCP tool", () => {
 
     const providerWithEmptyProvider = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
-      mode: "default",
+      settings: { modeId: "default" },
       title: "Short title",
       provider: "/gpt-5.4",
       initialPrompt: "test",
@@ -515,7 +579,7 @@ describe("create_agent MCP tool", () => {
     await expect(
       tool.handler({
         cwd: existingCwd,
-        mode: "default",
+        settings: { modeId: "default" },
         title: "Short title",
         provider: "codex/gpt-5.4",
         model: "gpt-5.4",
@@ -660,10 +724,9 @@ describe("create_agent MCP tool", () => {
     await tool.handler({
       cwd: existingCwd,
       title: "Config test",
-      mode: "auto",
       initialPrompt: "Do work",
       provider: "codex/gpt-5.4",
-      thinking: "think-hard",
+      settings: { modeId: "auto", thinkingOptionId: "think-hard" },
       labels: { source: "mcp" },
     });
 
@@ -1207,7 +1270,7 @@ describe("create_agent MCP tool", () => {
     const parsed = await tool.inputSchema.safeParseAsync({
       cwd: existingCwd,
       title: "Custom provider agent",
-      mode: "default",
+      settings: { modeId: "default" },
       provider: "zai/custom-model",
       initialPrompt: "Do work",
     });
@@ -1269,6 +1332,58 @@ describe("create_agent MCP tool", () => {
     await rm(baseDir, { recursive: true, force: true });
   });
 
+  it("accepts provider features from caller agents and passes them through createAgent", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    spies.agentManager.getAgent.mockReturnValue({
+      id: "parent-agent",
+      cwd: existingCwd,
+      provider: "claude",
+      currentModeId: "bypassPermissions",
+    } as ManagedAgent);
+    spies.agentManager.createAgent.mockResolvedValue({
+      id: "child-agent",
+      cwd: existingCwd,
+      lifecycle: "idle",
+      currentModeId: null,
+      availableModes: [],
+      config: { title: "Child", featureValues: { fast_mode: true } },
+    } as ManagedAgent);
+
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      callerAgentId: "parent-agent",
+      logger,
+    });
+    const tool = registeredTool(server, "create_agent");
+    const input = {
+      title: "Child",
+      provider: "codex/gpt-5.4",
+      initialPrompt: "Do work",
+      background: true,
+      settings: { features: { fast_mode: true } },
+    };
+
+    const parsed = await tool.inputSchema.safeParseAsync(input);
+    expect(parsed.success).toBe(true);
+
+    await tool.handler(input);
+
+    expect(spies.agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "codex",
+        model: "gpt-5.4",
+        featureValues: { fast_mode: true },
+      }),
+      undefined,
+      {
+        labels: {
+          [PARENT_AGENT_ID_LABEL]: "parent-agent",
+        },
+      },
+    );
+  });
+
   it("delegates MCP injection to AgentManager and passes through an undefined agent ID", async () => {
     const { agentManager, agentStorage, spies } = createTestDeps();
     spies.agentManager.createAgent.mockResolvedValue({
@@ -1289,7 +1404,7 @@ describe("create_agent MCP tool", () => {
     await tool.handler({
       cwd: existingCwd,
       title: "Injected config test",
-      mode: "auto",
+      settings: { modeId: "auto" },
       provider: "codex/gpt-5.4",
       initialPrompt: "Do work",
     });
@@ -1314,7 +1429,7 @@ describe("create_agent MCP tool", () => {
         cwd: existingCwd,
         title: "Bad mode",
         provider: "opencode/gpt-5.4",
-        mode: "bypassPermissions",
+        settings: { modeId: "bypassPermissions" },
         initialPrompt: "Do work",
       }),
     ).rejects.toThrow(
@@ -1453,7 +1568,7 @@ describe("create_agent MCP tool", () => {
     await tool.handler({
       title: "Child",
       provider: "opencode/gpt-5.4",
-      mode: "build",
+      settings: { modeId: "build" },
       initialPrompt: "Do work",
     });
 
@@ -1462,6 +1577,73 @@ describe("create_agent MCP tool", () => {
       undefined,
       expect.any(Object),
     );
+  });
+});
+
+describe("update_agent MCP tool", () => {
+  const logger = createTestLogger();
+
+  it("does not register the replaced feature-specific MCP tool", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
+
+    expect(lookupTool(server, "set_agent_feature")).toBeUndefined();
+  });
+
+  it("updates runtime settings before metadata", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    spies.agentStorage.get.mockResolvedValue(createStoredRecord({ id: "agent-1" }));
+    const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
+    const tool = registeredTool(server, "update_agent");
+    const input = {
+      agentId: "agent-1",
+      name: "Updated agent",
+      labels: { role: "worker" },
+      settings: {
+        modeId: "full-access",
+        model: "gpt-5.4",
+        thinkingOptionId: "high",
+        features: { fast_mode: true },
+      },
+    };
+
+    const parsed = await tool.inputSchema.safeParseAsync(input);
+    expect(parsed.success).toBe(true);
+
+    const response = await tool.handler(input);
+
+    expect(spies.agentManager.setAgentMode).toHaveBeenCalledWith("agent-1", "full-access");
+    expect(spies.agentManager.setAgentModel).toHaveBeenCalledWith("agent-1", "gpt-5.4");
+    expect(spies.agentManager.setAgentThinkingOption).toHaveBeenCalledWith("agent-1", "high");
+    expect(spies.agentManager.setAgentFeature).toHaveBeenCalledWith("agent-1", "fast_mode", true);
+    expect(spies.agentStorage.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "agent-1",
+        title: "Updated agent",
+      }),
+    );
+    expect(spies.agentManager.setLabels).toHaveBeenCalledWith("agent-1", { role: "worker" });
+    expect(response.structuredContent).toEqual({ success: true });
+  });
+
+  it("does not update metadata when runtime settings fail", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    spies.agentManager.setAgentFeature.mockRejectedValue(new Error("unsupported feature"));
+    const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
+    const tool = registeredTool(server, "update_agent");
+
+    await expect(
+      tool.handler({
+        agentId: "agent-1",
+        name: "Should not persist",
+        labels: { role: "worker" },
+        settings: { features: { fast_mode: true } },
+      }),
+    ).rejects.toThrow("unsupported feature");
+
+    expect(spies.agentStorage.get).not.toHaveBeenCalled();
+    expect(spies.agentStorage.upsert).not.toHaveBeenCalled();
+    expect(spies.agentManager.setLabels).not.toHaveBeenCalled();
   });
 });
 
@@ -1539,6 +1721,244 @@ describe("create_schedule MCP tool", () => {
   });
 });
 
+describe("update_schedule MCP tool", () => {
+  const logger = createTestLogger();
+
+  function makeStoredSchedule(): StoredSchedule {
+    return {
+      id: "schedule-1",
+      name: "test schedule",
+      prompt: "say hello",
+      cadence: { type: "every", everyMs: 300000 },
+      target: { type: "new-agent", config: { provider: "claude", cwd: "/tmp" } },
+      status: "active",
+      createdAt: "2026-04-11T00:00:00.000Z",
+      updatedAt: "2026-04-11T00:00:00.000Z",
+      nextRunAt: "2026-04-11T00:05:00.000Z",
+      lastRunAt: null,
+      pausedAt: null,
+      expiresAt: null,
+      maxRuns: null,
+      runs: [],
+    };
+  }
+
+  it("calls scheduleService.update with correct input", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const stored = makeStoredSchedule();
+    const update = vi.fn(async (_input: UpdateScheduleInput) => ({
+      ...stored,
+      name: "updated name",
+      prompt: "new prompt",
+      updatedAt: "2026-04-11T01:00:00.000Z",
+    }));
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { update } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "update_schedule");
+
+    await tool.handler({
+      id: "schedule-1",
+      name: "updated name",
+      prompt: "new prompt",
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      id: "schedule-1",
+      name: "updated name",
+      prompt: "new prompt",
+    });
+  });
+
+  it("converts every to cadence", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const stored = makeStoredSchedule();
+    const update = vi.fn(async (_input: UpdateScheduleInput) => stored);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { update } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "update_schedule");
+
+    await tool.handler({
+      id: "schedule-1",
+      every: "10m",
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      id: "schedule-1",
+      cadence: { type: "every", everyMs: 600000 },
+    });
+  });
+
+  it("rejects both every and cron", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const update = vi.fn();
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { update } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "update_schedule");
+
+    await expect(
+      tool.handler({
+        id: "schedule-1",
+        every: "5m",
+        cron: "* * * * *",
+      }),
+    ).rejects.toThrow("Specify at most one of every or cron");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("passes new-agent config and expiry updates", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const stored = makeStoredSchedule();
+    const update = vi.fn(async (_input: UpdateScheduleInput) => stored);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { update } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "update_schedule");
+
+    await tool.handler({
+      id: "schedule-1",
+      provider: "codex/gpt-5.4",
+      mode: "full-access",
+      cwd: "/home/user/project",
+      expiresIn: "1h",
+    });
+
+    const updateInput = update.mock.calls[0]?.[0];
+    expect(updateInput).toMatchObject({
+      id: "schedule-1",
+      newAgentConfig: {
+        provider: "codex",
+        model: "gpt-5.4",
+        modeId: "full-access",
+        cwd: "/home/user/project",
+      },
+    });
+    expect(updateInput?.expiresAt).toEqual(expect.any(String));
+  });
+
+  it("clears model, mode, max runs, and expiry", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const stored = makeStoredSchedule();
+    const update = vi.fn(async (_input: UpdateScheduleInput) => stored);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { update } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "update_schedule");
+
+    await tool.handler({
+      id: "schedule-1",
+      model: null,
+      mode: null,
+      maxRuns: null,
+      clearExpires: true,
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      id: "schedule-1",
+      maxRuns: null,
+      expiresAt: null,
+      newAgentConfig: {
+        model: null,
+        modeId: null,
+      },
+    });
+  });
+
+  it("rejects conflicting model and expiry inputs", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const update = vi.fn();
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { update } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "update_schedule");
+
+    await expect(
+      tool.handler({
+        id: "schedule-1",
+        provider: "codex/gpt-5.4",
+        model: "gpt-5.5",
+      }),
+    ).rejects.toThrow("Conflicting model values provided");
+    await expect(
+      tool.handler({
+        id: "schedule-1",
+        expiresIn: "1h",
+        clearExpires: true,
+      }),
+    ).rejects.toThrow("Specify at most one of expiresIn or clearExpires");
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe("schedule_logs MCP tool", () => {
+  const logger = createTestLogger();
+
+  function makeRun(overrides: Partial<{ id: string; status: string }> = {}) {
+    return {
+      id: overrides.id ?? "run-1",
+      scheduledFor: "2026-04-11T00:00:00.000Z",
+      startedAt: "2026-04-11T00:00:01.000Z",
+      endedAt: "2026-04-11T00:00:05.000Z",
+      status: overrides.status ?? "succeeded",
+      agentId: null,
+      output: "done",
+      error: null,
+    };
+  }
+
+  it("returns runs for a schedule", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const runs = [makeRun({ id: "run-1" }), makeRun({ id: "run-2", status: "failed" })];
+    const logs = vi.fn(async (_id: string) => runs);
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      scheduleService: { logs } as unknown as ScheduleService,
+      logger,
+    });
+    const tool = registeredTool(server, "schedule_logs");
+
+    const result = await tool.handler({ id: "schedule-1" });
+
+    expect(logs).toHaveBeenCalledWith("schedule-1");
+    expect(result.structuredContent).toEqual({ runs });
+  });
+
+  it("throws when schedule service is not configured", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      logger,
+    });
+    const tool = registeredTool(server, "schedule_logs");
+
+    await expect(tool.handler({ id: "schedule-1" })).rejects.toThrow(
+      "Schedule service is not configured",
+    );
+  });
+});
+
 describe("provider listing MCP tool", () => {
   const logger = createTestLogger();
 
@@ -1567,6 +1987,7 @@ describe("provider listing MCP tool", () => {
     });
     const tool = registeredTool(server, "list_providers");
     const response = await tool.handler({});
+    const modelVisibleText = String(response.content[0]?.text);
 
     expect(response.structuredContent).toEqual({
       providers: [
@@ -1588,6 +2009,9 @@ describe("provider listing MCP tool", () => {
         },
       ],
     });
+    expect(modelVisibleText).toContain("providers_count=2");
+    expect(modelVisibleText).toContain("providers_ids=claude,zai");
+    expect(modelVisibleText).toContain('"providers"');
   });
 
   it("returns disabled providers with metadata without checking availability", async () => {
@@ -1658,8 +2082,82 @@ describe("provider listing MCP tool", () => {
   });
 });
 
-describe("model listing MCP tool", () => {
+describe("provider MCP tools", () => {
   const logger = createTestLogger();
+
+  it("does not register the replaced feature-specific provider discovery MCP tool", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const server = await createAgentMcpServer({ agentManager, agentStorage, logger });
+
+    expect(lookupTool(server, "list_provider_features")).toBeUndefined();
+  });
+
+  it("inspects provider features for a draft agent configuration", async () => {
+    const { agentManager, agentStorage, spies } = createTestDeps();
+    spies.agentManager.listDraftFeatures.mockResolvedValue([
+      {
+        type: "toggle",
+        id: "fast_mode",
+        label: "Fast mode",
+        value: false,
+      },
+    ]);
+    const providerRegistry = {
+      codex: createProviderDefinition({
+        id: "codex",
+        label: "Codex",
+        description: "OpenAI coding agent",
+        modes: [{ id: "full-access", label: "Full Access", description: "Can edit files" }],
+      }),
+    };
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerRegistry,
+      logger,
+    });
+    const tool = registeredTool(server, "inspect_provider");
+    const input = {
+      provider: "codex/gpt-5.4",
+      cwd: "~/repo",
+      settings: {
+        modeId: "full-access",
+        thinkingOptionId: "high",
+        features: { fast_mode: true },
+      },
+    };
+
+    const parsed = await tool.inputSchema.safeParseAsync(input);
+    expect(parsed.success).toBe(true);
+
+    const response = await tool.handler(input);
+
+    expect(spies.agentManager.listDraftFeatures).toHaveBeenCalledWith({
+      provider: "codex",
+      cwd: expect.stringContaining("repo"),
+      modeId: "full-access",
+      model: "gpt-5.4",
+      thinkingOptionId: "high",
+      featureValues: { fast_mode: true },
+    });
+    expect(response.structuredContent).toEqual({
+      provider: "codex",
+      label: "Codex",
+      description: "OpenAI coding agent",
+      enabled: true,
+      status: "available",
+      modes: [{ id: "full-access", label: "Full Access", description: "Can edit files" }],
+      selectedModel: "gpt-5.4",
+      features: [
+        {
+          type: "toggle",
+          id: "fast_mode",
+          label: "Fast mode",
+          value: false,
+        },
+      ],
+    });
+  });
 
   it("rejects disabled providers without fetching models", async () => {
     const { agentManager, agentStorage } = createTestDeps();
@@ -1688,6 +2186,38 @@ describe("model listing MCP tool", () => {
     const tool = registeredTool(server, "list_models");
 
     await expect(tool.handler({ provider: "codex" })).rejects.toThrow(
+      "Provider 'codex' is disabled",
+    );
+    expect(fetchModels).not.toHaveBeenCalled();
+  });
+
+  it("inspect_provider rejects disabled providers without fetching models", async () => {
+    const { agentManager, agentStorage } = createTestDeps();
+    const fetchModels = vi.fn().mockResolvedValue([
+      {
+        provider: "codex",
+        id: "gpt-5.4",
+        label: "GPT-5.4",
+      },
+    ]);
+    const providerRegistry = {
+      codex: createProviderDefinition({
+        id: "codex",
+        label: "Codex",
+        enabled: false,
+        fetchModels,
+      }),
+    };
+
+    const server = await createAgentMcpServer({
+      agentManager,
+      agentStorage,
+      providerRegistry,
+      logger,
+    });
+    const tool = registeredTool(server, "inspect_provider");
+
+    await expect(tool.handler({ provider: "codex", cwd: "~/repo" })).rejects.toThrow(
       "Provider 'codex' is disabled",
     );
     expect(fetchModels).not.toHaveBeenCalled();

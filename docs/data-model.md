@@ -139,8 +139,9 @@ Single file, validated with `PersistedConfigSchema`.
     listen: "127.0.0.1:6767",
     hostnames: true | string[],   // legacy alias `allowedHosts` is migrated on load
     mcp: { enabled: boolean, injectIntoAgents: boolean },
+    appendSystemPrompt: string,    // appended to supported provider system/developer prompts
     cors: { allowedOrigins: string[] },
-    relay: { enabled: boolean, endpoint: string, publicEndpoint: string, useTls: boolean },
+    relay: { enabled: boolean, endpoint: string, publicEndpoint: string, useTls: boolean, publicUseTls: boolean },
     auth: { password: string }    // bcrypt hash, optional
   },
   app: {
@@ -361,6 +362,11 @@ Array of project records.
 | `createdAt`   | `string` (ISO 8601)         |                                          |
 | `updatedAt`   | `string` (ISO 8601)         |                                          |
 | `archivedAt`  | `string \| null` (ISO 8601) | Soft-delete timestamp; required nullable |
+
+Active git projects are unique by normalized `rootPath`. Startup reconciliation repairs older bad
+states by moving workspaces from duplicate path-keyed projects onto the canonical project,
+preferring remote-keyed project IDs such as `remote:github.com/owner/repo`, then archiving the
+emptied duplicate.
 
 ---
 

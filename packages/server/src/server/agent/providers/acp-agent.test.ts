@@ -1,7 +1,13 @@
 import { type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type {
+import {
+  AgentSideConnection,
+  ClientSideConnection,
+  PROTOCOL_VERSION,
+  RequestError,
+  ndJsonStream,
+  type Agent,
   PermissionOption,
   PromptResponse,
   RequestPermissionRequest,
@@ -30,7 +36,7 @@ import {
   transformCopilotSessionResponse,
   writeCopilotProviderMode,
 } from "./copilot-acp-agent.js";
-import { transformPiModels } from "./pi-direct-agent.js";
+import { transformPiModels } from "./pi/agent.js";
 import type { AgentStreamEvent } from "../agent-sdk-types.js";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import { asInternals } from "../../test-utils/class-mocks.js";
@@ -442,6 +448,33 @@ describe("createLoggedNdJsonStream", () => {
     await writer.close();
     reader.releaseLock();
     consoleError.mockRestore();
+  });
+
+  test("normalizes stringified numeric ACP response ids", async () => {
+    const input = new TransformStream<Uint8Array, Uint8Array>();
+    const output = new TransformStream<Uint8Array, Uint8Array>();
+    const logger = {
+      warn: vi.fn(),
+    };
+
+    const stream = createLoggedNdJsonStream(output.writable, input.readable, {
+      logger: asInternals<ReturnType<typeof createTestLogger>>(logger),
+      provider: "deepseek-tui",
+    });
+    const reader = stream.readable.getReader();
+    const writer = input.writable.getWriter();
+
+    await writer.write(
+      new TextEncoder().encode('{"jsonrpc":"2.0","id":"0","result":{"ok":true}}\n'),
+    );
+
+    const parsed = await reader.read();
+
+    expect(parsed.value).toEqual({ jsonrpc: "2.0", id: 0, result: { ok: true } });
+    expect(logger.warn).not.toHaveBeenCalled();
+
+    await writer.close();
+    reader.releaseLock();
   });
 
   test("does not log terminal control sequences from malformed ACP stdout", async () => {
@@ -856,6 +889,31 @@ describe("ACPAgentSession Zed parity", () => {
 
     await expect(internals.applyConfiguredOverrides({ policy: "strict" })).rejects.toThrow(
       "mode method missing",
+    );
+  });
+
+  test("does not fail session start when configured model cannot be applied by ACP", async () => {
+    const logger = createTestLogger();
+    const childLogger = { trace: vi.fn(), warn: vi.fn() };
+    vi.spyOn(logger, "child").mockReturnValue(asInternals<typeof logger>(childLogger));
+    const session = createSessionWithConfig(
+      { provider: "deepseek-tui", model: "deepseek/v4" },
+      logger,
+    );
+    const { internals, setSessionConfigOption, unstableSetSessionModel } =
+      prepareConfiguredOverrideSession(session, {
+        currentModel: null,
+        availableModels: null,
+        configOptions: [],
+        connection: { unstable_setSessionModel: undefined },
+      });
+
+    await expect(internals.applyConfiguredOverrides()).resolves.toBeUndefined();
+    expect(unstableSetSessionModel).not.toHaveBeenCalled();
+    expect(setSessionConfigOption).not.toHaveBeenCalled();
+    expect(childLogger.warn).toHaveBeenCalledWith(
+      { value: "deepseek/v4" },
+      "deepseek-tui does not expose ACP model selection; using provider default model",
     );
   });
 
@@ -1593,6 +1651,26 @@ describe("ACPAgentSession slash commands", () => {
 });
 
 describe("ACPAgentSession", () => {
+  test("accepts ACP extension notifications without failing the JSON-RPC connection", async () => {
+    const logger = createTestLogger();
+    const trace = vi.spyOn(logger, "trace");
+    const session = createSessionWithConfig({ provider: "kiro" }, logger);
+
+    await expect(
+      session.extNotification("_kiro.dev/session/initialized", {
+        sessionId: "session-1",
+      }),
+    ).resolves.toBeUndefined();
+    expect(trace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "kiro",
+        method: "_kiro.dev/session/initialized",
+        sessionId: "session-1",
+      }),
+      "provider.acp.extension_notification",
+    );
+  });
+
   test("emits assistant and reasoning chunks as deltas while user chunks stay accumulated", async () => {
     const session = createSession();
     const events: Array<{ type: string; item?: { type: string; text?: string } }> = [];
@@ -1735,5 +1813,80 @@ describe("ACPAgentSession", () => {
       error: "prompt failed",
     });
     expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
+  });
+
+  test("startTurn preserves JSON-RPC error details from a real ACP prompt response", async () => {
+    const session = createSession();
+    const clientToAgent = new TransformStream();
+    const agentToClient = new TransformStream();
+    const upstreamMessage =
+      "Authentication failed: Please authenticate to continue. Run `/login` to log in.";
+    const upstreamData = {
+      cause: "auth_required",
+      errorMessage: "Please authenticate to continue. Run `/login` to log in.",
+    };
+    const agent: Agent = {
+      async initialize() {
+        return {
+          protocolVersion: PROTOCOL_VERSION,
+          agentCapabilities: {},
+          authMethods: [{ id: "windsurf-api-key", name: "API Key" }],
+        };
+      },
+      async newSession() {
+        return { sessionId: "session-1" };
+      },
+      async prompt() {
+        throw new RequestError(-32000, upstreamMessage, upstreamData);
+      },
+      async authenticate() {},
+      async cancel() {},
+    };
+    const agentConnection = new AgentSideConnection(
+      () => agent,
+      ndJsonStream(agentToClient.writable, clientToAgent.readable),
+    );
+    const connection = new ClientSideConnection(
+      () => ({
+        async requestPermission() {
+          return { outcome: { outcome: "cancelled" } };
+        },
+        async sessionUpdate() {},
+      }),
+      ndJsonStream(clientToAgent.writable, agentToClient.readable),
+    );
+    await connection.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: {},
+      clientInfo: { name: "Paseo test", version: "dev" },
+    });
+    expect(agentConnection.signal.aborted).toBe(false);
+    const sessionResponse = await connection.newSession({
+      cwd: "/tmp/paseo-acp-test",
+      mcpServers: [],
+    });
+    const turnFailed = new Promise<Extract<AgentStreamEvent, { type: "turn_failed" }>>(
+      (resolve) => {
+        session.subscribe((event) => {
+          if (event.type === "turn_failed") {
+            resolve(event);
+          }
+        });
+      },
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = sessionResponse.sessionId;
+    asInternals<ACPSessionInternals>(session).connection = connection;
+
+    await session.startTurn("hello");
+
+    await expect(turnFailed).resolves.toMatchObject({
+      error: expect.stringContaining(upstreamMessage),
+      code: "-32000",
+      diagnostic: expect.stringContaining("auth_required"),
+    });
+    await expect(turnFailed).resolves.toMatchObject({
+      error: expect.not.stringContaining("[object Object]"),
+    });
   });
 });

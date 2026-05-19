@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFileSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -34,6 +34,7 @@ import {
   resolveBranchCheckout,
   resolveRepositoryDefaultBranch,
   parseWorktreeList,
+  renameCurrentBranch,
   isPaseoWorktreePath,
   isDescendantPath,
   warmCheckoutShortstatInBackground,
@@ -204,6 +205,41 @@ describe("checkout git utilities", () => {
     expect(branch).toBeNull();
   });
 
+  it("returns untracked files in an uncommitted diff before the first commit", async () => {
+    const unbornRepo = join(tempDir, "unborn-repo");
+    mkdirSync(unbornRepo, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: unbornRepo });
+    writeFileSync(join(unbornRepo, "greeting.txt"), "hello\n");
+
+    const diff = await getCheckoutDiff(unbornRepo, {
+      mode: "uncommitted",
+      includeStructured: true,
+    });
+
+    expect(diff.structured).toEqual([
+      {
+        path: "greeting.txt",
+        isNew: true,
+        isDeleted: false,
+        additions: 1,
+        deletions: 0,
+        hunks: [
+          {
+            oldStart: 0,
+            oldCount: 0,
+            newStart: 1,
+            newCount: 1,
+            lines: [
+              { type: "header", content: "@@ -0,0 +1 @@" },
+              { type: "add", content: "hello" },
+            ],
+          },
+        ],
+        status: "ok",
+      },
+    ]);
+  });
+
   it("returns the branch being rebased when HEAD is detached during a rebase", async () => {
     execFileSync("git", ["checkout", "-b", "feature/rebase-test"], { cwd: repoDir });
     writeFileSync(join(repoDir, "file.txt"), "feature\n");
@@ -226,6 +262,48 @@ describe("checkout git utilities", () => {
 
     const branch = await getCurrentBranch(repoDir);
     expect(branch).toBe("feature/rebase-test");
+  });
+
+  it("renames the checked out branch and returns concrete branch names", async () => {
+    execSync("git checkout -b feature/old-name", { cwd: repoDir });
+
+    const result = await renameCurrentBranch(repoDir, "feature/new-name");
+
+    const currentBranch = execSync("git branch --show-current", { cwd: repoDir }).toString().trim();
+    expect(currentBranch).toBe("feature/new-name");
+    expect(result).toEqual({
+      previousBranch: "feature/old-name",
+      currentBranch: "feature/new-name",
+    });
+    expect(() =>
+      execSync("git show-ref --verify refs/heads/feature/old-name", { cwd: repoDir }),
+    ).toThrow();
+    expect(
+      execSync("git show-ref --verify refs/heads/feature/new-name", { cwd: repoDir })
+        .toString()
+        .trim(),
+    ).toContain("refs/heads/feature/new-name");
+  });
+
+  it("fails when renaming the checked out branch to an existing branch", async () => {
+    execSync("git branch feature/new-name", { cwd: repoDir });
+    execSync("git checkout -b feature/old-name", { cwd: repoDir });
+
+    await expect(renameCurrentBranch(repoDir, "feature/new-name")).rejects.toThrow();
+
+    expect(execSync("git branch --show-current", { cwd: repoDir }).toString().trim()).toBe(
+      "feature/old-name",
+    );
+    expect(
+      execSync("git show-ref --verify refs/heads/feature/old-name", { cwd: repoDir })
+        .toString()
+        .trim(),
+    ).toContain("refs/heads/feature/old-name");
+    expect(
+      execSync("git show-ref --verify refs/heads/feature/new-name", { cwd: repoDir })
+        .toString()
+        .trim(),
+    ).toContain("refs/heads/feature/new-name");
   });
 
   it("handles status/diff/commit in a normal repo", async () => {
@@ -313,6 +391,27 @@ const x = 1;
     expect(removedLine?.tokens).toEqual([{ text: "old comment line", style: "comment" }]);
   });
 
+  it("preserves no-prefix structured paths that start with a or b", async () => {
+    mkdirSync(join(repoDir, "a"));
+    mkdirSync(join(repoDir, "b"));
+    commitFile(repoDir, "a/example.ts", "const value = 1;\n", "add a-prefixed path");
+    commitFile(repoDir, "b/other.ts", "const value = 1;\n", "add b-prefixed path");
+    commitFile(repoDir, "file with space.ts", "const value = 1;\n", "add path with space");
+    execFileSync("git", ["config", "diff.noprefix", "true"], { cwd: repoDir });
+
+    writeFileSync(join(repoDir, "a/example.ts"), "const value = 2;\n");
+    writeFileSync(join(repoDir, "b/other.ts"), "const value = 2;\n");
+    writeFileSync(join(repoDir, "file with space.ts"), "const value = 2;\n");
+
+    const diff = await getCheckoutDiff(repoDir, { mode: "uncommitted", includeStructured: true });
+
+    expect(diff.structured?.map((file) => [file.path, file.hunks.length])).toEqual([
+      ["a/example.ts", 1],
+      ["b/other.ts", 1],
+      ["file with space.ts", 1],
+    ]);
+  });
+
   it("returns checkout root metadata for normal repos", async () => {
     const status = await getCheckoutStatus(repoDir);
     expect(status.isGit).toBe(true);
@@ -376,6 +475,22 @@ const x = 1;
     }
     expect(divergedStatus.aheadOfOrigin).toBe(1);
     expect(divergedStatus.behindOfOrigin).toBe(1);
+  });
+
+  it("does not report the full branch history as ahead when the current branch remote is gone", async () => {
+    setupRemoteTrackingMain(repoDir, tempDir);
+    execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoDir });
+    commitFile(repoDir, "feature.txt", "feature\n", "feature commit");
+    execFileSync("git", ["push", "-u", "origin", "feature"], { cwd: repoDir });
+    execFileSync("git", ["push", "origin", "--delete", "feature"], { cwd: repoDir });
+    execFileSync("git", ["fetch", "--prune", "origin"], { cwd: repoDir });
+
+    const status = await getCheckoutStatus(repoDir);
+    expect(status.isGit).toBe(true);
+    if (!status.isGit) {
+      return;
+    }
+    expect(status.aheadOfOrigin).toBeNull();
   });
 
   it("does not report incoming additions when the base branch is behind its remote", async () => {
@@ -1269,6 +1384,14 @@ const x = 1;
     await pushCurrentBranch(repoDir);
 
     execFileSync("git", ["--git-dir", remoteDir, "show-ref", "--verify", "refs/heads/feature"]);
+    const upstream = execFileSync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+      { cwd: repoDir },
+    )
+      .toString()
+      .trim();
+    expect(upstream).toBe("origin/feature");
   });
 
   it("lists merged local and remote branch suggestions with provenance", async () => {
@@ -1700,6 +1823,30 @@ const x = 1;
     expect(callCount).toBe(1);
   });
 
+  it("passes forced PR status reads through to the GitHub service", async () => {
+    execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoDir });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/getpaseo/paseo.git"], {
+      cwd: repoDir,
+    });
+
+    const requested: Array<{ force?: boolean; reason?: string }> = [];
+    const github = createGitHubServiceForStatus(null);
+    github.getCurrentPullRequestStatus = async (options) => {
+      requested.push({
+        ...(options.force ? { force: options.force } : {}),
+        ...(options.reason ? { reason: options.reason } : {}),
+      });
+      return createPullRequestStatus();
+    };
+
+    await getPullRequestStatus(repoDir, github, {
+      force: true,
+      reason: "merge-pr-validation",
+    });
+
+    expect(requested).toEqual([{ force: true, reason: "merge-pr-validation" }]);
+  });
+
   it("expires cached PR status after the TTL", async () => {
     execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoDir });
     execFileSync("git", ["remote", "add", "origin", "https://github.com/getpaseo/paseo.git"], {
@@ -1767,6 +1914,39 @@ const x = 1;
     } finally {
       __resetPullRequestStatusCacheForTests();
     }
+  });
+
+  it("does not use stale PR status fallback for forced GitHub errors", async () => {
+    execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoDir });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/getpaseo/paseo.git"], {
+      cwd: repoDir,
+    });
+
+    const github = createGitHubServiceForStatus(null);
+    github.getCurrentPullRequestStatus = async () =>
+      createPullRequestStatus({
+        url: "https://github.com/getpaseo/paseo/pull/123",
+      });
+
+    const fresh = await getPullRequestStatus(repoDir, github);
+    expect(fresh.status?.url).toContain("/pull/123");
+
+    const error = new GitHubCommandError({
+      args: ["pr", "view"],
+      cwd: repoDir,
+      exitCode: 1,
+      stderr: "could not resolve host: github.com",
+    });
+    github.getCurrentPullRequestStatus = async () => {
+      throw error;
+    };
+
+    await expect(
+      getPullRequestStatus(repoDir, github, {
+        force: true,
+        reason: "merge-pr-validation",
+      }),
+    ).rejects.toBe(error);
   });
 
   it("clears stale PR status after a successful no-PR refresh", async () => {

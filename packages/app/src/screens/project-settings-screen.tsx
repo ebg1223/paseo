@@ -3,7 +3,7 @@ import { Image, Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, MoreVertical, Plus } from "lucide-react-native";
+import { ArrowLeft, Check, ChevronDown, MoreVertical, Pencil, Plus, X } from "lucide-react-native";
 import { useProjectIconQuery } from "@/hooks/use-project-icon-query";
 import type {
   PaseoConfigRaw,
@@ -22,7 +22,8 @@ import { Alert } from "@/components/ui/alert";
 import { ExternalLink } from "@/components/ui/external-link";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Switch } from "@/components/ui/switch";
-import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
+import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
+import { SettingsTextAreaCard } from "@/components/settings-textarea";
 import { SettingsGroup } from "@/screens/settings/settings-group";
 import { SettingsSection } from "@/screens/settings/settings-section";
 import { settingsStyles } from "@/styles/settings";
@@ -234,7 +235,7 @@ function ProjectSettingsBody({
       <View style={styles.headerBlock}>
         <View style={styles.titleRow}>
           <ProjectTitleIcon host={selectedHost} projectName={project.projectName} />
-          <Text style={styles.projectTitle}>{project.projectName}</Text>
+          <ProjectNameEditor project={project} client={client} />
         </View>
         <HostContext hosts={hosts} selectedHost={selectedHost} onSelectHost={onSelectHost} />
       </View>
@@ -621,18 +622,13 @@ function ProjectConfigForm({
         testID="worktree-group"
       >
         <SettingsSection title="Setup" testID="worktree-setup-section" trailing={setupDocsLink}>
-          <View style={settingsStyles.card}>
-            <TextInput
-              testID="worktree-setup-input"
-              accessibilityLabel="Worktree setup commands"
-              multiline
-              value={draft.setupText}
-              onChangeText={handleSetupChange}
-              placeholder="npm install"
-              placeholderTextColor={styles.placeholderColor.color}
-              style={styles.lifecycleInput}
-            />
-          </View>
+          <SettingsTextAreaCard
+            testID="worktree-setup-input"
+            accessibilityLabel="Worktree setup commands"
+            value={draft.setupText}
+            onChangeText={handleSetupChange}
+            placeholder="npm install"
+          />
         </SettingsSection>
 
         <SettingsSection
@@ -641,18 +637,13 @@ function ProjectConfigForm({
           trailing={teardownDocsLink}
           flush
         >
-          <View style={settingsStyles.card}>
-            <TextInput
-              testID="worktree-teardown-input"
-              accessibilityLabel="Worktree teardown commands"
-              multiline
-              value={draft.teardownText}
-              onChangeText={handleTeardownChange}
-              placeholder="docker compose down"
-              placeholderTextColor={styles.placeholderColor.color}
-              style={styles.lifecycleInput}
-            />
-          </View>
+          <SettingsTextAreaCard
+            testID="worktree-teardown-input"
+            accessibilityLabel="Worktree teardown commands"
+            value={draft.teardownText}
+            onChangeText={handleTeardownChange}
+            placeholder="docker compose down"
+          />
         </SettingsSection>
       </SettingsGroup>
 
@@ -769,6 +760,124 @@ function ProjectConfigForm({
 
 function ResolveSpinnerColor(): string {
   return styles.spinnerColor.color;
+}
+
+interface ProjectNameEditorProps {
+  project: ProjectSummary;
+  client: DaemonClient;
+}
+
+function ProjectNameEditor({ project, client }: ProjectNameEditorProps) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+  const [value, setValue] = useState(project.projectCustomName ?? "");
+
+  const renameMutation = useMutation({
+    mutationFn: (customName: string | null) => client.renameProject(project.projectKey, customName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setIsEditing(false);
+      toast.show("Project renamed", { variant: "success" });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "Couldn't rename project";
+      toast.show(message, { variant: "error" });
+    },
+  });
+
+  const handleStartEdit = useCallback(() => {
+    setValue(project.projectCustomName ?? "");
+    setIsEditing(true);
+  }, [project.projectCustomName]);
+
+  const handleCancel = useCallback(() => {
+    setIsEditing(false);
+    setValue(project.projectCustomName ?? "");
+  }, [project.projectCustomName]);
+
+  const handleSave = useCallback(() => {
+    const trimmed = value.trim();
+    const next = trimmed.length === 0 ? null : trimmed;
+    if (next === (project.projectCustomName ?? null)) {
+      setIsEditing(false);
+      return;
+    }
+    renameMutation.mutate(next);
+  }, [value, project.projectCustomName, renameMutation]);
+
+  const handleReset = useCallback(() => {
+    renameMutation.mutate(null);
+  }, [renameMutation]);
+
+  if (!isEditing) {
+    return (
+      <View style={styles.nameEditorRow}>
+        <Text style={styles.projectTitle} numberOfLines={1}>
+          {project.projectName}
+        </Text>
+        <Pressable
+          testID="project-name-edit-button"
+          accessibilityLabel="Rename project"
+          onPress={handleStartEdit}
+          hitSlop={8}
+          style={styles.nameEditorIconButton}
+        >
+          <Pencil size={ICON_SIZE} color={styles.iconColor.color} />
+        </Pressable>
+        {project.projectCustomName ? (
+          <Pressable
+            testID="project-name-reset-button"
+            accessibilityLabel="Reset project name to default"
+            onPress={handleReset}
+            disabled={renameMutation.isPending}
+            hitSlop={8}
+            style={styles.nameEditorResetButton}
+          >
+            <Text style={styles.nameEditorResetText}>Reset</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.nameEditorRow}>
+      <TextInput
+        testID="project-name-input"
+        accessibilityLabel="Project name"
+        value={value}
+        onChangeText={setValue}
+        placeholder={project.projectName}
+        placeholderTextColor={styles.placeholderColor.color}
+        autoFocus
+        style={styles.nameEditorInput}
+        editable={!renameMutation.isPending}
+        onSubmitEditing={handleSave}
+        returnKeyType="done"
+      />
+      <Pressable
+        testID="project-name-save-button"
+        accessibilityLabel="Save project name"
+        onPress={handleSave}
+        disabled={renameMutation.isPending}
+        hitSlop={8}
+        style={styles.nameEditorIconButton}
+      >
+        <Check size={ICON_SIZE} color={styles.iconColor.color} />
+      </Pressable>
+      <Pressable
+        testID="project-name-cancel-button"
+        accessibilityLabel="Cancel renaming"
+        onPress={handleCancel}
+        disabled={renameMutation.isPending}
+        hitSlop={8}
+        style={styles.nameEditorIconButton}
+      >
+        <X size={ICON_SIZE} color={styles.iconColor.color} />
+      </Pressable>
+    </View>
+  );
 }
 
 function ProjectTitleIcon({ host, projectName }: { host: ProjectHostEntry; projectName: string }) {
@@ -890,18 +999,13 @@ function MetadataPromptSection({ promptKey, value, onChange, flush }: MetadataPr
   );
   return (
     <SettingsSection title={meta.title} testID={meta.sectionTestID} flush={flush}>
-      <View style={settingsStyles.card}>
-        <TextInput
-          testID={meta.inputTestID}
-          accessibilityLabel={meta.title}
-          multiline
-          value={value}
-          onChangeText={handleChange}
-          placeholder={meta.placeholder}
-          placeholderTextColor={styles.placeholderColor.color}
-          style={styles.lifecycleInput}
-        />
-      </View>
+      <SettingsTextAreaCard
+        testID={meta.inputTestID}
+        accessibilityLabel={meta.title}
+        value={value}
+        onChangeText={handleChange}
+        placeholder={meta.placeholder}
+      />
     </SettingsSection>
   );
 }
@@ -1032,11 +1136,15 @@ function ScriptEditModal({ script, onChange, onCancel, onSave }: ScriptEditModal
   const showNameError = touched.name && validation.nameError;
   const showCommandError = touched.command && validation.commandError;
   const isService = script.type === SCRIPT_SERVICE_TYPE;
+  const sheetHeader = useMemo<SheetHeader>(
+    () => ({ title: script.name ? `Edit ${script.name}` : "New script" }),
+    [script.name],
+  );
 
   return (
     <AdaptiveModalSheet
       visible
-      title={script.name ? `Edit ${script.name}` : "New script"}
+      header={sheetHeader}
       onClose={onCancel}
       testID="script-edit-modal"
       desktopMaxWidth={560}
@@ -1140,6 +1248,37 @@ const styles = StyleSheet.create((theme) => ({
     fontWeight: theme.fontWeight.medium,
     flexShrink: 1,
   },
+  nameEditorRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+    minWidth: 0,
+  },
+  nameEditorIconButton: {
+    padding: theme.spacing[1],
+  },
+  nameEditorInput: {
+    flex: 1,
+    color: theme.colors.foreground,
+    fontSize: theme.fontSize.lg,
+    fontWeight: theme.fontWeight.medium,
+    paddingVertical: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface2,
+    minWidth: 0,
+  },
+  nameEditorResetButton: {
+    paddingVertical: theme.spacing[1],
+    paddingHorizontal: theme.spacing[2],
+  },
+  nameEditorResetText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.xs,
+  },
   titleIcon: {
     width: 28,
     height: 28,
@@ -1190,14 +1329,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   errorBlock: {
     marginTop: theme.spacing[2],
-  },
-  lifecycleInput: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.sm,
-    paddingVertical: theme.spacing[3],
-    paddingHorizontal: theme.spacing[4],
-    minHeight: 96,
-    textAlignVertical: "top",
   },
   emptyScripts: {
     color: theme.colors.foregroundMuted,

@@ -11,6 +11,7 @@ import {
   ClientSideConnection,
   PROTOCOL_VERSION,
   type AgentCapabilities as ACPAgentCapabilities,
+  type Error as ACPError,
   type AnyMessage,
   type Client as ACPClient,
   type ClientCapabilities as ACPClientCapabilities,
@@ -108,6 +109,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isACPError(value: unknown): value is ACPError {
+  return isRecord(value) && typeof value.message === "string" && typeof value.code === "number";
+}
+
+function summarizeACPRequestError(error: unknown): {
+  message: string;
+  code?: string;
+  diagnostic?: string;
+} {
+  // Promise rejections are untyped, but the ACP SDK rejects JSON-RPC failures as response.error.
+  if (isACPError(error)) {
+    const code = String(error.code);
+    const data = error.data === undefined ? "" : ` | data=${JSON.stringify(error.data)}`;
+    return {
+      message: error.message,
+      code,
+      diagnostic: `${error.message} | code=${code}${data}`,
+    };
+  }
+
+  if (error instanceof Error) {
+    return { message: error.message };
+  }
+
+  return { message: String(error) };
+}
+
 function resolveTerminalCommand(
   command: string,
   args?: string[],
@@ -153,6 +181,26 @@ function summarizeMalformedACPStdoutError(error: unknown): { type: string; messa
   };
 }
 
+function normalizeACPIncomingMessage(message: AnyMessage): AnyMessage {
+  if (
+    "id" in message &&
+    !("method" in message) &&
+    typeof message.id === "string" &&
+    /^\d+$/.test(message.id)
+  ) {
+    const numericId = Number(message.id);
+    if (Number.isSafeInteger(numericId)) {
+      return {
+        ...message,
+        // COMPAT(deepseek-tui-acp-id): added v0.1.78, remove after 2026-11-19
+        // once the ACP SDK accepts stringified numeric response IDs.
+        id: numericId,
+      } as AnyMessage;
+    }
+  }
+  return message;
+}
+
 export function createLoggedNdJsonStream(
   output: NodeWritableStream,
   input: NodeReadableStream,
@@ -187,7 +235,7 @@ export function createLoggedNdJsonStream(
 
             try {
               const message: AnyMessage = JSON.parse(trimmedLine);
-              controller.enqueue(message);
+              controller.enqueue(normalizeACPIncomingMessage(message));
             } catch (error) {
               options.logger.warn(
                 {
@@ -1075,12 +1123,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         return;
       })
       .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const summary = summarizeACPRequestError(error);
         this.finishTurn({
           type: "turn_failed",
           provider: this.provider,
-          error: message,
-          diagnostic: this.collectDiagnostic(message),
+          error: summary.message,
+          code: summary.code,
+          diagnostic: this.collectDiagnostic(summary.diagnostic ?? summary.message),
           turnId,
         });
       });
@@ -1372,7 +1421,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
       }
 
       if (typeof this.connection.unstable_setSessionModel !== "function") {
-        throw new Error(`${this.provider} does not expose ACP model selection`);
+        throw new Error(this.modelSelectionUnavailableMessage());
       }
 
       try {
@@ -1407,7 +1456,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         });
         return;
       }
-      throw new Error(`${this.provider} does not expose ACP model selection`);
+      throw new Error(this.modelSelectionUnavailableMessage());
     }
     if (!selection.configChoice) {
       this.warnInvalidSelection(
@@ -1696,6 +1745,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     }
   }
 
+  async extNotification(method: string, params: Record<string, unknown>): Promise<void> {
+    this.logger.trace(
+      {
+        agentId: this.agentId,
+        provider: this.provider,
+        sessionId: typeof params.sessionId === "string" ? params.sessionId : undefined,
+        method,
+        rawEvent: params,
+      },
+      "provider.acp.extension_notification",
+    );
+  }
+
   async readTextFile(params: ReadTextFileRequest): Promise<{ content: string }> {
     const raw = await fs.readFile(params.path, "utf8");
     if (!params.line && !params.limit) {
@@ -1913,17 +1975,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         availableModels: this.availableModels,
         configOptions: this.configOptions,
       });
-      await this.applyConfiguredOverride(
-        "model",
-        configuredModelId,
-        () =>
-          this.setModelWithSelection({
-            modelId: configuredModelId,
-            selection,
-            allowOptimisticMethod: true,
-          }),
-        policy,
-      );
+      try {
+        await this.setModelWithSelection({
+          modelId: configuredModelId,
+          selection,
+          allowOptimisticMethod: true,
+        });
+      } catch (error) {
+        if (this.isModelSelectionUnavailableError(error)) {
+          this.logger.warn(
+            { value: configuredModelId },
+            `${this.provider} does not expose ACP model selection; using provider default model`,
+          );
+        } else if (policy === "strict") {
+          throw error;
+        } else {
+          this.logger.warn(
+            { err: error, value: configuredModelId },
+            "ACP model replay failed during resume; continuing with provider state",
+          );
+        }
+      }
     }
     const configuredThinkingOptionId = this.config.thinkingOptionId;
     if (configuredThinkingOptionId && configuredThinkingOptionId !== this.thinkingOptionId) {
@@ -1957,6 +2029,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
 
   private warnInvalidSelection(value: string, message: string): void {
     this.logger.warn({ value }, message);
+  }
+
+  private modelSelectionUnavailableMessage(): string {
+    return `${this.provider} does not expose ACP model selection`;
+  }
+
+  private isModelSelectionUnavailableError(error: unknown): boolean {
+    return error instanceof Error && error.message === this.modelSelectionUnavailableMessage();
   }
 
   private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {

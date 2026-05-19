@@ -9,7 +9,13 @@ import { LigaturesAddon } from "@xterm/addon-ligatures/lib/addon-ligatures.mjs";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import type { TerminalState } from "@server/shared/messages";
 import {
+  type TerminalInputModeState,
+  TerminalInputModeTracker,
+  terminalInputModeStatesEqual,
+} from "@server/shared/terminal-input-mode";
+import {
   type PendingTerminalModifiers,
+  isAppleHandheldPlatform,
   isTerminalModifierDomKey,
   mergeTerminalModifiers,
   normalizeDomTerminalKey,
@@ -22,6 +28,7 @@ export interface TerminalEmulatorRuntimeMountInput {
   root: HTMLDivElement;
   host: HTMLDivElement;
   initialSnapshot: TerminalState | null;
+  scrollback: number;
   theme: ITheme;
 }
 
@@ -37,6 +44,7 @@ export interface TerminalEmulatorRuntimeCallbacks {
   }) => Promise<void> | void;
   onPendingModifiersConsumed?: () => Promise<void> | void;
   onOpenExternalUrl?: (url: string) => Promise<void> | void;
+  onInputModeChange?: (state: TerminalInputModeState) => Promise<void> | void;
 }
 
 interface TerminalEmulatorRuntimeDisposables {
@@ -76,6 +84,14 @@ const isMac =
   typeof navigator !== "undefined" &&
   (/Macintosh|Mac OS/i.test(navigator.userAgent ?? "") ||
     /Mac/i.test((navigator as Navigator & { platform?: string }).platform ?? ""));
+
+const isAppleHandheld =
+  typeof navigator !== "undefined" &&
+  isAppleHandheldPlatform({
+    userAgent: navigator.userAgent,
+    platform: (navigator as Navigator & { platform?: string }).platform,
+    maxTouchPoints: navigator.maxTouchPoints,
+  });
 
 const DEFAULT_TOUCH_SCROLL_LINE_HEIGHT_PX = 18;
 const FIT_TIMEOUT_DELAYS_MS = [0, 16, 48, 120, 250, 500, 1_000, 2_000];
@@ -125,6 +141,8 @@ export class TerminalEmulatorRuntime {
   private inFlightOutputOperation: TerminalOutputOperation | null = null;
   private inFlightOutputOperationTimeout: ReturnType<typeof setTimeout> | null = null;
   private suppressInput = false;
+  private readonly inputModeTracker = new TerminalInputModeTracker();
+  private lastInputModeState: TerminalInputModeState = this.inputModeTracker.getState();
 
   private handleVisibilityRestore = (): void => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -152,6 +170,8 @@ export class TerminalEmulatorRuntime {
 
     input.host.innerHTML = "";
     this.lastSize = null;
+    this.inputModeTracker.reset();
+    this.emitInputModeChange();
 
     const terminal = new Terminal({
       allowProposedApi: true,
@@ -168,7 +188,7 @@ export class TerminalEmulatorRuntime {
       overviewRuler: {
         width: 8,
       },
-      scrollback: 10_000,
+      scrollback: input.scrollback,
       theme: withOverviewRulerBorderHidden(input.theme),
     });
     const fitAddon = new FitAddon();
@@ -353,6 +373,8 @@ export class TerminalEmulatorRuntime {
           altKey: event.altKey,
           metaKey: event.metaKey,
           pendingModifiers: this.pendingModifiers,
+          enhancedInputActive: this.inputModeTracker.supportsModifiedEnter(),
+          isAppleHandheld,
         })
       ) {
         return true;
@@ -567,6 +589,22 @@ export class TerminalEmulatorRuntime {
     this.refreshVisibleRows();
   }
 
+  setScrollback(input: { lines: number }): void {
+    const terminal = this.terminal;
+    if (!terminal) {
+      return;
+    }
+
+    try {
+      terminal.options.scrollback = input.lines;
+    } catch {
+      // ignore
+      return;
+    }
+
+    this.refreshVisibleRows();
+  }
+
   focus(): void {
     this.terminal?.focus();
   }
@@ -606,6 +644,8 @@ export class TerminalEmulatorRuntime {
     this.fitAndEmitResize = null;
     this.lastSize = null;
     this.suppressInput = false;
+    this.inputModeTracker.reset();
+    this.emitInputModeChange();
   }
 
   private processOutputQueue(): void {
@@ -640,12 +680,16 @@ export class TerminalEmulatorRuntime {
     };
 
     if (operation.type === "clear") {
+      this.inputModeTracker.reset();
+      this.emitInputModeChange();
       terminal.reset();
       finalizeOperation(operation);
       return;
     }
 
     if (operation.type === "snapshot") {
+      this.inputModeTracker.reset();
+      this.emitInputModeChange();
       try {
         if (
           typeof operation.cols === "number" &&
@@ -661,6 +705,12 @@ export class TerminalEmulatorRuntime {
     }
 
     const text = operation.text;
+    if (operation.type === "write") {
+      const result = this.inputModeTracker.feed(text);
+      if (result.changed) {
+        this.emitInputModeChange();
+      }
+    }
     this.inFlightOutputOperationTimeout = setTimeout(() => {
       finalizeOperation(operation);
     }, OUTPUT_OPERATION_TIMEOUT_MS);
@@ -680,6 +730,15 @@ export class TerminalEmulatorRuntime {
     }
     clearTimeout(this.inFlightOutputOperationTimeout);
     this.inFlightOutputOperationTimeout = null;
+  }
+
+  private emitInputModeChange(): void {
+    const state = this.inputModeTracker.getState();
+    if (terminalInputModeStatesEqual(state, this.lastInputModeState)) {
+      return;
+    }
+    this.lastInputModeState = state;
+    this.callbacks.onInputModeChange?.(state);
   }
 
   private applyDocumentBoundsStyles(input: { root: HTMLDivElement }): () => void {

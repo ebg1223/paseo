@@ -5,7 +5,9 @@ import {
   AgentCreatedStatusPayloadSchema,
   AgentRefreshedStatusPayloadSchema,
   AgentResumedStatusPayloadSchema,
+  CheckoutRenameBranchResponseSchema,
   parseServerInfoStatusPayload,
+  RenameTerminalResponseSchema,
   RestartRequestedStatusPayloadSchema,
   ShutdownRequestedStatusPayloadSchema,
   SessionInboundMessageSchema,
@@ -32,6 +34,7 @@ import type {
   CheckoutPrCreateResponse,
   CheckoutPrMergeResponse,
   CheckoutPrMergeMethod,
+  CheckoutGithubSetAutoMergeResponse,
   CheckoutPrStatusResponse,
   PullRequestTimelineResponse,
   CheckoutSwitchBranchResponse,
@@ -59,6 +62,8 @@ import type {
   GetProvidersSnapshotResponseMessage,
   RefreshProvidersSnapshotResponseMessage,
   ProviderDiagnosticResponseMessage,
+  DaemonGetStatusResponse,
+  DaemonGetPairingOfferResponse,
   ListTerminalsResponse,
   CreateTerminalResponse,
   SubscribeTerminalResponse,
@@ -258,7 +263,13 @@ export interface CreateAgentRequestOptions extends AgentConfigOverrides {
 
 export interface CreatePaseoWorktreeInput extends Pick<
   CreatePaseoWorktreeRequest,
-  "cwd" | "worktreeSlug" | "firstAgentContext" | "refName" | "action" | "githubPrNumber"
+  | "cwd"
+  | "projectId"
+  | "worktreeSlug"
+  | "firstAgentContext"
+  | "refName"
+  | "action"
+  | "githubPrNumber"
 > {}
 
 type CheckoutStatusPayload = CheckoutStatusResponse["payload"];
@@ -274,9 +285,11 @@ type CheckoutPullPayload = CheckoutPullResponse["payload"];
 type CheckoutPushPayload = CheckoutPushResponse["payload"];
 type CheckoutPrCreatePayload = CheckoutPrCreateResponse["payload"];
 type CheckoutPrMergePayload = CheckoutPrMergeResponse["payload"];
+type CheckoutGithubSetAutoMergePayload = CheckoutGithubSetAutoMergeResponse["payload"];
 type CheckoutPrStatusPayload = CheckoutPrStatusResponse["payload"];
 type PullRequestTimelinePayload = PullRequestTimelineResponse["payload"];
 type CheckoutSwitchBranchPayload = CheckoutSwitchBranchResponse["payload"];
+export type RenameBranchResult = z.infer<typeof CheckoutRenameBranchResponseSchema>["payload"];
 type StashSavePayload = StashSaveResponse["payload"];
 type StashPopPayload = StashPopResponse["payload"];
 type StashListPayload = StashListResponse["payload"];
@@ -309,6 +322,8 @@ type ListAvailableProvidersPayload = ListAvailableProvidersResponse["payload"];
 type GetProvidersSnapshotPayload = GetProvidersSnapshotResponseMessage["payload"];
 type RefreshProvidersSnapshotPayload = RefreshProvidersSnapshotResponseMessage["payload"];
 type ProviderDiagnosticPayload = ProviderDiagnosticResponseMessage["payload"];
+type DaemonStatusPayload = DaemonGetStatusResponse["payload"];
+type DaemonPairingOfferPayload = DaemonGetPairingOfferResponse["payload"];
 type ReadProjectConfigPayload = Extract<
   SessionOutboundMessage,
   { type: "read_project_config_response" }
@@ -343,6 +358,7 @@ type DictationFinishAcceptedPayload = Extract<
 type AgentPermissionResolvedPayload = AgentPermissionResolvedMessage["payload"];
 type ListTerminalsPayload = ListTerminalsResponse["payload"];
 type CreateTerminalPayload = CreateTerminalResponse["payload"];
+export type RenameTerminalResult = z.infer<typeof RenameTerminalResponseSchema>["payload"];
 type SubscribeTerminalPayload = SubscribeTerminalResponse["payload"];
 type CloseItemsPayload = CloseItemsResponse["payload"];
 type KillTerminalPayload = KillTerminalResponse["payload"];
@@ -604,6 +620,16 @@ export interface UpdateScheduleOptions {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  requestId?: string;
+}
+export interface RenameBranchInput {
+  cwd: string;
+  branch: string;
+  requestId?: string;
+}
+export interface RenameTerminalInput {
+  terminalId: string;
+  title: string;
   requestId?: string;
 }
 type ListAvailableEditorsPayload = ListAvailableEditorsResponseMessage["payload"];
@@ -1425,6 +1451,25 @@ export class DaemonClient {
     });
   }
 
+  private sendNamespacedCorrelatedSessionRequest<
+    TResponseType extends CorrelatedResponseType,
+    TResult = CorrelatedResponsePayload<TResponseType>,
+  >(params: {
+    requestId?: string;
+    message: { type: Extract<SessionInboundMessage["type"], `${string}.request`> } & Record<
+      string,
+      unknown
+    >;
+    timeout: number;
+    selectPayload?: (payload: CorrelatedResponsePayload<TResponseType>) => TResult | null;
+  }): Promise<TResult> {
+    const responseType = params.message.type.replace(/\.request$/, ".response") as TResponseType;
+    return this.sendCorrelatedSessionRequest({
+      ...params,
+      responseType,
+    });
+  }
+
   private sendSessionMessageStrict(message: SessionInboundMessage): void {
     if (!this.transport || this.connectionState.status !== "connected") {
       throw new Error("Transport not connected");
@@ -1915,6 +1960,27 @@ export class DaemonClient {
     if (!payload.accepted) {
       throw new Error(payload.error ?? "updateAgent rejected");
     }
+  }
+
+  async renameProject(
+    projectId: string,
+    customName: string | null,
+    requestId?: string,
+  ): Promise<{ customName: string | null }> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "project.rename.request",
+        projectId,
+        customName,
+      },
+      responseType: "project.rename.response",
+      timeout: 10000,
+    });
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "renameProject rejected");
+    }
+    return { customName: payload.customName };
   }
 
   async resumeAgent(
@@ -2817,6 +2883,23 @@ export class DaemonClient {
     });
   }
 
+  async checkoutGithubSetAutoMerge(
+    cwd: string,
+    input: { enabled: true; method: CheckoutPrMergeMethod } | { enabled: false },
+    requestId?: string,
+  ): Promise<CheckoutGithubSetAutoMergePayload> {
+    return this.sendNamespacedCorrelatedSessionRequest<"checkout.github.set_auto_merge.response">({
+      requestId,
+      message: {
+        type: "checkout.github.set_auto_merge.request",
+        cwd,
+        enabled: input.enabled,
+        ...(input.enabled ? { mergeMethod: input.method } : {}),
+      },
+      timeout: 60000,
+    });
+  }
+
   async checkoutPrStatus(cwd: string, requestId?: string): Promise<CheckoutPrStatusPayload> {
     return this.sendCorrelatedSessionRequest({
       requestId,
@@ -2860,6 +2943,19 @@ export class DaemonClient {
         branch,
       },
       responseType: "checkout_switch_branch_response",
+      timeout: 30000,
+    });
+  }
+
+  async renameBranch(input: RenameBranchInput): Promise<RenameBranchResult> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: input.requestId,
+      message: {
+        type: "checkout.rename_branch.request",
+        cwd: input.cwd,
+        branch: input.branch,
+      },
+      responseType: "checkout.rename_branch.response",
       timeout: 30000,
     });
   }
@@ -2953,6 +3049,7 @@ export class DaemonClient {
       message: {
         type: "create_paseo_worktree_request",
         cwd: input.cwd,
+        ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
         worktreeSlug: input.worktreeSlug,
         ...(input.firstAgentContext !== undefined
           ? { firstAgentContext: input.firstAgentContext }
@@ -3024,6 +3121,7 @@ export class DaemonClient {
       cwd?: string;
       includeFiles?: boolean;
       includeDirectories?: boolean;
+      matchMode?: "fuzzy" | "suffix";
     },
     requestId?: string,
   ): Promise<DirectorySuggestionsPayload> {
@@ -3035,6 +3133,7 @@ export class DaemonClient {
         cwd: options.cwd,
         includeFiles: options.includeFiles,
         includeDirectories: options.includeDirectories,
+        matchMode: options.matchMode,
         limit: options.limit,
       },
       responseType: "directory_suggestions_response",
@@ -3226,6 +3325,28 @@ export class DaemonClient {
         type: "get_daemon_config_request",
       },
       responseType: "get_daemon_config_response",
+      timeout: 10000,
+    });
+  }
+
+  async getDaemonStatus(requestId?: string): Promise<DaemonStatusPayload> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "daemon.get_status.request",
+      },
+      responseType: "daemon.get_status.response",
+      timeout: 10000,
+    });
+  }
+
+  async getDaemonPairingOffer(requestId?: string): Promise<DaemonPairingOfferPayload> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "daemon.get_pairing_offer.request",
+      },
+      responseType: "daemon.get_pairing_offer.response",
       timeout: 10000,
     });
   }
@@ -3564,6 +3685,19 @@ export class DaemonClient {
       responseType: "create_terminal_response",
       timeout: 10000,
       options: { skipQueue: true },
+    });
+  }
+
+  async renameTerminal(input: RenameTerminalInput): Promise<RenameTerminalResult> {
+    return this.sendCorrelatedSessionRequest({
+      requestId: input.requestId,
+      message: {
+        type: "terminal.rename.request",
+        terminalId: input.terminalId,
+        title: input.title,
+      },
+      responseType: "terminal.rename.response",
+      timeout: 10000,
     });
   }
 

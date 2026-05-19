@@ -185,6 +185,8 @@ function mergeMutableConfigIntoPersistedConfig(params: {
         ...persisted.daemon?.mcp,
         injectIntoAgents: mutable.mcp.injectIntoAgents,
       },
+      autoArchiveAfterMerge: mutable.autoArchiveAfterMerge,
+      appendSystemPrompt: mutable.appendSystemPrompt,
     },
     agents:
       providerOverrides && Object.keys(providerOverrides).length > 0

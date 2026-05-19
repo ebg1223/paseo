@@ -71,6 +71,15 @@ export interface AgentSelectOption {
   metadata?: AgentMetadata;
 }
 
+export function normalizeAgentModelDefinition(model: AgentModelDefinition): AgentModelDefinition {
+  const defaultThinkingOptionId =
+    model.defaultThinkingOptionId ?? model.thinkingOptions?.find((option) => option.isDefault)?.id;
+  if (!defaultThinkingOptionId || defaultThinkingOptionId === model.defaultThinkingOptionId) {
+    return model;
+  }
+  return { ...model, defaultThinkingOptionId };
+}
+
 export interface ProviderSnapshotEntry {
   provider: AgentProvider;
   status: ProviderStatus;
@@ -304,7 +313,7 @@ export interface CompactionTimelineItem {
 
 export type AgentTimelineItem =
   | { type: "user_message"; text: string; messageId?: string }
-  | { type: "assistant_message"; text: string }
+  | { type: "assistant_message"; text: string; messageId?: string }
   | { type: "reasoning"; text: string }
   | ToolCallTimelineItem
   | { type: "todo"; items: { text: string; completed: boolean }[] }
@@ -337,7 +346,13 @@ export type AgentStreamEvent =
       turnId?: string;
     }
   | { type: "turn_canceled"; provider: AgentProvider; reason: string; turnId?: string }
-  | { type: "timeline"; item: AgentTimelineItem; provider: AgentProvider; turnId?: string }
+  | {
+      type: "timeline";
+      item: AgentTimelineItem;
+      provider: AgentProvider;
+      turnId?: string;
+      timestamp?: string;
+    }
   | {
       type: "permission_requested";
       provider: AgentProvider;
@@ -458,6 +473,11 @@ export interface AgentSessionConfig {
    * Mapped by each provider to its native instruction field.
    */
   systemPrompt?: string;
+  /**
+   * Daemon-level instructions appended at runtime. This is deliberately not
+   * persisted into agent config so daemon setting changes apply cleanly.
+   */
+  daemonAppendSystemPrompt?: string;
   modeId?: string;
   model?: string;
   thinkingOptionId?: string;
@@ -577,6 +597,8 @@ export interface AgentClient {
   ): Promise<AgentSession>;
   listModels(options: ListModelsOptions): Promise<AgentModelDefinition[]>;
   listModes?(options: ListModesOptions): Promise<AgentMode[]>;
+  listCommands?(config: AgentSessionConfig): Promise<AgentSlashCommand[]>;
+  listFeatures?(config: AgentSessionConfig): Promise<AgentFeature[]>;
   listPersistedAgents?(options?: ListPersistedAgentsOptions): Promise<PersistedAgentDescriptor[]>;
   /**
    * Check if this provider is available (CLI binary is installed).

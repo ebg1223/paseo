@@ -33,6 +33,7 @@ export interface LocalDaemonState {
   relayEnabled: boolean;
   relayEndpoint: string;
   relayUseTls: boolean;
+  relayPublicUseTls: boolean;
   logPath: string;
   pidPath: string;
   pidInfo: LocalDaemonPidInfo | null;
@@ -391,9 +392,15 @@ export function resolveLocalDaemonState(options: { home?: string } = {}): LocalD
   const env: NodeJS.ProcessEnv = {
     ...envWithHome(options.home),
     // Status should reflect local persisted config + pid file, not inherited daemon env overrides.
+    // This is CLI-side defensive scrubbing; the daemon RPC is authoritative when available.
     PASEO_LISTEN: undefined,
     PASEO_HOSTNAMES: undefined,
     PASEO_ALLOWED_HOSTS: undefined,
+    PASEO_RELAY_ENABLED: undefined,
+    PASEO_RELAY_ENDPOINT: undefined,
+    PASEO_RELAY_PUBLIC_ENDPOINT: undefined,
+    PASEO_RELAY_USE_TLS: undefined,
+    PASEO_RELAY_PUBLIC_USE_TLS: undefined,
   };
   const home = resolvePaseoHome(env);
   const config = loadConfig(home, { env });
@@ -409,6 +416,7 @@ export function resolveLocalDaemonState(options: { home?: string } = {}): LocalD
     relayEnabled: config.relayEnabled ?? true,
     relayEndpoint: config.relayPublicEndpoint ?? config.relayEndpoint ?? "relay.paseo.sh:443",
     relayUseTls: config.relayUseTls ?? false,
+    relayPublicUseTls: config.relayPublicUseTls ?? config.relayUseTls ?? false,
     logPath,
     pidPath,
     pidInfo,

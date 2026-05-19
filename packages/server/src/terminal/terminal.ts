@@ -1,13 +1,15 @@
 import * as pty from "node-pty";
 import xterm, { type Terminal as TerminalType } from "@xterm/headless";
 import { randomUUID } from "crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createExternalProcessEnv } from "../server/paseo-env.js";
+import { writePrivateFileAtomicSync } from "../server/private-files.js";
 import type { TerminalCell, TerminalState } from "../shared/messages.js";
+import { TerminalInputModeTracker } from "../shared/terminal-input-mode.js";
 
 const { Terminal } = xterm;
 const require = createRequire(import.meta.url);
@@ -53,7 +55,9 @@ export interface TerminalSession {
   getSize(): { rows: number; cols: number };
   getState(): TerminalState;
   getStateSnapshot(): TerminalStateSnapshot;
+  getReplayPreamble(): string;
   getTitle(): string | undefined;
+  setTitle(title: string): void;
   getExitInfo(): TerminalExitInfo | null;
   kill(): void;
   killAndWait(options?: { gracefulTimeoutMs?: number; forceTimeoutMs?: number }): Promise<void>;
@@ -202,10 +206,13 @@ function prepareZshShellIntegrationRuntimeDir(sourceDir = resolveZshShellIntegra
   const runtimeDir = resolveZshShellIntegrationRuntimeDir();
   mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
   chmodSync(runtimeDir, 0o700);
-  copyFileSync(join(readableSourceDir, ".zshenv"), join(runtimeDir, ".zshenv"));
-  copyFileSync(
-    join(readableSourceDir, "paseo-integration.zsh"),
+  writePrivateFileAtomicSync(
+    join(runtimeDir, ".zshenv"),
+    readFileSync(join(readableSourceDir, ".zshenv")),
+  );
+  writePrivateFileAtomicSync(
     join(runtimeDir, "paseo-integration.zsh"),
+    readFileSync(join(readableSourceDir, "paseo-integration.zsh")),
   );
   return runtimeDir;
 }
@@ -215,6 +222,7 @@ export function buildTerminalEnvironment(
 ): Record<string, string> {
   const baseEnv: Record<string, string> = createExternalProcessEnv(process.env, input.env, {
     TERM: "xterm-256color",
+    TERM_PROGRAM: "kitty",
   });
 
   if (basename(input.shell) !== "zsh") {
@@ -542,11 +550,14 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
   let exitInfo: TerminalExitInfo | null = null;
   let recentOutputText = "";
   let title: string | undefined;
+  let titleMode: "auto" | "manual" = presetTitle?.trim() ? "manual" : "auto";
   let pendingTitle: string | undefined;
   let titleDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingInput = "";
   let inputFlushImmediate: ReturnType<typeof setImmediate> | null = null;
   let stateRevision = 0;
+  const inputModeTracker = new TerminalInputModeTracker();
+  let titleChangeSubscription: { dispose(): void } | null = null;
 
   // Create xterm.js headless terminal
   const terminal = new Terminal({
@@ -590,14 +601,40 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
     }
   }
 
-  const lockedTitle = presetTitle?.trim() || undefined;
+  function clearPendingTitleChange(): void {
+    pendingTitle = undefined;
+    if (titleDebounceTimer) {
+      clearTimeout(titleDebounceTimer);
+      titleDebounceTimer = null;
+    }
+  }
+
+  function disposeTitleChangeSubscription(): void {
+    titleChangeSubscription?.dispose();
+    titleChangeSubscription = null;
+  }
+
+  function setTitle(nextTitle: string): void {
+    const manualTitle = nextTitle.trim();
+    if (!manualTitle) {
+      return;
+    }
+
+    titleMode = "manual";
+    disposeTitleChangeSubscription();
+    clearPendingTitleChange();
+    emitTitleChange(manualTitle);
+  }
+
+  const initialManualTitle = presetTitle?.trim() || undefined;
   const processTitle = command ? [command, ...args].join(" ") : null;
-  let initialTitle = lockedTitle;
+  let initialTitle = initialManualTitle;
   if (!initialTitle && processTitle) {
     initialTitle = humanizeProcessTitle(processTitle) ?? normalizeProcessTitle(processTitle);
   }
   emitTitleChange(initialTitle);
 
+  // Respond to DA1 queries (CSI c or CSI 0 c) — apps like nvim query terminal capabilities
   terminal.parser.registerCsiHandler({ final: "c" }, (params) => {
     if (params.length === 0 || (params.length === 1 && params[0] === 0)) {
       ptyProcess.write("\x1b[?62;4;22c");
@@ -629,9 +666,8 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
     return true;
   });
 
-  let disposeTitleChangeSubscription: { dispose(): void } | null = null;
-  if (!lockedTitle) {
-    disposeTitleChangeSubscription = terminal.onTitleChange((nextTitle) => {
+  if (titleMode === "auto") {
+    titleChangeSubscription = terminal.onTitleChange((nextTitle) => {
       if (disposed || killed) {
         return;
       }
@@ -642,6 +678,7 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
       titleDebounceTimer = setTimeout(() => {
         titleDebounceTimer = null;
         emitTitleChange(pendingTitle);
+        pendingTitle = undefined;
       }, TERMINAL_TITLE_DEBOUNCE_MS);
     });
   }
@@ -699,15 +736,13 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
     }
     disposed = true;
     pendingInput = "";
+    inputModeTracker.reset();
     if (inputFlushImmediate) {
       clearImmediate(inputFlushImmediate);
       inputFlushImmediate = null;
     }
-    if (titleDebounceTimer) {
-      clearTimeout(titleDebounceTimer);
-      titleDebounceTimer = null;
-    }
-    disposeTitleChangeSubscription?.dispose();
+    clearPendingTitleChange();
+    disposeTitleChangeSubscription();
     disposeCommandLifecycleSubscription.dispose();
     terminal.dispose();
     listeners.clear();
@@ -731,6 +766,10 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
   // Pipe PTY output to terminal emulator
   ptyProcess.onData((data) => {
     if (killed) return;
+    const inputModeUpdate = inputModeTracker.feed(data);
+    for (const response of inputModeUpdate.responses) {
+      ptyProcess.write(response);
+    }
     recentOutputText = `${recentOutputText}${data}`;
     if (recentOutputText.length > TERMINAL_EXIT_OUTPUT_CHAR_LIMIT) {
       recentOutputText = recentOutputText.slice(-TERMINAL_EXIT_OUTPUT_CHAR_LIMIT);
@@ -797,6 +836,10 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
       rows: terminal.rows,
       cols: terminal.cols,
     };
+  }
+
+  function getReplayPreamble(): string {
+    return inputModeTracker.getPreamble();
   }
 
   function writeInputToPty(data: string): void {
@@ -1030,7 +1073,9 @@ export async function createTerminal(options: CreateTerminalOptions): Promise<Te
     getSize,
     getState,
     getStateSnapshot,
+    getReplayPreamble,
     getTitle,
+    setTitle,
     getExitInfo,
     kill,
     killAndWait,

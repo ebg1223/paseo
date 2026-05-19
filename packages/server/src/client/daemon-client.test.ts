@@ -872,6 +872,7 @@ test("sends worktree base-ref fields in create_paseo_worktree_request", async ()
   const createPromise = client.createPaseoWorktree(
     {
       cwd: "/tmp/project",
+      projectId: "remote:github.com/acme/project",
       worktreeSlug: "review-pr-123",
       refName: "feature/worktree-base-ref",
       action: "checkout",
@@ -885,6 +886,7 @@ test("sends worktree base-ref fields in create_paseo_worktree_request", async ()
   expect(request).toEqual({
     type: "create_paseo_worktree_request",
     cwd: "/tmp/project",
+    projectId: "remote:github.com/acme/project",
     worktreeSlug: "review-pr-123",
     refName: "feature/worktree-base-ref",
     action: "checkout",
@@ -1495,6 +1497,7 @@ test("requests directory suggestions via RPC", async () => {
       cwd: "/tmp/project",
       includeFiles: true,
       includeDirectories: true,
+      matchMode: "suffix",
     },
     "req-directories",
   );
@@ -1506,6 +1509,7 @@ test("requests directory suggestions via RPC", async () => {
   expect(request.cwd).toBe("/tmp/project");
   expect(request.includeFiles).toBe(true);
   expect(request.includeDirectories).toBe(true);
+  expect(request.matchMode).toBe("suffix");
   expect(request.limit).toBe(10);
   expect(request.requestId).toBe("req-directories");
 
@@ -1586,6 +1590,118 @@ test("requests checkout merge from base via RPC", async () => {
   });
 });
 
+test("requests GitHub auto-merge enable via namespaced RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.checkoutGithubSetAutoMerge(
+    "/tmp/project",
+    { enabled: true, method: "squash" },
+    "req-enable-auto-merge",
+  );
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request.type).toBe("checkout.github.set_auto_merge.request");
+  expect(request.cwd).toBe("/tmp/project");
+  expect(request.enabled).toBe(true);
+  expect(request.mergeMethod).toBe("squash");
+  expect(request.requestId).toBe("req-enable-auto-merge");
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "checkout.github.set_auto_merge.response",
+        payload: {
+          cwd: "/tmp/project",
+          enabled: true,
+          requestId: "req-enable-auto-merge",
+          success: true,
+          error: null,
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    cwd: "/tmp/project",
+    enabled: true,
+    requestId: "req-enable-auto-merge",
+    success: true,
+    error: null,
+  });
+});
+
+test("requests GitHub auto-merge disable via namespaced RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.checkoutGithubSetAutoMerge(
+    "/tmp/project",
+    { enabled: false },
+    "req-disable-auto-merge",
+  );
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request.type).toBe("checkout.github.set_auto_merge.request");
+  expect(request.cwd).toBe("/tmp/project");
+  expect(request.enabled).toBe(false);
+  expect(request.mergeMethod).toBeUndefined();
+  expect(request.requestId).toBe("req-disable-auto-merge");
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "checkout.github.set_auto_merge.response",
+        payload: {
+          cwd: "/tmp/project",
+          enabled: false,
+          requestId: "req-disable-auto-merge",
+          success: true,
+          error: null,
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    cwd: "/tmp/project",
+    enabled: false,
+    requestId: "req-disable-auto-merge",
+    success: true,
+    error: null,
+  });
+});
+
 test("requests checkout pull via RPC", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();
@@ -1631,6 +1747,119 @@ test("requests checkout pull via RPC", async () => {
     requestId: "req-pull",
     success: true,
     error: null,
+  });
+});
+
+test("renames a branch via RPC", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.renameBranch({
+    cwd: "/tmp/project",
+    branch: "feature/new-name",
+    requestId: "req-rename-branch",
+  });
+
+  expect(mock.sent).toHaveLength(1);
+  const request = JSON.parse(mock.sent[0]) as {
+    type: "session";
+    message: {
+      type: "checkout.rename_branch.request";
+      cwd: string;
+      branch: string;
+      requestId: string;
+    };
+  };
+  expect(request.message.type).toBe("checkout.rename_branch.request");
+  expect(request.message.cwd).toBe("/tmp/project");
+  expect(request.message.branch).toBe("feature/new-name");
+  expect(request.message.requestId).toBe("req-rename-branch");
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "checkout.rename_branch.response",
+        payload: {
+          requestId: "req-rename-branch",
+          success: true,
+          cwd: "/tmp/project",
+          currentBranch: "feature/new-name",
+          error: null,
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    requestId: "req-rename-branch",
+    success: true,
+    cwd: "/tmp/project",
+    currentBranch: "feature/new-name",
+    error: null,
+  });
+});
+
+test("returns renameBranch business failures", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.renameBranch({
+    cwd: "/tmp/project",
+    branch: "already-exists",
+    requestId: "req-rename-branch-fail",
+  });
+
+  expect(mock.sent).toHaveLength(1);
+
+  mock.triggerMessage(
+    JSON.stringify({
+      type: "session",
+      message: {
+        type: "checkout.rename_branch.response",
+        payload: {
+          requestId: "req-rename-branch-fail",
+          success: false,
+          cwd: "/tmp/project",
+          currentBranch: null,
+          error: { code: "NOT_ALLOWED", message: "Branch already exists" },
+        },
+      },
+    }),
+  );
+
+  await expect(promise).resolves.toEqual({
+    requestId: "req-rename-branch-fail",
+    success: false,
+    cwd: "/tmp/project",
+    currentBranch: null,
+    error: { code: "NOT_ALLOWED", message: "Branch already exists" },
   });
 });
 

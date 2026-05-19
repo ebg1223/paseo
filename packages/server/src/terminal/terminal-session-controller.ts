@@ -4,6 +4,7 @@ import type {
   CreateTerminalRequest,
   KillTerminalRequest,
   ListTerminalsRequest,
+  RenameTerminalRequest,
   SessionInboundMessage,
   SessionOutboundMessage,
   SubscribeTerminalRequest,
@@ -64,7 +65,8 @@ type TerminalDispatchableMessage =
   | UnsubscribeTerminalRequest
   | TerminalInput
   | KillTerminalRequest
-  | CaptureTerminalRequest;
+  | CaptureTerminalRequest
+  | RenameTerminalRequest;
 
 const TERMINAL_MESSAGE_TYPES: ReadonlySet<TerminalDispatchableMessage["type"]> = new Set([
   "subscribe_terminals_request",
@@ -76,6 +78,7 @@ const TERMINAL_MESSAGE_TYPES: ReadonlySet<TerminalDispatchableMessage["type"]> =
   "terminal_input",
   "kill_terminal_request",
   "capture_terminal_request",
+  "terminal.rename.request",
 ]);
 
 export class TerminalSessionController {
@@ -145,6 +148,8 @@ export class TerminalSessionController {
         return this.handleKillTerminalRequest(msg);
       case "capture_terminal_request":
         return this.handleCaptureTerminalRequest(msg);
+      case "terminal.rename.request":
+        return this.handleRenameTerminalRequest(msg);
       default:
         return undefined;
     }
@@ -430,6 +435,32 @@ export class TerminalSessionController {
     }
   }
 
+  private async handleRenameTerminalRequest(msg: RenameTerminalRequest): Promise<void> {
+    const respond = (success: boolean, error: string | null): void => {
+      this.emit({
+        type: "terminal.rename.response",
+        payload: { requestId: msg.requestId, success, error },
+      });
+    };
+
+    const title = msg.title.trim();
+    if (title.length === 0) {
+      respond(false, "Title is required");
+      return;
+    }
+    if (title.length > 200) {
+      respond(false, "Title is too long");
+      return;
+    }
+    if (!this.terminalManager) {
+      respond(false, "Terminal manager not available");
+      return;
+    }
+
+    const renamed = this.terminalManager.setTerminalTitle(msg.terminalId, title);
+    respond(renamed, renamed ? null : "Terminal not found");
+  }
+
   private async handleSubscribeTerminalRequest(msg: SubscribeTerminalRequest): Promise<void> {
     if (!this.terminalManager) {
       this.emit({
@@ -681,7 +712,13 @@ export class TerminalSessionController {
       return;
     }
 
-    if (!this.terminalManager?.getTerminal(activeStream.terminalId)) {
+    const terminalManager = this.terminalManager;
+    if (!terminalManager) {
+      this.detachStream(activeStream.terminalId, { emitExit: true });
+      return;
+    }
+    const terminal = terminalManager.getTerminal(activeStream.terminalId);
+    if (!terminal) {
       this.detachStream(activeStream.terminalId, { emitExit: true });
       return;
     }
@@ -689,7 +726,7 @@ export class TerminalSessionController {
     activeStream.outputCoalescer.flush();
     activeStream.snapshotInFlight = true;
     try {
-      const snapshot = await this.terminalManager.getTerminalState(activeStream.terminalId);
+      const snapshot = await terminalManager.getTerminalState(activeStream.terminalId);
       if (this.activeStreams.get(activeStream.slot) !== activeStream) {
         return;
       }
@@ -705,6 +742,11 @@ export class TerminalSessionController {
           payload: encodeTerminalSnapshotPayload(snapshot.state),
         }),
       );
+
+      const replayPreamble = terminal.getReplayPreamble();
+      if (replayPreamble.length > 0) {
+        activeStream.outputCoalescer.handle(replayPreamble);
+      }
 
       const bufferedOutputs = activeStream.bufferedOutputs.splice(
         0,

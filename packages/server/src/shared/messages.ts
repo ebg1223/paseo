@@ -3,7 +3,10 @@ import { CLIENT_CAPS } from "./client-capabilities.js";
 import { AGENT_LIFECYCLE_STATUSES } from "./agent-lifecycle.js";
 import { MAX_EXPLICIT_AGENT_TITLE_CHARS } from "../server/agent/agent-title-limits.js";
 import { AgentProviderSchema } from "../server/agent/provider-manifest.js";
-import { TOOL_CALL_ICON_NAMES } from "../server/agent/agent-sdk-types.js";
+import {
+  normalizeAgentModelDefinition,
+  TOOL_CALL_ICON_NAMES,
+} from "../server/agent/agent-sdk-types.js";
 import {
   ChatCreateRequestSchema,
   ChatListRequestSchema,
@@ -110,6 +113,8 @@ export const MutableDaemonConfigSchema = z
       })
       .passthrough(),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
+    autoArchiveAfterMerge: z.boolean().default(false),
+    appendSystemPrompt: z.string().default(""),
   })
   .passthrough();
 
@@ -119,6 +124,8 @@ export const MutableDaemonConfigPatchSchema = z
     providers: z
       .record(z.string(), MutableDaemonProviderConfigSchema.partial().passthrough())
       .optional(),
+    autoArchiveAfterMerge: z.boolean().optional(),
+    appendSystemPrompt: z.string().optional(),
   })
   .partial()
   .passthrough();
@@ -192,16 +199,18 @@ export const AgentFeatureSchema = z.discriminatedUnion("type", [
   AgentFeatureSelectSchema,
 ]);
 
-const AgentModelDefinitionSchema: z.ZodType<AgentModelDefinition> = z.object({
-  provider: AgentProviderSchema,
-  id: z.string(),
-  label: z.string(),
-  description: z.string().optional(),
-  isDefault: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional(),
-  thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
-  defaultThinkingOptionId: z.string().optional(),
-});
+const AgentModelDefinitionSchema: z.ZodType<AgentModelDefinition> = z
+  .object({
+    provider: AgentProviderSchema,
+    id: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+    isDefault: z.boolean().optional(),
+    metadata: z.record(z.unknown()).optional(),
+    thinkingOptions: z.array(AgentSelectOptionSchema).optional(),
+    defaultThinkingOptionId: z.string().optional(),
+  })
+  .transform(normalizeAgentModelDefinition);
 
 export const ProviderSnapshotEntrySchema = z.object({
   provider: AgentProviderSchema,
@@ -505,6 +514,7 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, z.ZodT
     z.object({
       type: z.literal("assistant_message"),
       text: z.string(),
+      messageId: z.string().optional(),
     }),
     z.object({
       type: z.literal("reasoning"),
@@ -740,6 +750,14 @@ export const UpdateAgentRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+export const ProjectRenameRequestSchema = z.object({
+  type: z.literal("project.rename.request"),
+  projectId: z.string(),
+  // Null or empty string clears the override and reverts to the derived name.
+  customName: z.string().nullable(),
+  requestId: z.string(),
+});
+
 export const SetVoiceModeMessageSchema = z.object({
   type: z.literal("set_voice_mode"),
   enabled: z.boolean(),
@@ -961,6 +979,16 @@ export const WaitForFinishRequestSchema = z.object({
   /** Accepts full ID, unique prefix, or exact full title (server resolves). */
   agentId: z.string(),
   timeoutMs: z.number().int().positive().optional(),
+});
+
+export const DaemonGetStatusRequestSchema = z.object({
+  type: z.literal("daemon.get_status.request"),
+  requestId: z.string(),
+});
+
+export const DaemonGetPairingOfferRequestSchema = z.object({
+  type: z.literal("daemon.get_pairing_offer.request"),
+  requestId: z.string(),
 });
 
 export const GetDaemonConfigRequestMessageSchema = z.object({
@@ -1202,6 +1230,19 @@ export const UpdateAgentResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
+export const ProjectRenameResponsePayloadSchema = z.object({
+  requestId: z.string(),
+  projectId: z.string(),
+  accepted: z.boolean(),
+  customName: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+export const ProjectRenameResponseSchema = z.object({
+  type: z.literal("project.rename.response"),
+  payload: ProjectRenameResponsePayloadSchema,
+});
+
 export const SetVoiceModeResponseMessageSchema = z.object({
   type: z.literal("set_voice_mode_response"),
   payload: z.object({
@@ -1313,6 +1354,14 @@ export const CheckoutPrMergeRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const CheckoutGithubSetAutoMergeRequestSchema = z.object({
+  type: z.literal("checkout.github.set_auto_merge.request"),
+  cwd: z.string(),
+  enabled: z.boolean(),
+  mergeMethod: z.enum(["merge", "squash", "rebase"]).optional(),
+  requestId: z.string(),
+});
+
 export const CheckoutPrStatusRequestSchema = z.object({
   type: z.literal("checkout_pr_status_request"),
   cwd: z.string(),
@@ -1337,6 +1386,13 @@ export const ValidateBranchRequestSchema = z.object({
 
 export const CheckoutSwitchBranchRequestSchema = z.object({
   type: z.literal("checkout_switch_branch_request"),
+  cwd: z.string(),
+  branch: z.string(),
+  requestId: z.string(),
+});
+
+export const CheckoutRenameBranchRequestSchema = z.object({
+  type: z.literal("checkout.rename_branch.request"),
   cwd: z.string(),
   branch: z.string(),
   requestId: z.string(),
@@ -1404,6 +1460,7 @@ export const DirectorySuggestionsRequestSchema = z.object({
   cwd: z.string().optional(),
   includeFiles: z.boolean().optional(),
   includeDirectories: z.boolean().optional(),
+  matchMode: z.enum(["fuzzy", "suffix"]).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   requestId: z.string(),
 });
@@ -1431,6 +1488,7 @@ export const FirstAgentContextSchema = z.object({
 export const CreatePaseoWorktreeRequestSchema = z.object({
   type: z.literal("create_paseo_worktree_request"),
   cwd: z.string(),
+  projectId: z.string().optional(),
   worktreeSlug: z.string().optional(),
   nameContext: z.string().optional(),
   attachments: AgentAttachmentsSchema.optional(),
@@ -1657,6 +1715,13 @@ export const CreateTerminalRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const RenameTerminalRequestSchema = z.object({
+  type: z.literal("terminal.rename.request"),
+  terminalId: z.string(),
+  title: z.string(),
+  requestId: z.string(),
+});
+
 export const StartWorkspaceScriptRequestSchema = z.object({
   type: z.literal("start_workspace_script_request"),
   workspaceId: z.string(),
@@ -1721,9 +1786,12 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ArchiveAgentRequestMessageSchema,
   CloseItemsRequestMessageSchema,
   UpdateAgentRequestMessageSchema,
+  ProjectRenameRequestSchema,
   SetVoiceModeMessageSchema,
   SendAgentMessageRequestSchema,
   WaitForFinishRequestSchema,
+  DaemonGetStatusRequestSchema,
+  DaemonGetPairingOfferRequestSchema,
   GetDaemonConfigRequestMessageSchema,
   SetDaemonConfigRequestMessageSchema,
   ReadProjectConfigRequestMessageSchema,
@@ -1762,9 +1830,11 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   CheckoutPushRequestSchema,
   CheckoutPrCreateRequestSchema,
   CheckoutPrMergeRequestSchema,
+  CheckoutGithubSetAutoMergeRequestSchema,
   CheckoutPrStatusRequestSchema,
   PullRequestTimelineRequestSchema,
   CheckoutSwitchBranchRequestSchema,
+  CheckoutRenameBranchRequestSchema,
   StashSaveRequestSchema,
   StashPopRequestSchema,
   StashListRequestSchema,
@@ -1792,6 +1862,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
   CreateTerminalRequestSchema,
+  RenameTerminalRequestSchema,
   StartWorkspaceScriptRequestSchema,
   SubscribeTerminalRequestSchema,
   UnsubscribeTerminalRequestSchema,
@@ -1984,6 +2055,9 @@ export const ServerInfoStatusPayloadSchema = z
     features: z
       .object({
         providersSnapshot: z.boolean().optional(),
+        checkoutGithubSetAutoMerge: z.boolean().optional(),
+        // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
+        daemonStatusRpc: z.boolean().optional(),
       })
       .optional(),
   })
@@ -2223,6 +2297,11 @@ export const WorkspaceDescriptorPayloadSchema = z
     id: z.string(),
     projectId: z.string(),
     projectDisplayName: z.string(),
+    // COMPAT(projectCustomName): added in v0.1.76, drop the optional gate when floor >= v0.1.76.
+    // When the user has renamed a project, projectDisplayName carries the resolved
+    // value (customName) and projectCustomName mirrors the raw override so the
+    // settings UI can prefill its input and offer a "reset" action.
+    projectCustomName: z.string().nullable().optional(),
     projectRootPath: z.string(),
     workspaceDirectory: z.string().optional(),
     projectKind: z.enum(["git", "non_git", "directory"]),
@@ -2539,6 +2618,50 @@ export const GetDaemonConfigResponseMessageSchema = z.object({
     .passthrough(),
 });
 
+export const DaemonGetStatusResponseSchema = z.object({
+  type: z.literal("daemon.get_status.response"),
+  payload: z
+    .object({
+      requestId: z.string(),
+      serverId: z.string(),
+      version: z.string().nullable().optional(),
+      pid: z.number(),
+      nodePath: z.string(),
+      startedAt: z.string().nullable().optional(),
+      listen: z.string().nullable(),
+      relay: z
+        .object({
+          enabled: z.boolean(),
+          endpoint: z.string(),
+          publicEndpoint: z.string(),
+          useTls: z.boolean(),
+          publicUseTls: z.boolean(),
+        })
+        .nullable()
+        .optional(),
+      providers: z.array(
+        z.object({
+          provider: z.string(),
+          available: z.boolean(),
+          error: z.string().nullable().optional(),
+        }),
+      ),
+    })
+    .passthrough(),
+});
+
+export const DaemonGetPairingOfferResponseSchema = z.object({
+  type: z.literal("daemon.get_pairing_offer.response"),
+  payload: z
+    .object({
+      requestId: z.string(),
+      url: z.string(),
+      qr: z.string().nullable().optional(),
+      relayEnabled: z.boolean(),
+    })
+    .passthrough(),
+});
+
 export const SetDaemonConfigResponseMessageSchema = z.object({
   type: z.literal("set_daemon_config_response"),
   payload: z
@@ -2704,6 +2827,47 @@ export const CheckoutStatusResponseSchema = z.object({
   ]),
 });
 
+const CheckoutPrGithubAutoMergeRequestSchema = z
+  .object({
+    enabledAt: z.string().nullable().optional().default(null),
+    mergeMethod: z.string().nullable().optional().default(null),
+    enabledBy: z.string().nullable().optional().default(null),
+  })
+  .nullable()
+  .optional()
+  .default(null);
+
+const CheckoutPrGithubRepositoryPolicySchema = z
+  .object({
+    autoMergeAllowed: z.boolean().optional().default(false),
+    mergeCommitAllowed: z.boolean().optional().default(false),
+    squashMergeAllowed: z.boolean().optional().default(false),
+    rebaseMergeAllowed: z.boolean().optional().default(false),
+    viewerDefaultMergeMethod: z.string().nullable().optional().default(null),
+  })
+  .optional()
+  .default({
+    autoMergeAllowed: false,
+    mergeCommitAllowed: false,
+    squashMergeAllowed: false,
+    rebaseMergeAllowed: false,
+    viewerDefaultMergeMethod: null,
+  });
+
+const CheckoutPrGithubStatusSchema = z
+  .object({
+    mergeStateStatus: z.string().nullable().optional().default(null),
+    autoMergeRequest: CheckoutPrGithubAutoMergeRequestSchema,
+    viewerCanEnableAutoMerge: z.boolean().optional().default(false),
+    viewerCanDisableAutoMerge: z.boolean().optional().default(false),
+    viewerCanMergeAsAdmin: z.boolean().optional().default(false),
+    viewerCanUpdateBranch: z.boolean().optional().default(false),
+    repository: CheckoutPrGithubRepositoryPolicySchema,
+    isMergeQueueEnabled: z.boolean().optional().default(false),
+    isInMergeQueue: z.boolean().optional().default(false),
+  })
+  .optional();
+
 export const CheckoutPrStatusSchema = z.object({
   number: z.number().optional(),
   url: z.string(),
@@ -2734,6 +2898,7 @@ export const CheckoutPrStatusSchema = z.object({
   reviewDecision: z.string().nullable().optional(),
   repoOwner: z.string().optional(),
   repoName: z.string().optional(),
+  github: CheckoutPrGithubStatusSchema,
 });
 
 const CheckoutPrStatusPayloadSchema = z.object({
@@ -2849,6 +3014,17 @@ export const CheckoutPrMergeResponseSchema = z.object({
   }),
 });
 
+export const CheckoutGithubSetAutoMergeResponseSchema = z.object({
+  type: z.literal("checkout.github.set_auto_merge.response"),
+  payload: z.object({
+    cwd: z.string(),
+    enabled: z.boolean(),
+    success: z.boolean(),
+    error: CheckoutErrorSchema.nullable(),
+    requestId: z.string(),
+  }),
+});
+
 export const CheckoutPrStatusResponseSchema = z.object({
   type: z.literal("checkout_pr_status_response"),
   payload: CheckoutPrStatusPayloadSchema,
@@ -2944,6 +3120,17 @@ export const CheckoutSwitchBranchResponseSchema = z.object({
     source: z.enum(["local", "remote"]).optional(),
     error: CheckoutErrorSchema.nullable(),
     requestId: z.string(),
+  }),
+});
+
+export const CheckoutRenameBranchResponseSchema = z.object({
+  type: z.literal("checkout.rename_branch.response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    cwd: z.string(),
+    currentBranch: z.string().nullable(),
+    error: CheckoutErrorSchema.nullable(),
   }),
 });
 
@@ -3301,6 +3488,15 @@ export const CreateTerminalResponseSchema = z.object({
   }),
 });
 
+export const RenameTerminalResponseSchema = z.object({
+  type: z.literal("terminal.rename.response"),
+  payload: z.object({
+    requestId: z.string(),
+    success: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const SubscribeTerminalResponseSchema = z.object({
   type: z.literal("subscribe_terminal_response"),
   payload: z.union([
@@ -3381,6 +3577,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ClearAgentAttentionResponseMessageSchema,
   SendAgentMessageResponseMessageSchema,
   SetVoiceModeResponseMessageSchema,
+  DaemonGetStatusResponseSchema,
+  DaemonGetPairingOfferResponseSchema,
   GetDaemonConfigResponseMessageSchema,
   SetDaemonConfigResponseMessageSchema,
   ReadProjectConfigResponseMessageSchema,
@@ -3390,6 +3588,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentThinkingResponseMessageSchema,
   SetAgentFeatureResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
+  ProjectRenameResponseSchema,
   WaitForFinishResponseMessageSchema,
   AgentPermissionRequestMessageSchema,
   AgentPermissionResolvedMessageSchema,
@@ -3407,9 +3606,11 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   CheckoutPushResponseSchema,
   CheckoutPrCreateResponseSchema,
   CheckoutPrMergeResponseSchema,
+  CheckoutGithubSetAutoMergeResponseSchema,
   CheckoutPrStatusResponseSchema,
   PullRequestTimelineResponseSchema,
   CheckoutSwitchBranchResponseSchema,
+  CheckoutRenameBranchResponseSchema,
   StashSaveResponseSchema,
   StashPopResponseSchema,
   StashListResponseSchema,
@@ -3435,6 +3636,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
   CreateTerminalResponseSchema,
+  RenameTerminalResponseSchema,
   SubscribeTerminalResponseSchema,
   KillTerminalResponseSchema,
   CaptureTerminalResponseSchema,
@@ -3525,6 +3727,8 @@ export type SetAgentModelResponseMessage = z.infer<typeof SetAgentModelResponseM
 export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingResponseMessageSchema>;
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
+export type ProjectRenameResponse = z.infer<typeof ProjectRenameResponseSchema>;
+export type ProjectRenameResponsePayload = z.infer<typeof ProjectRenameResponsePayloadSchema>;
 export type WaitForFinishResponseMessage = z.infer<typeof WaitForFinishResponseMessageSchema>;
 export type AgentPermissionRequestMessage = z.infer<typeof AgentPermissionRequestMessageSchema>;
 export type AgentPermissionResolvedMessage = z.infer<typeof AgentPermissionResolvedMessageSchema>;
@@ -3539,6 +3743,8 @@ export type ListProviderFeaturesResponseMessage = z.infer<
   typeof ListProviderFeaturesResponseMessageSchema
 >;
 export type ListAvailableProvidersResponse = z.infer<typeof ListAvailableProvidersResponseSchema>;
+export type DaemonGetStatusResponse = z.infer<typeof DaemonGetStatusResponseSchema>;
+export type DaemonGetPairingOfferResponse = z.infer<typeof DaemonGetPairingOfferResponseSchema>;
 export type GetProvidersSnapshotResponseMessage = z.infer<
   typeof GetProvidersSnapshotResponseMessageSchema
 >;
@@ -3636,6 +3842,7 @@ export type LoopStopRequest = z.infer<typeof LoopStopRequestSchema>;
 export type ResumeAgentRequestMessage = z.infer<typeof ResumeAgentRequestMessageSchema>;
 export type DeleteAgentRequestMessage = z.infer<typeof DeleteAgentRequestMessageSchema>;
 export type UpdateAgentRequestMessage = z.infer<typeof UpdateAgentRequestMessageSchema>;
+export type ProjectRenameRequest = z.infer<typeof ProjectRenameRequestSchema>;
 export type SetAgentModeRequestMessage = z.infer<typeof SetAgentModeRequestMessageSchema>;
 export type SetAgentModelRequestMessage = z.infer<typeof SetAgentModelRequestMessageSchema>;
 export type SetAgentThinkingRequestMessage = z.infer<typeof SetAgentThinkingRequestMessageSchema>;
@@ -3663,6 +3870,12 @@ export type CheckoutPrCreateResponse = z.infer<typeof CheckoutPrCreateResponseSc
 export type CheckoutPrMergeRequest = z.infer<typeof CheckoutPrMergeRequestSchema>;
 export type CheckoutPrMergeResponse = z.infer<typeof CheckoutPrMergeResponseSchema>;
 export type CheckoutPrMergeMethod = z.infer<typeof CheckoutPrMergeRequestSchema>["mergeMethod"];
+export type CheckoutGithubSetAutoMergeRequest = z.infer<
+  typeof CheckoutGithubSetAutoMergeRequestSchema
+>;
+export type CheckoutGithubSetAutoMergeResponse = z.infer<
+  typeof CheckoutGithubSetAutoMergeResponseSchema
+>;
 export type PullRequestMergeable = z.infer<typeof CheckoutPrStatusSchema>["mergeable"];
 export type CheckoutPrStatusRequest = z.infer<typeof CheckoutPrStatusRequestSchema>;
 export type CheckoutPrStatusResponse = z.infer<typeof CheckoutPrStatusResponseSchema>;
@@ -3671,6 +3884,8 @@ export type PullRequestTimelineItem = z.infer<typeof PullRequestTimelineItemSche
 export type PullRequestTimelineResponse = z.infer<typeof PullRequestTimelineResponseSchema>;
 export type CheckoutSwitchBranchRequest = z.infer<typeof CheckoutSwitchBranchRequestSchema>;
 export type CheckoutSwitchBranchResponse = z.infer<typeof CheckoutSwitchBranchResponseSchema>;
+export type CheckoutRenameBranchRequest = z.infer<typeof CheckoutRenameBranchRequestSchema>;
+export type CheckoutRenameBranchResponse = z.infer<typeof CheckoutRenameBranchResponseSchema>;
 export type StashSaveRequest = z.infer<typeof StashSaveRequestSchema>;
 export type StashSaveResponse = z.infer<typeof StashSaveResponseSchema>;
 export type StashPopRequest = z.infer<typeof StashPopRequestSchema>;
@@ -3724,6 +3939,8 @@ export type UnsubscribeTerminalsRequest = z.infer<typeof UnsubscribeTerminalsReq
 export type TerminalsChanged = z.infer<typeof TerminalsChangedSchema>;
 export type CreateTerminalRequest = z.infer<typeof CreateTerminalRequestSchema>;
 export type CreateTerminalResponse = z.infer<typeof CreateTerminalResponseSchema>;
+export type RenameTerminalRequest = z.infer<typeof RenameTerminalRequestSchema>;
+export type RenameTerminalResponse = z.infer<typeof RenameTerminalResponseSchema>;
 export type StartWorkspaceScriptRequest = z.infer<typeof StartWorkspaceScriptRequestSchema>;
 export type StartWorkspaceScriptResponse = z.infer<
   typeof StartWorkspaceScriptResponseMessageSchema

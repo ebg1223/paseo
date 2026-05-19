@@ -8,6 +8,10 @@ import type {
 } from "@server/server/agent/agent-sdk-types";
 import { useHosts } from "@/runtime/host-runtime";
 import { buildProviderDefinitions } from "@/utils/provider-definitions";
+import {
+  buildSelectableProviderSelectorProviders,
+  type ProviderSelectorProvider,
+} from "@/provider-selection/provider-selection";
 import { useProvidersSnapshot } from "./use-providers-snapshot";
 import {
   useFormPreferences,
@@ -28,9 +32,9 @@ import {
   SELECTABLE_PROVIDER_STATUSES,
   type FormInitialValues,
   type FormState,
-} from "./resolve-agent-form";
+} from "@/provider-selection/resolve-agent-form";
 
-export type { FormInitialValues } from "./resolve-agent-form";
+export type { FormInitialValues } from "@/provider-selection/resolve-agent-form";
 
 export interface UseAgentFormStateOptions {
   initialServerId?: string | null;
@@ -63,6 +67,7 @@ export interface UseAgentFormStateResult {
   modeOptions: AgentMode[];
   availableModels: AgentModelDefinition[];
   allProviderModels: Map<string, AgentModelDefinition[]>;
+  modelSelectorProviders: ProviderSelectorProvider[];
   isAllModelsLoading: boolean;
   availableThinkingOptions: NonNullable<AgentModelDefinition["thinkingOptions"]>;
   isModelLoading: boolean;
@@ -237,6 +242,10 @@ export function useAgentFormState(options: UseAgentFormStateOptions = {}): UseAg
     () => buildAllProviderModels(snapshotEntries),
     [snapshotEntries],
   );
+  const snapshotModelSelectorProviders = useMemo(
+    () => buildSelectableProviderSelectorProviders(snapshotEntries),
+    [snapshotEntries],
+  );
   const snapshotSelectedEntry = useMemo(
     () =>
       formState.provider
@@ -255,6 +264,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions = {}): UseAg
   const providerDefinitionMap = snapshotProviderDefinitionMap;
   const selectableProviderDefinitionMap = snapshotSelectableProviderDefinitionMap;
   const allProviderModels = snapshotAllProviderModels;
+  const modelSelectorProviders = snapshotModelSelectorProviders;
   const availableModels = snapshotSelectedProviderModels;
   const modeOptions = snapshotSelectedProviderModes;
   const isAllModelsLoading = snapshotIsLoading || selectedProviderIsLoading;
@@ -516,6 +526,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions = {}): UseAg
       modeOptions,
       availableModels: availableModels ?? [],
       allProviderModels,
+      modelSelectorProviders,
       isAllModelsLoading,
       availableThinkingOptions,
       isModelLoading,
@@ -548,6 +559,7 @@ export function useAgentFormState(options: UseAgentFormStateOptions = {}): UseAg
       modeOptions,
       availableModels,
       allProviderModels,
+      modelSelectorProviders,
       isAllModelsLoading,
       availableThinkingOptions,
       isModelLoading,

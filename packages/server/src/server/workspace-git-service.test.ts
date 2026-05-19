@@ -248,6 +248,30 @@ describe("WorkspaceGitServiceImpl", () => {
     service.dispose();
   });
 
+  test("onSnapshotUpdated emits only for observed workspace snapshots and can unsubscribe", async () => {
+    const service = createService();
+    const snapshotListener = vi.fn();
+    const snapshotSubscription = service.onSnapshotUpdated(snapshotListener);
+
+    await service.getSnapshot(REPO_CWD, { force: true, reason: "unobserved" });
+
+    expect(snapshotListener).not.toHaveBeenCalled();
+
+    const workspaceSubscription = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
+    await service.getSnapshot(REPO_CWD, { force: true, reason: "observed" });
+
+    expect(snapshotListener).toHaveBeenCalledTimes(1);
+    expect(snapshotListener).toHaveBeenCalledWith(createSnapshot(REPO_CWD));
+
+    snapshotSubscription.unsubscribe();
+    await service.getSnapshot(REPO_CWD, { force: true, reason: "after-unsubscribe" });
+
+    expect(snapshotListener).toHaveBeenCalledTimes(1);
+
+    workspaceSubscription.unsubscribe();
+    service.dispose();
+  });
+
   test("getSnapshot populates github pull request state in the runtime snapshot", async () => {
     const getPullRequestStatus = vi.fn(async () =>
       createPullRequestStatusResult({
@@ -317,7 +341,7 @@ describe("WorkspaceGitServiceImpl", () => {
     );
   });
 
-  test("non-forced GitHub refresh does not emit when pull request state is unchanged", async () => {
+  test("non-forced workspace refresh does not reload GitHub or emit when state is unchanged", async () => {
     let nowMs = Date.parse("2026-04-12T00:00:00.000Z");
     const getPullRequestStatus = vi.fn(async () => createPullRequestStatusResult());
     const service = createService({
@@ -331,7 +355,7 @@ describe("WorkspaceGitServiceImpl", () => {
     nowMs += 3_000;
     await service.refresh(REPO_CWD);
 
-    expect(getPullRequestStatus).toHaveBeenCalledTimes(2);
+    expect(getPullRequestStatus).toHaveBeenCalledTimes(1);
     expect(listener).not.toHaveBeenCalled();
 
     subscription.unsubscribe();
@@ -377,7 +401,7 @@ describe("WorkspaceGitServiceImpl", () => {
     service.dispose();
   });
 
-  test("multiple listeners on the same workspace share one GitHub pull request lookup", async () => {
+  test("multiple listeners on the same workspace share one observation setup", async () => {
     const getPullRequestStatus = vi.fn(async () => createPullRequestStatusResult());
     const resolveAbsoluteGitDir = vi.fn(async () => join(REPO_CWD, ".git"));
 
@@ -392,7 +416,7 @@ describe("WorkspaceGitServiceImpl", () => {
     const second = service.registerWorkspace({ cwd: REPO_CWD }, vi.fn());
     await flushPromises();
 
-    expect(getPullRequestStatus).toHaveBeenCalledTimes(1);
+    expect(getPullRequestStatus).toHaveBeenCalledTimes(0);
     expect(resolveAbsoluteGitDir).toHaveBeenCalledTimes(1);
 
     first.unsubscribe();
@@ -424,7 +448,7 @@ describe("WorkspaceGitServiceImpl", () => {
       createSnapshot(REPO_CWD),
     );
 
-    expect(getPullRequestStatus).toHaveBeenCalledTimes(2);
+    expect(getPullRequestStatus).toHaveBeenCalledTimes(1);
     expect(resolveAbsoluteGitDir).toHaveBeenCalledTimes(1);
 
     subscription.unsubscribe();
@@ -465,7 +489,7 @@ describe("WorkspaceGitServiceImpl", () => {
     service.dispose();
   });
 
-  test("explicit refresh recomputes github state and notifies listeners", async () => {
+  test("explicit forced snapshot refresh recomputes github state and notifies listeners", async () => {
     const getPullRequestStatus = vi
       .fn<() => Promise<PullRequestStatusResult>>()
       .mockResolvedValueOnce(
@@ -505,7 +529,10 @@ describe("WorkspaceGitServiceImpl", () => {
 
     expect(initialSnapshot.github.pullRequest?.title).toBe("Before refresh");
 
-    await service.refresh(REPO_CWD);
+    await service.getSnapshot(REPO_CWD, {
+      force: true,
+      reason: "test-force-github-refresh",
+    });
     await flushPromises();
 
     expect(getPullRequestStatus).toHaveBeenCalledTimes(2);
@@ -821,7 +848,7 @@ describe("WorkspaceGitServiceImpl", () => {
 
     expect(getCheckoutShortstat).toHaveBeenLastCalledWith(
       REPO_CWD,
-      { paseoHome: "/tmp/paseo-test" },
+      expect.objectContaining({ paseoHome: "/tmp/paseo-test" }),
       { force: true },
     );
     expect(workspaceListener).toHaveBeenCalledWith(

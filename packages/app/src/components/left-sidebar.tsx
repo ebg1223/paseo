@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, MessagesSquare, Settings } from "lucide-react-native";
+import { FolderPlus, MessagesSquare, Settings, X } from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -472,6 +472,7 @@ function SidebarFooter({
         searchable={false}
         title="Switch host"
         searchPlaceholder="Search hosts..."
+        desktopMinWidth={280}
         open={isHostPickerOpen}
         onOpenChange={setIsHostPickerOpen}
         anchorRef={hostTriggerRef}
@@ -679,6 +680,25 @@ function MobileSidebar({
               isActive={isSessionsActive}
               testID="sidebar-sessions"
             />
+            <Pressable
+              style={styles.mobileCloseButton}
+              onPress={closeToAgent}
+              testID="sidebar-close"
+              nativeID="sidebar-close"
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Close sidebar"
+              hitSlop={8}
+            >
+              {({ hovered, pressed }) => (
+                <X
+                  size={theme.iconSize.md}
+                  color={
+                    hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted
+                  }
+                />
+              )}
+            </Pressable>
 
             {isInitialLoad ? (
               <SidebarAgentListSkeleton />
@@ -887,6 +907,18 @@ const styles = StyleSheet.create((theme) => ({
   sidebarContent: {
     flex: 1,
     minHeight: 0,
+  },
+  mobileCloseButton: {
+    position: "absolute",
+    top: theme.spacing[3],
+    right: theme.spacing[4],
+    zIndex: 2,
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.surfaceSidebar,
   },
   desktopSidebarBorder: {
     borderRightWidth: 1,

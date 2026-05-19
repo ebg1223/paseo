@@ -11,7 +11,7 @@ import {
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useIsFocused } from "@react-navigation/native";
 import { ActivityIndicator, BackHandler, Keyboard, Pressable, Text, View } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, type Href } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 import { DiffStat } from "@/components/diff-stat";
@@ -26,6 +26,7 @@ import {
   Globe,
   Import as ImportIcon,
   PanelRight,
+  Pencil,
   RotateCw,
   Settings,
   SquarePen,
@@ -77,10 +78,7 @@ import type { WorkspaceTab, WorkspaceTabTarget } from "@/stores/workspace-tabs-s
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
-import {
-  normalizeWorkspaceTabTarget,
-  workspaceTabTargetsEqual,
-} from "@/utils/workspace-tab-identity";
+import { normalizeWorkspaceTabTarget, workspaceTabTargetsEqual } from "@/workspace-tabs/identity";
 import {
   getHostRuntimeStore,
   useHostRuntimeClient,
@@ -113,6 +111,10 @@ import {
   type WorkspaceTabPresentation,
 } from "@/screens/workspace/workspace-tab-presentation";
 import {
+  useWorkspaceTabRename,
+  WorkspaceTabRenameModal,
+} from "@/screens/workspace/use-workspace-tab-rename";
+import {
   WorkspaceDesktopTabsRow,
   type WorkspaceDesktopTabRowItem,
 } from "@/screens/workspace/workspace-desktop-tabs-row";
@@ -135,7 +137,10 @@ import {
   deriveWorkspaceAgentVisibility,
   workspaceAgentVisibilityEqual,
 } from "@/workspace-tabs/agent-visibility";
-import { deriveWorkspacePaneState } from "@/screens/workspace/workspace-pane-state";
+import {
+  deriveWorkspacePaneState,
+  resolveSideFileOpenPlacement,
+} from "@/screens/workspace/workspace-pane-state";
 import {
   buildWorkspacePaneContentModel,
   WorkspacePaneContent,
@@ -158,12 +163,19 @@ import { useContainerWidthBelow } from "@/hooks/use-container-width";
 import { buildHostRootRoute, buildSettingsHostRoute } from "@/utils/host-routes";
 import { canCreateWorkspaceTerminal } from "@/screens/workspace/terminals/state";
 import { useWorkspaceTerminals } from "@/screens/workspace/terminals/use-workspace-terminals";
+import {
+  createWorkspaceFileTabTarget,
+  normalizeWorkspaceFileLocation,
+  type WorkspaceFileLocation,
+  type WorkspaceFileOpenRequest,
+} from "@/workspace/file-open";
 
 const WORKSPACE_SETUP_AUTO_OPEN_WINDOW_MS = 30_000;
 const EMPTY_UI_TABS: WorkspaceTab[] = [];
 const EMPTY_WORKSPACE_SCRIPTS: WorkspaceDescriptor["scripts"] = [];
 const EMPTY_PINNED_AGENT_IDS = new Set<string>();
 const EMPTY_SET = new Set<string>();
+const COMPACT_WEB_GESTURE_TOUCH_ACTION = isWeb ? "auto" : "pan-y";
 
 const ThemedActivityIndicator = withUnistyles(ActivityIndicator);
 const ThemedEllipsis = withUnistyles(Ellipsis);
@@ -174,6 +186,7 @@ const ThemedRotateCw = withUnistyles(RotateCw);
 const ThemedArrowLeftToLine = withUnistyles(ArrowLeftToLine);
 const ThemedArrowRightToLine = withUnistyles(ArrowRightToLine);
 const ThemedCopyX = withUnistyles(CopyX);
+const ThemedPencil = withUnistyles(Pencil);
 const ThemedX = withUnistyles(X);
 const ThemedSquarePen = withUnistyles(SquarePen);
 const ThemedSquareTerminal = withUnistyles(SquareTerminal);
@@ -290,6 +303,7 @@ interface MobileWorkspaceTabSwitcherProps {
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   onCloseTabsAbove: (tabId: string) => Promise<void> | void;
   onCloseTabsBelow: (tabId: string) => Promise<void> | void;
@@ -429,6 +443,8 @@ function MobileTabDropdownMenuItem({
         return <ThemedArrowRightToLine size={16} uniProps={mutedColorMapping} />;
       case "copy-x":
         return <ThemedCopyX size={16} uniProps={mutedColorMapping} />;
+      case "pencil":
+        return <ThemedPencil size={16} uniProps={mutedColorMapping} />;
       case "x":
         return <ThemedX size={16} uniProps={mutedColorMapping} />;
       default:
@@ -466,6 +482,7 @@ function MobileWorkspaceTabOption({
   onCopyResumeCommand,
   onCopyAgentId,
   onReloadAgent,
+  onRenameTab,
   onCloseTab,
   onCloseTabsAbove,
   onCloseTabsBelow,
@@ -482,6 +499,7 @@ function MobileWorkspaceTabOption({
   onCopyResumeCommand: (agentId: string) => Promise<void> | void;
   onCopyAgentId: (agentId: string) => Promise<void> | void;
   onReloadAgent: (agentId: string) => Promise<void> | void;
+  onRenameTab: (tab: WorkspaceTabDescriptor) => void;
   onCloseTab: (tabId: string) => Promise<void> | void;
   onCloseTabsAbove: (tabId: string) => Promise<void> | void;
   onCloseTabsBelow: (tabId: string) => Promise<void> | void;
@@ -497,6 +515,7 @@ function MobileWorkspaceTabOption({
     onCopyResumeCommand,
     onCopyAgentId,
     onReloadAgent,
+    onRenameTab,
     onCloseTab,
     onCloseTabsBefore: onCloseTabsAbove,
     onCloseTabsAfter: onCloseTabsBelow,
@@ -551,6 +570,7 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
   onCopyResumeCommand,
   onCopyAgentId,
   onReloadAgent,
+  onRenameTab,
   onCloseTab,
   onCloseTabsAbove,
   onCloseTabsBelow,
@@ -604,6 +624,7 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
           onCopyResumeCommand={onCopyResumeCommand}
           onCopyAgentId={onCopyAgentId}
           onReloadAgent={onReloadAgent}
+          onRenameTab={onRenameTab}
           onCloseTab={onCloseTab}
           onCloseTabsAbove={onCloseTabsAbove}
           onCloseTabsBelow={onCloseTabsBelow}
@@ -620,6 +641,7 @@ const MobileWorkspaceTabSwitcher = memo(function MobileWorkspaceTabSwitcher({
       onCopyResumeCommand,
       onCopyAgentId,
       onReloadAgent,
+      onRenameTab,
       onCloseTab,
       onCloseTabsAbove,
       onCloseTabsBelow,
@@ -1495,6 +1517,9 @@ function WorkspaceScreenContent({
     [normalizedServerId, normalizedWorkspaceId],
   );
   const openWorkspaceTabFocused = useWorkspaceLayoutStore((state) => state.openTabFocused);
+  const openWorkspaceChildTabFocused = useWorkspaceLayoutStore(
+    (state) => state.openChildTabFocused,
+  );
   const focusWorkspacePane = useWorkspaceLayoutStore((state) => state.focusPane);
   const hasHydratedWorkspaces = useSessionStore(
     (state) => state.sessions[normalizedServerId]?.hasHydratedWorkspaces ?? false,
@@ -1522,6 +1547,7 @@ function WorkspaceScreenContent({
     openWorkspaceTabFocused,
     toast,
   });
+  const queryClient = useQueryClient();
   const {
     createMutation: createTerminalMutation,
     createTerminal,
@@ -1533,6 +1559,7 @@ function WorkspaceScreenContent({
     liveTerminalIds,
     pendingCreateInput: pendingTerminalCreateInput,
     query: terminalsQuery,
+    queryKey: terminalsQueryKey,
     removeTerminalFromCache,
     standaloneTerminalIds,
     terminals,
@@ -2019,7 +2046,11 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
-      const tabId = openWorkspaceTabFocused(persistenceKey, { kind: "file", path: filePath });
+      const location = normalizeWorkspaceFileLocation({ path: filePath });
+      if (!location) {
+        return;
+      }
+      const tabId = openWorkspaceTabFocused(persistenceKey, createWorkspaceFileTabTarget(location));
       if (tabId) {
         navigateToTabId(tabId);
       }
@@ -2028,18 +2059,97 @@ function WorkspaceScreenContent({
   );
 
   const handleOpenFileFromChat = useCallback(
-    ({ filePath }: { filePath: string }) => {
-      const normalizedFilePath = filePath.trim();
-      if (!normalizedFilePath) {
+    (location: WorkspaceFileLocation, options?: { parentTabId?: string | null }) => {
+      const normalizedLocation = normalizeWorkspaceFileLocation(location);
+      if (!normalizedLocation) {
         return;
       }
-      handleOpenFileFromExplorer(normalizedFilePath);
+      if (isMobile) {
+        showMobileAgent();
+      }
+      if (!persistenceKey) {
+        return;
+      }
+      const target = createWorkspaceFileTabTarget(normalizedLocation);
+      const tabId = options?.parentTabId
+        ? openWorkspaceChildTabFocused(persistenceKey, target, options.parentTabId)
+        : openWorkspaceTabFocused(persistenceKey, target);
+      if (tabId) {
+        navigateToTabId(tabId);
+      }
     },
-    [handleOpenFileFromExplorer],
+    [
+      isMobile,
+      navigateToTabId,
+      openWorkspaceChildTabFocused,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      showMobileAgent,
+    ],
+  );
+
+  const handleOpenFileFromChatInSidePane = useCallback(
+    (input: {
+      location: WorkspaceFileLocation;
+      sourcePaneId?: string;
+      parentTabId?: string | null;
+    }) => {
+      const location = normalizeWorkspaceFileLocation(input.location);
+      if (!location) {
+        return;
+      }
+      if (!persistenceKey || isMobile || !input.sourcePaneId) {
+        handleOpenFileFromChat(location, { parentTabId: input.parentTabId });
+        return;
+      }
+
+      const target: WorkspaceTabTarget = createWorkspaceFileTabTarget(location);
+      const placement = resolveSideFileOpenPlacement({
+        layout: workspaceLayout,
+        sourcePaneId: input.sourcePaneId,
+        tabs: uiTabs,
+        target,
+      });
+      if (placement.kind === "focus-side-pane") {
+        focusWorkspacePane(persistenceKey, placement.paneId);
+      } else if (placement.kind === "split-side-pane") {
+        splitWorkspacePaneEmpty(persistenceKey, {
+          targetPaneId: placement.paneId,
+          position: "right",
+        });
+      }
+
+      const tabId = input.parentTabId
+        ? openWorkspaceChildTabFocused(persistenceKey, target, input.parentTabId)
+        : openWorkspaceTabFocused(persistenceKey, target);
+      if (tabId) {
+        navigateToTabId(tabId);
+      }
+    },
+    [
+      handleOpenFileFromChat,
+      isMobile,
+      focusWorkspacePane,
+      navigateToTabId,
+      openWorkspaceChildTabFocused,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      splitWorkspacePaneEmpty,
+      uiTabs,
+      workspaceLayout,
+    ],
   );
 
   const [_hoveredTabKey, setHoveredTabKey] = useState<string | null>(null);
   const [hoveredCloseTabKey, setHoveredCloseTabKey] = useState<string | null>(null);
+  const { handleRenameTab, renamingTab, handleRenameModalSubmit, handleRenameModalClose } =
+    useWorkspaceTabRename({
+      client,
+      normalizedServerId,
+      queryClient,
+      terminalsData: terminalsQuery.data,
+      terminalsQueryKey,
+    });
 
   const tabByKey = useMemo(() => {
     const map = new Map<string, WorkspaceTabDescriptor>();
@@ -2688,7 +2798,7 @@ function WorkspaceScreenContent({
           if (input.focusPaneBeforeOpen && input.paneId) {
             focusWorkspacePane(persistenceKey, input.paneId);
           }
-          const tabId = openWorkspaceTabFocused(persistenceKey, target);
+          const tabId = openWorkspaceChildTabFocused(persistenceKey, target, input.tab.tabId);
           if (tabId) {
             navigateToTabId(tabId);
           }
@@ -2706,23 +2816,32 @@ function WorkspaceScreenContent({
           }
           retargetWorkspaceTab(persistenceKey, input.tab.tabId, target);
         },
-        onOpenWorkspaceFile: (filePath) => {
+        onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => {
           if (input.focusPaneBeforeOpen && input.paneId && persistenceKey) {
             focusWorkspacePane(persistenceKey, input.paneId);
           }
-          handleOpenFileFromChat({ filePath });
+          if (request.disposition === "side") {
+            handleOpenFileFromChatInSidePane({
+              location: request.location,
+              sourcePaneId: input.paneId ?? undefined,
+              parentTabId: input.tab.tabId,
+            });
+            return;
+          }
+          handleOpenFileFromChat(request.location, { parentTabId: input.tab.tabId });
         },
         onOpenImportSheet: openImportSheet,
       }),
     [
       handleCloseTabById,
       handleOpenFileFromChat,
+      handleOpenFileFromChatInSidePane,
       focusWorkspacePane,
       navigateToTabId,
       normalizedServerId,
       normalizedWorkspaceId,
       openImportSheet,
-      openWorkspaceTabFocused,
+      openWorkspaceChildTabFocused,
       persistenceKey,
       convertWorkspaceDraftToAgent,
       retargetWorkspaceTab,
@@ -3058,6 +3177,7 @@ function WorkspaceScreenContent({
         onCopyResumeCommand={handleCopyResumeCommand}
         onCopyAgentId={handleCopyAgentId}
         onReloadAgent={handleReloadAgent}
+        onRenameTab={handleRenameTab}
         onCloseTabsToLeft={handleCloseTabsToLeftInPane}
         onCloseTabsToRight={handleCloseTabsToRightInPane}
         onCloseOtherTabs={handleCloseOtherTabsInPane}
@@ -3092,6 +3212,7 @@ function WorkspaceScreenContent({
     handleCopyResumeCommand,
     handleCopyAgentId,
     handleReloadAgent,
+    handleRenameTab,
     handleCloseTabsToLeftInPane,
     handleCloseTabsToRightInPane,
     handleCloseOtherTabsInPane,
@@ -3174,6 +3295,7 @@ function WorkspaceScreenContent({
                   onCopyResumeCommand={handleCopyResumeCommand}
                   onCopyAgentId={handleCopyAgentId}
                   onReloadAgent={handleReloadAgent}
+                  onRenameTab={handleRenameTab}
                   onCloseTab={handleCloseTabById}
                   onCloseTabsAbove={handleCloseTabsToLeft}
                   onCloseTabsBelow={handleCloseTabsToRight}
@@ -3195,6 +3317,7 @@ function WorkspaceScreenContent({
                   onCopyResumeCommand={handleCopyResumeCommand}
                   onCopyAgentId={handleCopyAgentId}
                   onReloadAgent={handleReloadAgent}
+                  onRenameTab={handleRenameTab}
                   onCloseTabsToLeft={handleCloseTabsToLeft}
                   onCloseTabsToRight={handleCloseTabsToRight}
                   onCloseOtherTabs={handleCloseOtherTabs}
@@ -3213,7 +3336,10 @@ function WorkspaceScreenContent({
 
               <View style={styles.centerContent}>
                 {isMobile ? (
-                  <GestureDetector gesture={explorerOpenGesture} touchAction="pan-y">
+                  <GestureDetector
+                    gesture={explorerOpenGesture}
+                    touchAction={COMPACT_WEB_GESTURE_TOUCH_ACTION}
+                  >
                     <View style={styles.content}>{content}</View>
                   </GestureDetector>
                 ) : (
@@ -3239,6 +3365,11 @@ function WorkspaceScreenContent({
             workspaceDirectory={workspaceDirectory}
             onClose={closeImportSheet}
             onImportedAgent={handleImportedAgent}
+          />
+          <WorkspaceTabRenameModal
+            renamingTab={renamingTab}
+            onSubmit={handleRenameModalSubmit}
+            onClose={handleRenameModalClose}
           />
         </View>
       </WorkspaceFocusProvider>
