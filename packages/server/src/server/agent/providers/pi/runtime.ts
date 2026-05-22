@@ -21,6 +21,7 @@ export interface PiRuntimeLaunch {
 
 export interface PiStartSessionInput {
   cwd: string;
+  env?: Record<string, string>;
   model?: string;
   thinkingOptionId?: string;
   session?: string;
@@ -42,6 +43,10 @@ export interface PiRuntimeSession {
   setThinkingLevel(level: string): Promise<void>;
   getSessionStats(): Promise<PiSessionStats>;
   getCommands(): Promise<PiRpcSlashCommand[]>;
+  respondToExtensionUiRequest(
+    id: string,
+    response: { value?: string; confirmed?: boolean; cancelled?: boolean },
+  ): void;
   cancelExtensionUiRequest(id: string): void;
   close(): Promise<void>;
 }
@@ -84,7 +89,13 @@ export function buildPiLaunch(input: {
   return {
     cwd: input.session.cwd,
     argv,
-    env: input.runtimeSettings?.env,
+    env:
+      input.runtimeSettings?.env || input.session.env
+        ? {
+            ...input.runtimeSettings?.env,
+            ...input.session.env,
+          }
+        : undefined,
     model: input.session.model,
     thinkingOptionId: input.session.thinkingOptionId,
     session: input.session.session,

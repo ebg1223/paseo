@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.1.80 - 2026-05-21
+
+### Fixed
+
+- Opening dropdown menus no longer crashes on mobile
+
+## 0.1.79 - 2026-05-21
+
+### Added
+
+- **Pi has been revamped with first-class support**
+  - Runs through your installed Pi CLI, so your Pi extensions and configuration carry over
+  - Pi agents can call Paseo tools when you have the Pi MCP extension installed
+  - Import a Pi session you started in the terminal
+  - Copy Pi's resume command from any agent to continue the session in your terminal
+  - Windows: Pi sessions match correctly across symlinked and junctioned workspace paths
+- **New home screen with quick tiles for adding a project, importing a session, setting up providers, and pairing a device**
+- **Create an agent directly into a fresh worktree that auto-archives when the run finishes**
+- **Set a custom system prompt that applies to every agent you start**
+- **Rename workspaces, terminals, and agent tabs** ([#531](https://github.com/getpaseo/paseo/pull/531))
+- **DeepSeek TUI in the ACP provider catalog** ([#1096](https://github.com/getpaseo/paseo/pull/1096))
+- **Kiro CLI in the ACP provider catalog** (by [@huhusmang](https://github.com/huhusmang))
+- Catalog providers show their icons in the model picker ([#1098](https://github.com/getpaseo/paseo/pull/1098))
+- Custom environment variables passed when creating an agent now reach the agent process ([#1112](https://github.com/getpaseo/paseo/pull/1112))
+- NixOS module supports the public TLS option for self-hosted relays ([#1106](https://github.com/getpaseo/paseo/pull/1106) by [@yzx9](https://github.com/yzx9))
+
+### Improved
+
+- **Stale host connections recover automatically without a manual refresh**
+- Paseo opens to the workspace you were on last time you used it ([#1101](https://github.com/getpaseo/paseo/pull/1101))
+- Workspaces remember which editor you opened them in
+- Outdated daemons now suggest an upgrade when they receive a command they don't understand
+- Voice mode is hidden while an agent is running
+- Agent file-link tooltips show the full resolved file path ([#1088](https://github.com/getpaseo/paseo/pull/1088))
+- Workspace git status refreshes less aggressively in the background ([#1102](https://github.com/getpaseo/paseo/pull/1102))
+
+### Fixed
+
+- macOS desktop no longer freezes after the display wakes from sleep ([#745](https://github.com/getpaseo/paseo/pull/745))
+- Windows: Codex picks up the Microsoft Store install correctly ([#1020](https://github.com/getpaseo/paseo/pull/1020) by [@32r4](https://github.com/32r4))
+- Workspace selection survives a daemon restart ([#1111](https://github.com/getpaseo/paseo/pull/1111))
+- Cursor agents wait for slash commands to load before listing them ([#1099](https://github.com/getpaseo/paseo/pull/1099) by [@chrisbanes](https://github.com/chrisbanes))
+- Codex sub-agents keep running through transient child process errors (by [@xy-plus](https://github.com/xy-plus))
+- iPad terminals send Ctrl+C correctly from a hardware keyboard (by [@samatar26](https://github.com/samatar26))
+- Git filenames with non-ASCII characters render correctly (by [@samatar26](https://github.com/samatar26))
+- Paste shortcuts work on Dvorak keyboard layouts (by [@qin-nz](https://github.com/qin-nz))
+- Claude file links resolve correctly for projects whose paths need SDK encoding
+- Duplicate Claude result text no longer appears in chat ([#1095](https://github.com/getpaseo/paseo/pull/1095))
+- Dynamic UI styles no longer leak CSS rules across the page ([#1103](https://github.com/getpaseo/paseo/pull/1103))
+- Relay handshakes reject sessions that try to change encryption keys mid-flight ([#1037](https://github.com/getpaseo/paseo/pull/1037) by [@joaosa](https://github.com/joaosa))
+
 ## 0.1.78 - 2026-05-18
 
 ### Improved
@@ -680,7 +731,7 @@
 
 ### Added
 
-- Pi (pi.dev) agent provider — connect Pi as a new ACP-based agent type with thinking levels and tool call support
+- Pi (pi.dev) agent provider — connect Pi as a new agent type with thinking levels and tool call support
 - Copilot agent provider re-enabled after ACP compatibility fixes
 - `paseo .` and `paseo <path>` open the desktop app with the given project, similar to `code .`
 - Provider-declared features system — providers can expose dynamic toggles and selects that the app renders automatically. First consumer: Codex fast mode

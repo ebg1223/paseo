@@ -1589,7 +1589,27 @@ describe("transformPiModels", () => {
 
 describe("ACPAgentSession slash commands", () => {
   test("returns immediately for ACP sessions that do not wait for async command discovery", async () => {
-    const session = createSession();
+    const session = new ACPAgentSession(
+      {
+        provider: "claude-acp",
+        cwd: "/tmp/paseo-acp-test",
+      },
+      {
+        provider: "claude-acp",
+        logger: createTestLogger(),
+        defaultCommand: ["claude", "--acp"],
+        defaultModes: [],
+        capabilities: {
+          supportsStreaming: true,
+          supportsSessionPersistence: true,
+          supportsDynamicModes: true,
+          supportsMcpServers: true,
+          supportsReasoningStream: true,
+          supportsToolInvocations: true,
+        },
+        waitForInitialCommands: false,
+      },
+    );
 
     await expect(session.listCommands()).resolves.toEqual([]);
   });
