@@ -4,7 +4,7 @@ import { ensureAgentLoaded } from "./agent-loading.js";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
 import type { AgentStorage, StoredAgentRecord } from "./agent-storage.js";
 
-test("ensureAgentLoaded replays provider history when resuming persisted sessions", async () => {
+test("ensureAgentLoaded uses normal resume when loading persisted sessions", async () => {
   const agentId = "11111111-1111-4111-8111-111111111111";
   const now = "2026-05-12T00:00:00.000Z";
   const record: StoredAgentRecord = {
@@ -66,10 +66,6 @@ test("ensureAgentLoaded replays provider history when resuming persisted session
       updatedAt: new Date("2026-05-12T00:01:00.000Z"),
       lastUserMessageAt: new Date("2026-05-12T00:02:00.000Z"),
       labels: { kind: "custom-acp" },
-      resumeSessionOptions: {
-        historyReplay: true,
-        configReplayPolicy: "best-effort",
-      },
     },
   );
 });

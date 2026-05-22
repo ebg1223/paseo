@@ -53,13 +53,7 @@ export async function ensureAgentLoaded(
         handle,
         buildConfigOverrides(record),
         agentId,
-        {
-          ...extractTimestamps(record),
-          resumeSessionOptions: {
-            historyReplay: true,
-            configReplayPolicy: "best-effort",
-          },
-        },
+        extractTimestamps(record),
       );
       deps.logger.info({ agentId, provider: record.provider }, "Agent resumed from persistence");
     } else {
