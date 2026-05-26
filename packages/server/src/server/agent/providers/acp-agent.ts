@@ -1035,12 +1035,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
       await this.resumeWithoutHistoryReplay(handle);
     } else if (this.agentCapabilities?.loadSession) {
       await this.loadWithHistoryReplay(handle);
-      if (sessionCapabilities?.resume) {
-        // `session/load` is ACP's history replay path, but some ACP servers treat
-        // the loaded transport as replay-only. Re-open with `session/resume` so
-        // subsequent turns use the provider's normal live-session path.
-        await this.restartTransportAfterHistoryReplay(handle);
-      }
     } else if (sessionCapabilities?.resume) {
       await this.resumeWithoutHistoryReplay(handle);
     } else {
@@ -1062,22 +1056,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
       mcpServers: normalizeMcpServers(this.config.mcpServers),
     });
     this.applySessionState(response);
-  }
-
-  private async restartTransportAfterHistoryReplay(handle: AgentPersistenceHandle): Promise<void> {
-    const previousChild = this.child;
-    this.connection = null;
-    this.child = null;
-    if (previousChild) {
-      await terminateChildProcess(previousChild, 2_000);
-    }
-
-    const spawned = await this.spawnProcess();
-    this.child = spawned.child;
-    this.connection = spawned.connection;
-    this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
-    this.sessionId = handle.sessionId;
-    await this.resumeWithoutHistoryReplay(handle);
   }
 
   private async loadWithHistoryReplay(handle: AgentPersistenceHandle): Promise<void> {
