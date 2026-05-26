@@ -56,6 +56,8 @@ import {
 import { ForegroundRunState, type ForegroundTurnWaiter } from "./foreground-run-state.js";
 import { getAgentProviderDefinition } from "./provider-manifest.js";
 import { IMPORTABLE_PROVIDERS } from "./provider-registry.js";
+import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
+import { isSystemInjectedEnvelope } from "./agent-prompt.js";
 
 const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
 const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
@@ -66,6 +68,9 @@ const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
   supportsMcpServers: false,
   supportsReasoningStream: false,
   supportsToolInvocations: true,
+  supportsRewindConversation: false,
+  supportsRewindFiles: false,
+  supportsRewindBoth: false,
 };
 
 type TimeoutResult = "completed" | "timed_out";
@@ -88,7 +93,6 @@ function buildStoredAgentConfig(record: StoredAgentRecord): AgentSessionConfig {
   if (!record.config) {
     return config;
   }
-  if (record.config.title != null) config.title = record.config.title;
   if (record.config.modeId != null) config.modeId = record.config.modeId;
   if (record.config.model != null) config.model = record.config.model;
   if (record.config.thinkingOptionId != null) {
@@ -131,6 +135,11 @@ export type AgentSubscriber = (event: AgentManagerEvent) => void;
 export interface SubscribeOptions {
   agentId?: string;
   replayState?: boolean;
+}
+
+interface HydrateTimelineOptions {
+  force?: boolean;
+  broadcast?: boolean;
 }
 
 export type ImportablePersistedAgentQueryOptions = ListPersistedAgentsOptions & {
@@ -221,7 +230,6 @@ interface StreamEventFlags {
 
 interface HandleStreamEventOptions {
   fromHistory?: boolean;
-  canonicalUserMessagesById?: ReadonlyMap<string, string>;
 }
 
 interface ManagedAgentBase {
@@ -373,28 +381,6 @@ function validateAgentId(agentId: string, source: string): string {
     throw new Error(`${source}: agentId must be a UUID`);
   }
   return result.data;
-}
-
-function normalizeMessageId(messageId: string | undefined): string | undefined {
-  if (typeof messageId !== "string") {
-    return undefined;
-  }
-  const trimmed = messageId.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function isDuplicateLegacyUserMessage(
-  item: AgentTimelineItem,
-  canonicalUserMessagesById: Map<string, string>,
-): boolean {
-  if (item.type !== "user_message") {
-    return false;
-  }
-  const eventMessageId = normalizeMessageId(item.messageId);
-  if (!eventMessageId) {
-    return false;
-  }
-  return canonicalUserMessagesById.get(eventMessageId) === item.text;
 }
 
 function buildExplicitTimelineSeedForRegister(
@@ -808,6 +794,7 @@ export class AgentManager {
       initialPrompt?: string;
       env?: Record<string, string>;
       persistSession?: boolean;
+      initialTitle?: string | null;
     },
   ): Promise<ManagedAgent> {
     const resolvedAgentId = validateAgentId(agentId ?? this.idFactory(), "createAgent");
@@ -837,6 +824,7 @@ export class AgentManager {
     return this.registerSession(session, normalizedConfig, resolvedAgentId, {
       labels: options?.labels,
       workspaceId: options?.workspaceId,
+      initialTitle: options?.initialTitle,
     });
   }
 
@@ -1177,11 +1165,12 @@ export class AgentManager {
   async setAgentMode(agentId: string, modeId: string): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
     await agent.session.setMode(modeId);
-    agent.config.modeId = modeId;
-    agent.currentModeId = modeId;
+    const currentMode = await agent.session.getCurrentMode();
+    agent.config.modeId = currentMode ?? undefined;
+    agent.currentModeId = currentMode;
     // Update runtimeInfo to reflect the new mode
     if (agent.runtimeInfo) {
-      agent.runtimeInfo = { ...agent.runtimeInfo, modeId };
+      agent.runtimeInfo = { ...agent.runtimeInfo, modeId: currentMode };
     }
     this.touchUpdatedAt(agent);
     this.emitState(agent);
@@ -1257,7 +1246,7 @@ export class AgentManager {
     this.emitState(agent, { persist: false });
   }
 
-  async setGeneratedTitleIfUnset(agentId: string, title: string): Promise<void> {
+  async setGeneratedTitle(agentId: string, title: string): Promise<void> {
     const agent = this.requireAgent(agentId);
     const normalizedTitle = title.trim();
     if (!normalizedTitle) {
@@ -1265,10 +1254,7 @@ export class AgentManager {
     }
 
     const registry = this.requireRegistry();
-    const persisted = await registry.setGeneratedTitleIfUnset(agent.id, normalizedTitle);
-    if (!persisted) {
-      return;
-    }
+    const persisted = await registry.setGeneratedTitle(agent.id, normalizedTitle);
 
     agent.updatedAt = new Date(persisted.updatedAt);
     this.emitState(agent, { persist: false });
@@ -1466,39 +1452,6 @@ export class AgentManager {
       }
     })();
     return true;
-  }
-
-  recordUserMessage(
-    agentId: string,
-    text: string,
-    options?: { messageId?: string; emitState?: boolean },
-  ): void {
-    const agent = this.requireAgent(agentId);
-    const normalizedMessageId = normalizeMessageId(options?.messageId);
-    const item: AgentTimelineItem = {
-      type: "user_message",
-      text,
-      messageId: normalizedMessageId,
-    };
-    const updatedAt = this.touchUpdatedAt(agent);
-    agent.lastUserMessageAt = updatedAt;
-    const row = this.recordTimeline(agentId, item);
-    this.dispatchStream(
-      agentId,
-      {
-        type: "timeline",
-        item,
-        provider: agent.provider,
-      },
-      {
-        seq: row.seq,
-        epoch: this.timelineStore.getEpoch(agentId),
-        timestamp: row.timestamp,
-      },
-    );
-    if (options?.emitState !== false) {
-      this.emitState(agent);
-    }
   }
 
   async appendTimelineItem(agentId: string, item: AgentTimelineItem): Promise<void> {
@@ -1993,9 +1946,47 @@ export class AgentManager {
    * timeline is empty (e.g., imported agents that have provider history
    * on disk but no persisted timeline rows). No-ops if already hydrated.
    */
-  async hydrateTimelineFromProvider(agentId: string): Promise<void> {
+  async hydrateTimelineFromProvider(
+    agentId: string,
+    options?: HydrateTimelineOptions,
+  ): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
-    await this.hydrateTimelineFromLegacyProviderHistory(agent);
+    await this.hydrateTimelineFromLegacyProviderHistory(agent, options);
+  }
+
+  async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
+    const agent = this.requireSessionAgent(agentId);
+    const hadActiveRun =
+      Boolean(agent.activeForegroundTurnId) || this.foregroundRuns.hasPendingRun(agentId);
+    if (hadActiveRun) {
+      await this.cancelAgentRun(agentId);
+    }
+
+    const lock = this.foregroundRuns.createPendingRun(agentId);
+    try {
+      this.logger.info(
+        { agentId, provider: agent.provider, messageId, mode },
+        "agent.rewind.start",
+      );
+      await invokeRewindCapability(agent.session, { messageId, mode });
+      if (mode !== "files") {
+        await this.hydrateTimelineFromProvider(agentId, { force: true, broadcast: true });
+      }
+      await this.refreshRuntimeInfo(agent);
+      await this.persistSnapshot(agent);
+      this.logger.info(
+        { agentId, provider: agent.provider, messageId, mode },
+        "agent.rewind.complete",
+      );
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId, provider: agent.provider, messageId, mode },
+        "agent.rewind.failed",
+      );
+      throw error;
+    } finally {
+      this.foregroundRuns.settlePendingRun(agentId, lock.token);
+    }
   }
 
   async deleteCommittedTimeline(agentId: string): Promise<void> {
@@ -2081,19 +2072,6 @@ export class AgentManager {
       return null;
     }
     return await this.durableTimelineStore.getLastItem(agentId);
-  }
-
-  private async hasCommittedUserMessageFromStores(
-    agentId: string,
-    options: { messageId: string; text: string },
-  ): Promise<boolean> {
-    if (this.timelineStore.hasCommittedUserMessage(agentId, options)) {
-      return true;
-    }
-    if (!this.durableTimelineStore) {
-      return false;
-    }
-    return await this.durableTimelineStore.hasCommittedUserMessage(agentId, options);
   }
 
   async waitForAgentEvent(
@@ -2274,13 +2252,18 @@ export class AgentManager {
       lastUsage?: AgentUsage;
       lastError?: string;
       attention?: AttentionState;
+      initialTitle?: string | null;
     },
   ): Promise<ManagedAgent> {
     const resolvedAgentId = validateAgentId(agentId, "registerSession");
     if (this.agents.has(resolvedAgentId)) {
       throw new Error(`Agent with id ${resolvedAgentId} already exists`);
     }
-    const initialPersistedTitle = await this.resolveInitialPersistedTitle(resolvedAgentId, config);
+    const initialPersistedTitle = await this.resolveInitialPersistedTitle(
+      resolvedAgentId,
+      config,
+      options?.initialTitle ?? null,
+    );
 
     const now = new Date();
     const { durableTimelineHasRows } = await this.initializeAgentTimelineForRegister({
@@ -2551,15 +2534,17 @@ export class AgentManager {
   private async resolveInitialPersistedTitle(
     agentId: string,
     config: AgentSessionConfig,
+    fallbackTitle: string | null,
   ): Promise<string | null> {
     const existing = await this.registry?.get(agentId);
     if (existing) {
       return existing.title ?? null;
     }
-    if (Object.prototype.hasOwnProperty.call(config, "title")) {
-      return config.title ?? null;
-    }
-    return null;
+    const explicitTitle =
+      typeof config.title === "string" && config.title.trim().length > 0
+        ? config.title.trim()
+        : null;
+    return explicitTitle ?? fallbackTitle;
   }
 
   private async persistSnapshot(
@@ -2636,18 +2621,57 @@ export class AgentManager {
     }
   }
 
-  private async hydrateTimelineFromLegacyProviderHistory(agent: ActiveManagedAgent): Promise<void> {
-    if (agent.historyPrimed) {
+  private async hydrateTimelineFromLegacyProviderHistory(
+    agent: ActiveManagedAgent,
+    options?: HydrateTimelineOptions,
+  ): Promise<void> {
+    if (agent.historyPrimed && !options?.force) {
       return;
     }
+
+    if (options?.force) {
+      const historyEvents: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
+      for await (const event of agent.session.streamHistory()) {
+        if (event.type === "timeline") {
+          if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {
+            continue;
+          }
+          historyEvents.push(event);
+        }
+      }
+
+      this.agentStreamCoalescer.flushAndDiscard(agent.id);
+      await this.deleteCommittedTimeline(agent.id);
+      this.timelineStore.delete(agent.id);
+      this.timelineStore.initialize(agent.id, { timestamp: new Date().toISOString() });
+      agent.historyPrimed = true;
+
+      for (const event of historyEvents) {
+        const row = this.recordTimeline(
+          agent.id,
+          event.item,
+          event.timestamp ? { timestamp: event.timestamp } : undefined,
+        );
+        if (options?.broadcast) {
+          this.dispatchStream(agent.id, event, {
+            seq: row.seq,
+            epoch: this.timelineStore.getEpoch(agent.id),
+            timestamp: row.timestamp,
+          });
+        }
+      }
+      this.touchUpdatedAt(agent);
+      this.emitState(agent);
+      return;
+    }
+
     agent.historyPrimed = true;
-    const canonicalUserMessagesById = this.timelineStore.getCanonicalUserMessagesById(agent.id);
     try {
       for await (const event of agent.session.streamHistory()) {
         if (event.type !== "timeline") {
           continue;
         }
-        if (isDuplicateLegacyUserMessage(event.item, canonicalUserMessagesById)) {
+        if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {
           continue;
         }
         this.recordTimeline(
@@ -2891,41 +2915,16 @@ export class AgentManager {
   private async onStreamTimelineEvent(params: {
     agent: ActiveManagedAgent;
     event: Extract<AgentStreamEvent, { type: "timeline" }>;
-    options:
-      | {
-          fromHistory?: boolean;
-          canonicalUserMessagesById?: ReadonlyMap<string, string>;
-        }
-      | undefined;
+    options: { fromHistory?: boolean } | undefined;
     isForegroundEvent: boolean;
     flags: StreamEventFlags;
   }): Promise<void> {
-    const { agent, event, options, isForegroundEvent, flags } = params;
-    // Skip provider-replayed user_message items during history hydration.
-    if (options?.fromHistory && event.item.type === "user_message") {
-      const eventMessageId = normalizeMessageId(event.item.messageId);
-      if (eventMessageId) {
-        const canonicalText = options?.canonicalUserMessagesById?.get(eventMessageId);
-        if (canonicalText === event.item.text) {
-          flags.shouldDispatchEvent = false;
-          flags.shouldNotifyWaiters = false;
-          return;
-        }
-      }
-    }
+    const { agent, event, options, flags } = params;
 
-    // Suppress user_message echoes for the active foreground turn.
-    if (!options?.fromHistory && event.item.type === "user_message" && isForegroundEvent) {
-      const eventMessageId = normalizeMessageId(event.item.messageId);
-      if (
-        eventMessageId &&
-        (await this.hasCommittedUserMessageFromStores(agent.id, {
-          messageId: eventMessageId,
-          text: event.item.text,
-        }))
-      ) {
-        return;
-      }
+    if (event.item.type === "user_message" && isSystemInjectedEnvelope(event.item.text)) {
+      flags.shouldDispatchEvent = false;
+      flags.shouldNotifyWaiters = false;
+      return;
     }
 
     if (options?.fromHistory) {
@@ -2980,12 +2979,7 @@ export class AgentManager {
     event: Extract<AgentStreamEvent, { type: "turn_failed" }>;
     eventTurnId: string | undefined;
     isForegroundEvent: boolean;
-    options:
-      | {
-          fromHistory?: boolean;
-          canonicalUserMessagesById?: ReadonlyMap<string, string>;
-        }
-      | undefined;
+    options: { fromHistory?: boolean } | undefined;
   }): Promise<void> {
     const { agent, event, eventTurnId, isForegroundEvent, options } = params;
     this.logger.warn(
@@ -3148,10 +3142,7 @@ export class AgentManager {
     agent: ActiveManagedAgent,
     provider: AgentProvider,
     message: string,
-    options?: {
-      fromHistory?: boolean;
-      canonicalUserMessagesById?: ReadonlyMap<string, string>;
-    },
+    options?: { fromHistory?: boolean },
   ): Promise<void> {
     if (options?.fromHistory) {
       return;

@@ -49,7 +49,7 @@ import {
   FileSymlink,
 } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { SPACING, type Theme } from "@/styles/theme";
+import { type Theme } from "@/styles/theme";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import Animated, {
   Easing,
@@ -62,17 +62,17 @@ import Animated, {
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Rect, Stop } from "react-native-svg";
 import { createMarkdownStyles } from "@/styles/markdown-styles";
 import { Fonts } from "@/constants/theme";
-import * as Clipboard from "expo-clipboard";
 import type { TodoEntry, UserMessageImageAttachment } from "@/types/stream";
 import type { AgentAttachment } from "@server/shared/messages";
 import type { ToolCallDetail } from "@server/server/agent/agent-sdk-types";
 import { buildToolCallPresentation } from "@/tool-calls/presentation";
 import { resolveToolCallIcon } from "@/utils/tool-call-icon";
-import { getMarkdownListMarker, getMarkdownNextSiblingType } from "@/utils/markdown-list";
+import { getMarkdownListMarker, getMarkdownListSpacing } from "@/utils/markdown-list";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { HighlightedCodeBlock } from "@/components/highlighted-code-block";
 import { splitMarkdownBlocks } from "@/utils/split-markdown-blocks";
 import { formatDuration, formatMessageTimestamp } from "@/utils/time";
+import { writeMarkdownToRichClipboard } from "@/utils/rich-clipboard";
 import {
   getAssistantImageLoadStateFromMetadata,
   getAssistantImageMetadata,
@@ -102,15 +102,23 @@ import { useAttachmentPreviewUrl } from "@/attachments/use-attachment-preview-ur
 import { persistAttachmentFromBytes, persistAttachmentFromDataUrl } from "@/attachments/service";
 import type { DaemonClient } from "@server/client/daemon-client";
 import { isWeb, isNative } from "@/constants/platform";
+import type { AgentCapabilityFlags } from "@server/server/agent/agent-sdk-types";
+import { RewindMenu, type RewindMode } from "@/components/rewind/rewind-menu";
+import { useRewindAgentMutation } from "@/components/rewind/use-rewind-agent-mutation";
 export type { InlinePathTarget } from "@/assistant-file-links";
 
 type MarkdownStyles = Record<string, TextStyle & ViewStyle & { [key: string]: unknown }>;
 
 interface UserMessageProps {
+  serverId?: string;
+  agentId?: string;
+  messageId?: string;
   message: string;
   images?: UserMessageImageAttachment[];
   attachments?: AgentAttachment[];
   timestamp: number;
+  capabilities?: AgentCapabilityFlags;
+  client?: DaemonClient | null;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   disableOuterSpacing?: boolean;
@@ -401,8 +409,14 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     fontSize: theme.fontSize.sm,
   },
   copyButton: {
-    padding: theme.spacing[1],
+    alignSelf: "center",
+    width: 24,
+    height: 24,
+    padding: 0,
+    margin: 0,
     marginRight: -theme.spacing[1],
+    alignItems: "center",
+    justifyContent: "center",
   },
   trailingRow: {
     alignSelf: "flex-end",
@@ -450,10 +464,15 @@ function getUserMessageAttachmentLabel(attachment: AgentAttachment): string {
 }
 
 export const UserMessage = memo(function UserMessage({
+  serverId,
+  agentId,
+  messageId,
   message,
   images = [],
   attachments = [],
   timestamp,
+  capabilities,
+  client,
   isFirstInGroup = true,
   isLastInGroup = true,
   disableOuterSpacing,
@@ -469,10 +488,17 @@ export const UserMessage = memo(function UserMessage({
     () => formatMessageTimestamp(new Date(timestamp)),
     [timestamp],
   );
+  const rewindMutation = useRewindAgentMutation({ serverId, agentId, client, messageId });
 
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const getMessageContent = useCallback(() => message, [message]);
+  const handleRewind = useCallback(
+    (input: { mode: RewindMode; rewoundText: string }) => {
+      return rewindMutation.rewindAgent(input);
+    },
+    [rewindMutation],
+  );
 
   const containerStyle = useMemo(
     () => [
@@ -510,7 +536,7 @@ export const UserMessage = memo(function UserMessage({
   );
 
   return (
-    <View style={containerStyle}>
+    <View style={containerStyle} testID="user-message">
       <View
         style={userMessageStylesheet.content}
         onPointerEnter={handlePointerEnter}
@@ -549,6 +575,14 @@ export const UserMessage = memo(function UserMessage({
         {hasText ? (
           <View style={trailingRowStyle} pointerEvents={showTrailingRow ? "auto" : "none"}>
             <Text style={userMessageStylesheet.timestampText}>{formattedTimestamp}</Text>
+            {capabilities ? (
+              <RewindMenu
+                capabilities={capabilities}
+                isPending={rewindMutation.isPending}
+                rewoundText={message}
+                onRewind={handleRewind}
+              />
+            ) : null}
             <TurnCopyButton
               getContent={getMessageContent}
               containerStyle={userMessageStylesheet.copyButton}
@@ -1117,7 +1151,7 @@ export const TurnCopyButton = memo(function TurnCopyButton({
       return;
     }
 
-    await Clipboard.setStringAsync(content);
+    await writeMarkdownToRichClipboard(content);
     setCopied(true);
 
     if (copyTimeoutRef.current) {
@@ -1520,39 +1554,14 @@ function MarkdownParagraphView({ paragraphStyle, children }: MarkdownParagraphVi
   return <View style={style}>{children}</View>;
 }
 
-// List spacing in markdown:
-//   - p -> list and list -> p use a slightly larger gap than p -> p, so lists
-//     read as their own section against surrounding prose.
-//   - list -> list keeps the normal p-to-p gap; back-to-back lists are
-//     continuous content, not section breaks.
-//
-// Paragraph's marginBottom is SPACING[3] = 12 (and marginTop is 0). To produce
-// 16px gaps on p<->list transitions and 12px on list<->list, we add a constant
-// marginTop on lists (4) and switch marginBottom by next-sibling type:
-//   p -> list      = p.marginBottom(12) + list.marginTop(4)        = 16
-//   list -> p      = list.marginBottom(16) + p.marginTop(0)        = 16
-//   list -> list   = list.marginBottom(8) + list.marginTop(4)      = 12
-const MARKDOWN_LIST_MARGIN_TOP = SPACING[1]; // 4
-const MARKDOWN_LIST_MARGIN_BOTTOM_TO_PROSE = SPACING[4]; // 16
-const MARKDOWN_LIST_MARGIN_BOTTOM_TO_LIST = SPACING[2]; // 8
-
-function getMarkdownListContextMarginBottom(node: ASTNode, parent: ASTNode[]): number {
-  const nextType = getMarkdownNextSiblingType(node, parent);
-  const nextIsList = nextType === "bullet_list" || nextType === "ordered_list";
-  return nextIsList ? MARKDOWN_LIST_MARGIN_BOTTOM_TO_LIST : MARKDOWN_LIST_MARGIN_BOTTOM_TO_PROSE;
-}
-
 interface MarkdownListViewProps {
   baseStyle: ViewStyle;
-  marginBottom: number;
+  spacing: { marginTop: number; marginBottom: number };
   children: ReactNode;
 }
 
-function MarkdownListView({ baseStyle, marginBottom, children }: MarkdownListViewProps) {
-  const style = useMemo(
-    () => [baseStyle, { marginTop: MARKDOWN_LIST_MARGIN_TOP, marginBottom }],
-    [baseStyle, marginBottom],
-  );
+function MarkdownListView({ baseStyle, spacing, children }: MarkdownListViewProps) {
+  const style = useMemo(() => [baseStyle, spacing], [baseStyle, spacing]);
   return <View style={style}>{children}</View>;
 }
 
@@ -1714,7 +1723,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         <MarkdownListView
           key={node.key}
           baseStyle={styles.bullet_list}
-          marginBottom={getMarkdownListContextMarginBottom(node, parent)}
+          spacing={getMarkdownListSpacing(node, parent)}
         >
           {children}
         </MarkdownListView>
@@ -1728,7 +1737,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         <MarkdownListView
           key={node.key}
           baseStyle={styles.ordered_list}
-          marginBottom={getMarkdownListContextMarginBottom(node, parent)}
+          spacing={getMarkdownListSpacing(node, parent)}
         >
           {children}
         </MarkdownListView>

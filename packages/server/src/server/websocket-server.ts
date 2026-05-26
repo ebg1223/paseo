@@ -1081,6 +1081,10 @@ export class VoiceAssistantWebSocketServer {
         checkoutGithubSetAutoMerge: true,
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         daemonStatusRpc: true,
+        // COMPAT(terminalRestoreModes): added in v0.1.81, remove gate after 2026-11-23.
+        "terminal-restore-modes": true,
+        // COMPAT(rewind): added in v0.1.X, drop the gate when floor >= v0.1.X.
+        rewind: true,
       },
     };
   }

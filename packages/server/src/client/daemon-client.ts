@@ -64,9 +64,11 @@ import type {
   ProviderDiagnosticResponseMessage,
   DaemonGetStatusResponse,
   DaemonGetPairingOfferResponse,
+  AgentRewindResponseMessage,
   ListTerminalsResponse,
   CreateTerminalResponse,
   SubscribeTerminalResponse,
+  SubscribeTerminalRequest,
   CloseItemsResponse,
   KillTerminalResponse,
   CaptureTerminalResponse,
@@ -2231,6 +2233,40 @@ export class DaemonClient {
     await this.sendAgentMessage(agentId, text, options);
   }
 
+  async rewindAgent(
+    agentId: string,
+    messageId: string,
+    mode: "conversation" | "files" | "both",
+  ): Promise<AgentRewindResponseMessage["payload"]> {
+    const requestId = this.createRequestId();
+    const message = SessionInboundMessageSchema.parse({
+      type: "agent.rewind.request",
+      requestId,
+      agentId,
+      messageId,
+      mode,
+    });
+    const payload = await this.sendRequest({
+      requestId,
+      message,
+      timeout: 15000,
+      options: { skipQueue: true },
+      select: (msg) => {
+        if (msg.type !== "agent.rewind.response") {
+          return null;
+        }
+        if (msg.payload.requestId !== requestId) {
+          return null;
+        }
+        return msg.payload;
+      },
+    });
+    if (!payload.ok) {
+      throw new Error(payload.error ?? "Agent rewind failed");
+    }
+    return payload;
+  }
+
   async cancelAgent(agentId: string): Promise<void> {
     const requestId = this.createRequestId();
     const message = SessionInboundMessageSchema.parse({
@@ -3770,13 +3806,19 @@ export class DaemonClient {
 
   async subscribeTerminal(
     terminalId: string,
-    requestId?: string,
+    optionsOrRequestId?:
+      | { restore?: SubscribeTerminalRequest["restore"]; requestId?: string }
+      | string,
   ): Promise<SubscribeTerminalPayload> {
+    const restore = typeof optionsOrRequestId === "object" ? optionsOrRequestId.restore : undefined;
+    const requestId =
+      typeof optionsOrRequestId === "object" ? optionsOrRequestId.requestId : optionsOrRequestId;
     const resolvedRequestId = this.createRequestId(requestId);
     const message = SessionInboundMessageSchema.parse({
       type: "subscribe_terminal_request",
       terminalId,
       requestId: resolvedRequestId,
+      ...(restore ? { restore } : {}),
     });
     const payload = await this.sendCorrelatedRequest({
       requestId: resolvedRequestId,
@@ -4363,6 +4405,8 @@ export class DaemonClient {
       frameKind = "output";
     } else if (frame.opcode === TerminalStreamOpcode.Snapshot) {
       frameKind = "snapshot";
+    } else if (frame.opcode === TerminalStreamOpcode.Restore) {
+      frameKind = "output";
     }
     this.runtimeMetrics?.recordBinaryFrame(
       frameKind,

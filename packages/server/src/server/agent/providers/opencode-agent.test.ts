@@ -582,9 +582,78 @@ describe("OpenCode adapter context-window normalization", () => {
       false,
     );
   });
+
+  test("carries only hex OpenCode agent colors as mode color tiers", () => {
+    expect(
+      __openCodeInternals.mapOpenCodeAgentToMode({
+        name: "review",
+        description: "Review code",
+        color: "#ff6b6b",
+      }),
+    ).toMatchObject({
+      id: "review",
+      label: "Review",
+      description: "Review code",
+      colorTier: "#ff6b6b",
+    });
+
+    expect(
+      __openCodeInternals.mapOpenCodeAgentToMode({
+        name: "creative",
+        color: "accent",
+      }),
+    ).not.toHaveProperty("colorTier");
+
+    expect(
+      __openCodeInternals.mapOpenCodeAgentToMode({
+        name: "debug",
+        color: "#fff",
+      }),
+    ).not.toHaveProperty("colorTier");
+  });
 });
 
 describe("OpenCode adapter startTurn error handling", () => {
+  test("dynamically adds injected MCP servers without config-backed connect", async () => {
+    const runtime = new TestOpenCodeRuntime();
+    const openCodeClient = new TestOpenCodeClient();
+    runtime.enqueueClient(openCodeClient);
+    const cwd = tmpCwd();
+    const client = new OpenCodeAgentClient(createTestLogger(), undefined, { runtime });
+
+    try {
+      const session = await client.createSession({
+        provider: "opencode",
+        cwd,
+        mcpServers: {
+          paseo: {
+            type: "http",
+            url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=test-agent",
+          },
+        },
+      });
+
+      await collectTurnEvents(streamSession(session, "hello"));
+
+      expect(openCodeClient.calls.mcpAdd).toEqual([
+        {
+          directory: cwd,
+          name: "paseo",
+          config: {
+            type: "remote",
+            url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=test-agent",
+            enabled: true,
+          },
+        },
+      ]);
+      expect(openCodeClient.calls.mcpConnect).toEqual([]);
+
+      await session.close();
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("emits turn_started before live OpenCode timeline items", async () => {
     const eventsGate = createTestDeferred<void>();
     const globalEvents = [
@@ -897,6 +966,10 @@ describe("OpenCode adapter startTurn error handling", () => {
   test("streamHistory preserves OpenCode replay timestamps from message and part times", async () => {
     const fakeClient = {
       session: {
+        get: vi.fn().mockResolvedValue({
+          data: { revert: undefined },
+          error: undefined,
+        }),
         messages: vi.fn().mockResolvedValue({
           data: [
             {
@@ -989,6 +1062,10 @@ describe("OpenCode adapter startTurn error handling", () => {
   test("streamHistory omits replay timestamps when OpenCode omits times", async () => {
     const fakeClient = {
       session: {
+        get: vi.fn().mockResolvedValue({
+          data: { revert: undefined },
+          error: undefined,
+        }),
         messages: vi.fn().mockResolvedValue({
           data: [
             {
@@ -1030,6 +1107,171 @@ describe("OpenCode adapter startTurn error handling", () => {
         type: "timeline",
         provider: "opencode",
         item: { type: "assistant_message", text: "no clocks here" },
+      },
+    ]);
+  });
+
+  test("streamHistory maps persisted OpenCode tool parts through canonical detail branches", async () => {
+    const patchText = [
+      "*** Begin Patch",
+      "*** Delete File: /tmp/repo/src/App.tsx",
+      "*** End Patch",
+    ].join("\n");
+
+    const fakeClient = {
+      session: {
+        get: vi.fn().mockResolvedValue({
+          data: { revert: undefined },
+          error: undefined,
+        }),
+        messages: vi.fn().mockResolvedValue({
+          data: [
+            {
+              info: {
+                id: "msg_assistant",
+                sessionID: "ses_unit_test",
+                role: "assistant",
+              },
+              parts: [
+                {
+                  id: "part-grep",
+                  sessionID: "ses_unit_test",
+                  messageID: "msg_assistant",
+                  type: "tool",
+                  tool: "grep",
+                  callID: "call-grep",
+                  state: {
+                    status: "completed",
+                    input: { pattern: "sendCorrelatedSessionRequest" },
+                  },
+                },
+                {
+                  id: "part-skill",
+                  sessionID: "ses_unit_test",
+                  messageID: "msg_assistant",
+                  type: "tool",
+                  tool: "skill",
+                  callID: "call-skill",
+                  state: {
+                    status: "completed",
+                    input: { name: "diagnose" },
+                    output: '<skill_content name="diagnose"># Skill: diagnose</skill_content>',
+                  },
+                },
+                {
+                  id: "part-apply-patch",
+                  sessionID: "ses_unit_test",
+                  messageID: "msg_assistant",
+                  type: "tool",
+                  tool: "apply_patch",
+                  callID: "call-apply-patch",
+                  state: {
+                    status: "completed",
+                    input: { patchText },
+                    output: "Success. Updated the following files:\nD /tmp/repo/src/App.tsx",
+                  },
+                },
+                {
+                  id: "part-todowrite",
+                  sessionID: "ses_unit_test",
+                  messageID: "msg_assistant",
+                  type: "tool",
+                  tool: "todowrite",
+                  callID: "call-todowrite",
+                  state: {
+                    status: "completed",
+                    input: {
+                      todos: [
+                        {
+                          content: "Inspect current directory and existing files",
+                          status: "completed",
+                          priority: "high",
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+          error: undefined,
+        }),
+      },
+    } as never;
+
+    const session = new __openCodeInternals.OpenCodeAgentSession(
+      { provider: "opencode", cwd: "/tmp/repo" },
+      fakeClient,
+      "ses_unit_test",
+      createTestLogger(),
+    );
+
+    const history: AgentStreamEvent[] = [];
+    for await (const event of session.streamHistory()) {
+      history.push(event);
+    }
+
+    expect(history).toEqual([
+      {
+        type: "timeline",
+        provider: "opencode",
+        item: {
+          type: "tool_call",
+          callId: "call-grep",
+          name: "grep",
+          status: "completed",
+          detail: {
+            type: "search",
+            query: "sendCorrelatedSessionRequest",
+            toolName: "grep",
+          },
+          error: null,
+        },
+      },
+      {
+        type: "timeline",
+        provider: "opencode",
+        item: {
+          type: "tool_call",
+          callId: "call-skill",
+          name: "skill",
+          status: "completed",
+          detail: {
+            type: "plain_text",
+            label: "diagnose",
+            icon: "sparkles",
+            text: '<skill_content name="diagnose"># Skill: diagnose</skill_content>',
+          },
+          error: null,
+        },
+      },
+      {
+        type: "timeline",
+        provider: "opencode",
+        item: {
+          type: "tool_call",
+          callId: "call-apply-patch",
+          name: "apply_patch",
+          status: "completed",
+          detail: {
+            type: "edit",
+            filePath: "/tmp/repo/src/App.tsx",
+            unifiedDiff: [
+              "diff --git a//tmp/repo/src/App.tsx b//tmp/repo/src/App.tsx",
+              "--- a//tmp/repo/src/App.tsx",
+              "+++ /dev/null",
+            ].join("\n"),
+          },
+          error: null,
+        },
+      },
+      {
+        type: "timeline",
+        provider: "opencode",
+        item: {
+          type: "todo",
+          items: [{ text: "Inspect current directory and existing files", completed: true }],
+        },
       },
     ]);
   });

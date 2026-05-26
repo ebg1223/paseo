@@ -8,20 +8,34 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import {
+  Keyboard,
+  StyleSheet,
+  View,
+  type GestureResponderEvent,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalState } from "@server/shared/messages";
 import type { TerminalInputModeState } from "@server/shared/terminal-input-mode";
+import type { TerminalOutputData } from "../terminal/runtime/terminal-emulator-runtime";
+import type {
+  TerminalLocalFileLinkSource,
+  TerminalLocalFileLinkTarget,
+} from "../terminal/local-links/terminal-local-link-provider";
 import { terminalEmulatorWebViewHtml } from "../terminal/webview/terminal-emulator-webview-html";
 import type { PendingTerminalModifiers } from "../utils/terminal-keys";
 import type { TerminalRendererReadyChange } from "../utils/terminal-renderer-readiness";
 import { openExternalUrl } from "../utils/open-external-url";
 
 export interface TerminalEmulatorHandle {
-  writeOutput: (text: string) => void;
+  writeOutput: (data: TerminalOutputData) => void;
+  restoreOutput: (data: TerminalOutputData) => void;
   renderSnapshot: (state: TerminalState | null) => void;
   clear: () => void;
+  blur: () => void;
 }
 
 interface TerminalEmulatorProps {
@@ -46,6 +60,13 @@ interface TerminalEmulatorProps {
   }) => Promise<void> | void;
   onPendingModifiersConsumed?: () => Promise<void> | void;
   onInputModeChange?: (state: TerminalInputModeState) => Promise<void> | void;
+  onResolveLocalFileLink?: (
+    source: TerminalLocalFileLinkSource,
+  ) => Promise<TerminalLocalFileLinkTarget | null> | TerminalLocalFileLinkTarget | null;
+  onOpenLocalFileLink?: (
+    target: TerminalLocalFileLinkTarget,
+    disposition: "main" | "side",
+  ) => Promise<void> | void;
   onRendererReadyChange?: (change: TerminalRendererReadyChange) => void;
   pendingModifiers?: PendingTerminalModifiers;
   focusRequestToken?: number;
@@ -64,14 +85,21 @@ type BridgeInboundMessage =
     }
   | { type: "unmount"; streamKey: string }
   | { type: "writeOutput"; streamKey: string; text: string }
+  | { type: "restoreOutput"; streamKey: string; text: string }
   | { type: "renderSnapshot"; streamKey: string; state: TerminalState | null }
   | { type: "clear"; streamKey: string }
-  | { type: "focus"; streamKey: string }
+  | { type: "focus"; streamKey: string; forceRefocus?: boolean }
   | { type: "resize"; streamKey: string }
   | { type: "setTheme"; streamKey: string; theme: ITheme }
   | { type: "setScrollback"; streamKey: string; lines: number }
   | { type: "setPendingModifiers"; streamKey: string; pendingModifiers: PendingTerminalModifiers }
-  | { type: "setSwipeGesturesEnabled"; streamKey: string; enabled: boolean };
+  | { type: "setSwipeGesturesEnabled"; streamKey: string; enabled: boolean }
+  | {
+      type: "resolveLocalFileLinkResponse";
+      streamKey: string;
+      requestId: number;
+      target: TerminalLocalFileLinkTarget | null;
+    };
 
 type BridgeOutboundMessage =
   | { type: "bridgeReady" }
@@ -90,6 +118,18 @@ type BridgeOutboundMessage =
   | { type: "pendingModifiersConsumed"; streamKey: string }
   | { type: "inputModeChange"; streamKey: string; state: TerminalInputModeState }
   | { type: "openExternalUrl"; streamKey: string; url: string }
+  | {
+      type: "resolveLocalFileLink";
+      streamKey: string;
+      requestId: number;
+      source: TerminalLocalFileLinkSource;
+    }
+  | {
+      type: "openLocalFileLink";
+      streamKey: string;
+      target: TerminalLocalFileLinkTarget;
+      disposition: "main" | "side";
+    }
   | { type: "swipeLeft"; streamKey: string }
   | { type: "swipeRight"; streamKey: string }
   | { type: "debug"; message: string; details?: unknown };
@@ -98,7 +138,13 @@ const TERMINAL_WEBVIEW_SOURCE = { html: terminalEmulatorWebViewHtml };
 const TERMINAL_WEBVIEW_ORIGIN_WHITELIST = ["*"];
 const BRIDGE_READY_TIMEOUT_MS = 2_500;
 const RENDERER_READY_TIMEOUT_MS = 2_500;
+const TERMINAL_TAP_MOVE_TOLERANCE_PX = 8;
 type WebViewProps = ComponentProps<typeof WebView>;
+interface PendingTerminalTap {
+  startX: number;
+  startY: number;
+  moved: boolean;
+}
 
 function buildThemeKey(theme: ITheme): string {
   return JSON.stringify(theme);
@@ -146,6 +192,8 @@ export default function TerminalEmulator({
   onTerminalKey,
   onPendingModifiersConsumed,
   onInputModeChange,
+  onResolveLocalFileLink,
+  onOpenLocalFileLink,
   onRendererReadyChange,
   pendingModifiers = { ctrl: false, shift: false, alt: false },
   focusRequestToken = 0,
@@ -158,9 +206,11 @@ export default function TerminalEmulator({
   const bridgeReadyVersionRef = useRef(0);
   const rendererReadyVersionRef = useRef(0);
   const pendingMessagesRef = useRef<BridgeInboundMessage[]>([]);
+  const outputDecoderRef = useRef(new TextDecoder());
   const mountedStreamKeyRef = useRef<string | null>(null);
   const bridgeReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rendererReadyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTapRef = useRef<PendingTerminalTap | null>(null);
   const mountConfigRef = useRef({
     streamKey,
     initialSnapshot,
@@ -184,6 +234,8 @@ export default function TerminalEmulator({
     onPendingModifiersConsumed,
     onInputModeChange,
     onRendererReadyChange,
+    onResolveLocalFileLink,
+    onOpenLocalFileLink,
     onSwipeLeft,
     onSwipeRight,
   });
@@ -194,6 +246,8 @@ export default function TerminalEmulator({
     onPendingModifiersConsumed,
     onInputModeChange,
     onRendererReadyChange,
+    onResolveLocalFileLink,
+    onOpenLocalFileLink,
     onSwipeLeft,
     onSwipeRight,
   };
@@ -272,18 +326,42 @@ export default function TerminalEmulator({
   useImperativeHandle(
     ref,
     (): TerminalEmulatorHandle => ({
-      writeOutput: (text: string) => {
-        sendToWebView({ type: "writeOutput", streamKey, text });
+      writeOutput: (data: TerminalOutputData) => {
+        const output = outputDecoderRef.current.decode(data, { stream: true });
+        if (output.length === 0) {
+          return;
+        }
+        sendToWebView({ type: "writeOutput", streamKey, text: output });
+      },
+      restoreOutput: (data: TerminalOutputData) => {
+        outputDecoderRef.current.decode();
+        const text = outputDecoderRef.current.decode(data, { stream: false });
+        if (text.length === 0) {
+          return;
+        }
+        sendToWebView({ type: "restoreOutput", streamKey, text });
       },
       renderSnapshot: (state: TerminalState | null) => {
+        outputDecoderRef.current.decode();
         sendToWebView({ type: "renderSnapshot", streamKey, state });
       },
       clear: () => {
+        outputDecoderRef.current.decode();
         sendToWebView({ type: "clear", streamKey });
+      },
+      blur: () => {
+        webViewRef.current?.injectJavaScript(
+          "window.__PASEO_TERMINAL_WEBVIEW_BLUR__ && window.__PASEO_TERMINAL_WEBVIEW_BLUR__(); true;",
+        );
+        Keyboard.dismiss();
       },
     }),
     [sendToWebView, streamKey],
   );
+
+  useEffect(() => {
+    outputDecoderRef.current.decode();
+  }, [streamKey]);
 
   useEffect(() => {
     if (bridgeReadyVersion <= 0) return;
@@ -377,10 +455,41 @@ export default function TerminalEmulator({
     [clearBridgeReadyTimeout, clearRendererReadyTimeout],
   );
 
+  const resolveLocalFileLink = useCallback(
+    async (message: Extract<BridgeOutboundMessage, { type: "resolveLocalFileLink" }>) => {
+      try {
+        const target = await (callbacksRef.current.onResolveLocalFileLink?.(message.source) ??
+          null);
+        sendToWebView({
+          type: "resolveLocalFileLinkResponse",
+          streamKey: message.streamKey,
+          requestId: message.requestId,
+          target,
+        });
+      } catch {
+        sendToWebView({
+          type: "resolveLocalFileLinkResponse",
+          streamKey: message.streamKey,
+          requestId: message.requestId,
+          target: null,
+        });
+      }
+    },
+    [sendToWebView],
+  );
+
   const handleTerminalMessage = useCallback(
     (
       message: Exclude<BridgeOutboundMessage, { type: "bridgeReady" } | { type: "rendererReady" }>,
     ) => {
+      if (message.type === "resolveLocalFileLink") {
+        void resolveLocalFileLink(message);
+        return;
+      }
+      if (message.type === "openLocalFileLink") {
+        callbacksRef.current.onOpenLocalFileLink?.(message.target, message.disposition);
+        return;
+      }
       switch (message.type) {
         case "input":
           callbacksRef.current.onInput?.(message.data);
@@ -416,7 +525,7 @@ export default function TerminalEmulator({
           break;
       }
     },
-    [],
+    [resolveLocalFileLink],
   );
 
   const handleMessage = useCallback(
@@ -455,19 +564,63 @@ export default function TerminalEmulator({
     resetWebViewDocument();
   }, [resetWebViewDocument]);
 
+  const handleWebViewTouchStart = useCallback((event: GestureResponderEvent) => {
+    pendingTapRef.current = {
+      startX: event.nativeEvent.pageX,
+      startY: event.nativeEvent.pageY,
+      moved: false,
+    };
+  }, []);
+
+  const handleWebViewTouchMove = useCallback((event: GestureResponderEvent) => {
+    const pendingTap = pendingTapRef.current;
+    if (!pendingTap) return;
+    const dx = event.nativeEvent.pageX - pendingTap.startX;
+    const dy = event.nativeEvent.pageY - pendingTap.startY;
+    if (
+      Math.abs(dx) > TERMINAL_TAP_MOVE_TOLERANCE_PX ||
+      Math.abs(dy) > TERMINAL_TAP_MOVE_TOLERANCE_PX
+    ) {
+      pendingTap.moved = true;
+    }
+  }, []);
+
+  const handleWebViewTouchEnd = useCallback(() => {
+    const pendingTap = pendingTapRef.current;
+    pendingTapRef.current = null;
+    if (!pendingTap || pendingTap.moved) {
+      return;
+    }
+    webViewRef.current?.requestFocus();
+    sendToWebView({ type: "focus", streamKey, forceRefocus: true });
+  }, [sendToWebView, streamKey]);
+
+  const handleWebViewTouchCancel = useCallback(() => {
+    pendingTapRef.current = null;
+  }, []);
+
+  const backgroundColor = xtermTheme.background ?? "#0b0b0b";
+  const rootStyle = useMemo<StyleProp<ViewStyle>>(
+    () => [styles.root, { backgroundColor }],
+    [backgroundColor],
+  );
   const webViewStyle = useMemo<StyleProp<ViewStyle>>(
-    () => [styles.webView, { backgroundColor: xtermTheme.background ?? "#0b0b0b" }],
-    [xtermTheme.background],
+    () => [styles.webView, { backgroundColor }],
+    [backgroundColor],
+  );
+  const webViewContainerStyle = useMemo<StyleProp<ViewStyle>>(
+    () => [styles.webViewContainer, { backgroundColor }],
+    [backgroundColor],
   );
 
   return (
-    <View style={styles.root} testID={testId}>
+    <View style={rootStyle} testID={testId}>
       <WebView
         key={webViewEpoch}
         ref={webViewRef}
         source={TERMINAL_WEBVIEW_SOURCE}
         style={webViewStyle}
-        containerStyle={styles.webViewContainer}
+        containerStyle={webViewContainerStyle}
         originWhitelist={TERMINAL_WEBVIEW_ORIGIN_WHITELIST}
         scrollEnabled
         nestedScrollEnabled
@@ -476,12 +629,16 @@ export default function TerminalEmulator({
         keyboardDisplayRequiresUserAction={false}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
-        textInteractionEnabled={false}
+        textInteractionEnabled
         allowsLinkPreview={false}
         setSupportMultipleWindows={false}
         setBuiltInZoomControls={false}
         setDisplayZoomControls={false}
         textZoom={100}
+        onTouchStart={handleWebViewTouchStart}
+        onTouchMove={handleWebViewTouchMove}
+        onTouchEnd={handleWebViewTouchEnd}
+        onTouchCancel={handleWebViewTouchCancel}
         onMessage={handleMessage}
         onLoadStart={handleLoadStart}
         onContentProcessDidTerminate={handleContentProcessDidTerminate}
@@ -497,14 +654,11 @@ const styles = StyleSheet.create({
     minHeight: 0,
     minWidth: 0,
     overflow: "hidden",
-    backgroundColor: "#0b0b0b",
   },
   webView: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
   },
   webViewContainer: {
     flex: 1,
-    backgroundColor: "#0b0b0b",
   },
 });

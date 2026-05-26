@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.1.83 - 2026-05-26
+
+### Fixed
+
+- Creating an agent via MCP now waits for it to actually start, so failures surface as a clear create error
+- Scheduling an agent via MCP no longer rejects blank cadence placeholders
+- Draft messages show the agent mode chip again on models without thinking options
+
+## 0.1.82 - 2026-05-26
+
+### Added
+
+- **Rewind chat or files from any user message** ([#1154](https://github.com/getpaseo/paseo/pull/1154))
+- **See the cumulative cost of an agent session** ([#1163](https://github.com/getpaseo/paseo/pull/1163))
+- **Drop files onto the terminal to insert their paths** ([#1173](https://github.com/getpaseo/paseo/pull/1173))
+- **Tap a file path in the terminal to open it in the workspace preview** ([#1174](https://github.com/getpaseo/paseo/pull/1174))
+- **Approve OpenCode permissions for the whole session** ([#1168](https://github.com/getpaseo/paseo/pull/1168))
+- **Workspace scripts now appear on the mobile header** ([#1093](https://github.com/getpaseo/paseo/pull/1093) by [@ayhanmalkoc](https://github.com/ayhanmalkoc))
+- Devin CLI in the ACP provider catalog (by [@Alcimerio](https://github.com/Alcimerio))
+- OpenCode agents show their mode colors
+
+### Improved
+
+- Mobile terminal keyboard hides when you open a sidebar
+- Tool activity for read, write, and OpenCode tools renders more consistently ([#1171](https://github.com/getpaseo/paseo/pull/1171))
+- Compact workspace header actions are tidier
+- Settings latency readouts are easier to scan ([#1170](https://github.com/getpaseo/paseo/pull/1170))
+- Pull request merge is available as soon as GitHub reports the PR is ready ([#1172](https://github.com/getpaseo/paseo/pull/1172))
+
+### Fixed
+
+- Mobile slash command autocomplete no longer flickers or mis-layers
+- Interrupting an OpenCode agent returns it to idle instead of showing an error ([#1169](https://github.com/getpaseo/paseo/pull/1169))
+- Provider model selection per workspace is honored ([#1167](https://github.com/getpaseo/paseo/pull/1167))
+- Draft composer keeps the permission mode you selected ([#1175](https://github.com/getpaseo/paseo/pull/1175))
+- Terminal color queries no longer return malformed replies
+- File links in chat no longer crash when a message contains a bare '%' (by [@Elliotwu-7](https://github.com/Elliotwu-7))
+
+## 0.1.81 - 2026-05-24
+
+### Added
+
+- **Paseo can now be installed as a web app from supported browsers** ([#1144](https://github.com/getpaseo/paseo/pull/1144))
+- **Pi extension dialogs now appear as Paseo permission prompts** ([#1134](https://github.com/getpaseo/paseo/pull/1134) by [@yuruiz](https://github.com/yuruiz))
+- Added community links and a home button to the sidebar
+
+### Improved
+
+- **Mobile terminals load faster and restore existing output more smoothly** ([#1147](https://github.com/getpaseo/paseo/pull/1147))
+- Copying assistant messages preserves formatting
+- Agent metadata fallback failures now log each provider attempt for easier debugging
+
+### Fixed
+
+- Android: slash command suggestions stay interactive when opened from the composer
+- macOS: Alt+letter shortcuts work again
+- Terminal panes no longer flicker during resize
+- OpenCode MCP servers are injected once instead of being connected twice
+- Import session no longer shows empty sessions
+- Worktree archive status no longer reports false unpushed commits ([#1158](https://github.com/getpaseo/paseo/pull/1158))
+- The `/exit`, `/quit`, and `/q` slash command aliases now show as one row
+- Shortcut chord badges are readable in light mode
+- Segmented controls show their track under every segment
+- Sheet header search text is readable in dark mode
+
 ## 0.1.80 - 2026-05-21
 
 ### Fixed

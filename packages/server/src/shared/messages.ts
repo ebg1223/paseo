@@ -232,6 +232,12 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z.object({
   supportsMcpServers: z.boolean(),
   supportsReasoningStream: z.boolean(),
   supportsToolInvocations: z.boolean(),
+  // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+  supportsRewindConversation: z.boolean().optional().default(false),
+  // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+  supportsRewindFiles: z.boolean().optional().default(false),
+  // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+  supportsRewindBoth: z.boolean().optional().default(false),
 });
 
 const AgentUsageSchema: z.ZodType<AgentUsage> = z.object({
@@ -1246,6 +1252,26 @@ export const SetAgentFeatureResponseMessageSchema = z.object({
   payload: AgentActionResponsePayloadSchema,
 });
 
+export const AgentRewindModeSchema = z.enum(["conversation", "files", "both"]);
+
+export const AgentRewindRequestMessageSchema = z.object({
+  type: z.literal("agent.rewind.request"),
+  agentId: z.string(),
+  messageId: z.string(),
+  mode: AgentRewindModeSchema,
+  requestId: z.string(),
+});
+
+export const AgentRewindResponseMessageSchema = z.object({
+  type: z.literal("agent.rewind.response"),
+  payload: z.object({
+    requestId: z.string(),
+    agentId: z.string(),
+    ok: z.boolean(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const UpdateAgentResponseMessageSchema = z.object({
   type: z.literal("update_agent_response"),
   payload: AgentActionResponsePayloadSchema,
@@ -1754,6 +1780,20 @@ export const SubscribeTerminalRequestSchema = z.object({
   type: z.literal("subscribe_terminal_request"),
   terminalId: z.string(),
   requestId: z.string(),
+  restore: z
+    .object({
+      mode: z.enum(["live", "visible-snapshot", "full-snapshot"]),
+      scrollbackLines: z.number().int().nonnegative().optional(),
+      size: z
+        .object({
+          rows: z.number().int().positive(),
+          cols: z.number().int().positive(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export const UnsubscribeTerminalRequestSchema = z.object({
@@ -1840,6 +1880,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentModelRequestMessageSchema,
   SetAgentThinkingRequestMessageSchema,
   SetAgentFeatureRequestMessageSchema,
+  AgentRewindRequestMessageSchema,
   AgentPermissionResponseMessageSchema,
   CheckoutStatusRequestSchema,
   SubscribeCheckoutDiffRequestSchema,
@@ -2079,6 +2120,10 @@ export const ServerInfoStatusPayloadSchema = z
         checkoutGithubSetAutoMerge: z.boolean().optional(),
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         daemonStatusRpc: z.boolean().optional(),
+        // COMPAT(terminalRestoreModes): added in v0.1.81, remove gate after 2026-11-23.
+        "terminal-restore-modes": z.boolean().optional(),
+        // COMPAT(rewind): added in v0.1.X, drop the gate when floor >= v0.1.X.
+        rewind: z.boolean().optional(),
       })
       .optional(),
   })
@@ -3608,6 +3653,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   SetAgentModelResponseMessageSchema,
   SetAgentThinkingResponseMessageSchema,
   SetAgentFeatureResponseMessageSchema,
+  AgentRewindResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
   ProjectRenameResponseSchema,
   WaitForFinishResponseMessageSchema,
@@ -3747,6 +3793,7 @@ export type SetAgentModeResponseMessage = z.infer<typeof SetAgentModeResponseMes
 export type SetAgentModelResponseMessage = z.infer<typeof SetAgentModelResponseMessageSchema>;
 export type SetAgentThinkingResponseMessage = z.infer<typeof SetAgentThinkingResponseMessageSchema>;
 export type SetAgentFeatureResponseMessage = z.infer<typeof SetAgentFeatureResponseMessageSchema>;
+export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
 export type ProjectRenameResponse = z.infer<typeof ProjectRenameResponseSchema>;
 export type ProjectRenameResponsePayload = z.infer<typeof ProjectRenameResponsePayloadSchema>;
