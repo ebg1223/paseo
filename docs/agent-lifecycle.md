@@ -55,6 +55,12 @@ Agent tab close behavior depends on the client-side workspace organization mode:
 
 Archive is always authoritative. Once an agent is archived, pinned or locally-open tab state must not keep it visible.
 
+## Workspace activity
+
+Agent lifecycle status stays literal: a parent agent is `idle` when its own turn is idle, even if a child is running.
+
+Workspace status is an aggregate activity signal. Root agents contribute their normal state bucket to their own workspace. Running subagents contribute `running` to their root parent's workspace, not to the subagent's current `cwd` or worktree. Non-running subagent attention, permission, and error states stay in the parent's subagents track and do not escalate the workspace bucket.
+
 ## The subagents track
 
 The collapsible track above the composer in an agent's pane (`packages/app/src/subagents/track.tsx`). Membership rule (`packages/app/src/subagents/select.ts`):

@@ -75,6 +75,7 @@ function makeWorkspace(input: {
     workspaceKind: "checkout",
     name: input.currentBranch ?? input.id,
     status: "done",
+    statusEnteredAt: null,
     archivingAt: null,
     diffStat: null,
     scripts: [],

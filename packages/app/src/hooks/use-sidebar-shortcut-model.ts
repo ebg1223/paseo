@@ -38,7 +38,7 @@ export function useSidebarShortcutModel(input: {
 
     const collapsibleProjectKeys = new Set(
       projects
-        .filter((project) => !isSidebarProjectFlattened(project))
+        .filter((project) => !isSidebarProjectFlattened(project, organizationMode))
         .map((project) => project.projectKey),
     );
     for (const key of collapsedProjectKeys) {
@@ -46,7 +46,7 @@ export function useSidebarShortcutModel(input: {
         setProjectCollapsed(key, false);
       }
     }
-  }, [collapsedProjectKeys, isInitialLoad, projects, setProjectCollapsed]);
+  }, [collapsedProjectKeys, isInitialLoad, organizationMode, projects, setProjectCollapsed]);
 
   return {
     collapsedProjectKeys,

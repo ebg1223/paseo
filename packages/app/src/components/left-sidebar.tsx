@@ -1,5 +1,5 @@
 import { router, usePathname } from "expo-router";
-import { FolderPlus, Home, MessagesSquare, Settings, X } from "lucide-react-native";
+import { FolderPlus, Home, MessagesSquare, Search, Settings, X } from "lucide-react-native";
 import {
   type Dispatch,
   memo,
@@ -34,6 +34,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+import { SidebarGroupingSelector } from "@/components/sidebar/sidebar-grouping-selector";
 import { Combobox, ComboboxItem, type ComboboxOption } from "@/components/ui/combobox";
 import { Shortcut } from "@/components/ui/shortcut";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -47,6 +48,8 @@ import {
   type SidebarProjectEntry,
   useSidebarWorkspacesList,
 } from "@/hooks/use-sidebar-workspaces-list";
+import { useSidebarViewStore, type SidebarGroupMode } from "@/stores/sidebar-view-store";
+import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useHostRuntimeSnapshot, useHosts } from "@/runtime/host-runtime";
 import {
   MAX_SIDEBAR_WIDTH,
@@ -96,6 +99,7 @@ interface SidebarSharedProps {
   isManualRefresh: boolean;
   selectedAgentId?: string;
   organizationMode: WorkspaceOrganizationMode;
+  groupMode: SidebarGroupMode;
   collapsedProjectKeys: SidebarShortcutModel["collapsedProjectKeys"];
   shortcutIndexByWorkspaceKey: SidebarShortcutModel["shortcutIndexByWorkspaceKey"];
   toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
@@ -206,6 +210,10 @@ export const LeftSidebar = memo(function LeftSidebar({ selectedAgentId }: LeftSi
       organizationMode,
     });
 
+  const groupMode = useSidebarViewStore((state) =>
+    activeServerId ? state.getGroupMode(activeServerId) : "project",
+  );
+
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
   const handleRefresh = useCallback(() => {
@@ -284,6 +292,7 @@ export const LeftSidebar = memo(function LeftSidebar({ selectedAgentId }: LeftSi
     isManualRefresh,
     selectedAgentId: effectiveSelectedAgentId,
     organizationMode,
+    groupMode,
     collapsedProjectKeys,
     shortcutIndexByWorkspaceKey,
     toggleProjectCollapsed,
@@ -433,6 +442,21 @@ function AddProjectTooltipContent({
   );
 }
 
+function HeaderIconTooltipContent({
+  label,
+  shortcutKeys,
+}: {
+  label: string;
+  shortcutKeys?: ReturnType<typeof useShortcutKeys>;
+}) {
+  return (
+    <View style={styles.tooltipRow}>
+      <Text style={styles.tooltipText}>{label}</Text>
+      {shortcutKeys ? <Shortcut chord={shortcutKeys} /> : null}
+    </View>
+  );
+}
+
 function SidebarFooter({
   theme,
   activeServerId,
@@ -534,6 +558,7 @@ function MobileSidebar({
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
+  groupMode,
   collapsedProjectKeys,
   shortcutIndexByWorkspaceKey,
   toggleProjectCollapsed,
@@ -716,12 +741,18 @@ function MobileSidebar({
       <GestureDetector gesture={closeGesture} touchAction="pan-y">
         <Animated.View style={mobileSidebarStyle} pointerEvents="auto">
           <View style={styles.sidebarContent} pointerEvents="auto">
-            <SidebarHeaderRow
-              icon={MessagesSquare}
-              label="Sessions"
-              onPress={handleViewMore}
-              isActive={isSessionsActive}
-              testID="sidebar-sessions"
+            <View style={styles.sidebarHeaderRow}>
+              <SidebarHeaderRow
+                icon={MessagesSquare}
+                label="Sessions"
+                onPress={handleViewMore}
+                isActive={isSessionsActive}
+                testID="sidebar-sessions"
+              />
+            </View>
+            <WorkspacesSectionHeader
+              serverId={activeServerId}
+              organizationMode={organizationMode}
             />
             <Pressable
               style={styles.mobileCloseButton}
@@ -751,6 +782,7 @@ function MobileSidebar({
                 collapsedProjectKeys={collapsedProjectKeys}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+                groupMode={groupMode}
                 projects={projects}
                 organizationMode={organizationMode}
                 selectedAgentId={selectedAgentId}
@@ -797,6 +829,7 @@ function DesktopSidebar({
   isInitialLoad,
   isRevalidating,
   isManualRefresh,
+  groupMode,
   collapsedProjectKeys,
   shortcutIndexByWorkspaceKey,
   toggleProjectCollapsed,
@@ -882,14 +915,17 @@ function DesktopSidebar({
         <View style={styles.sidebarDragArea}>
           <TitlebarDragRegion />
           {padding.top > 0 ? <View style={paddingTopSpacerStyle} /> : null}
-          <SidebarHeaderRow
-            icon={MessagesSquare}
-            label="Sessions"
-            onPress={handleViewMore}
-            isActive={isSessionsActive}
-            testID="sidebar-sessions"
-          />
+          <View style={styles.sidebarHeaderRow}>
+            <SidebarHeaderRow
+              icon={MessagesSquare}
+              label="Sessions"
+              onPress={handleViewMore}
+              isActive={isSessionsActive}
+              testID="sidebar-sessions"
+            />
+          </View>
         </View>
+        <WorkspacesSectionHeader serverId={activeServerId} organizationMode={organizationMode} />
 
         {isInitialLoad ? (
           <SidebarAgentListSkeleton />
@@ -899,6 +935,7 @@ function DesktopSidebar({
             collapsedProjectKeys={collapsedProjectKeys}
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
+            groupMode={groupMode}
             projects={projects}
             organizationMode={organizationMode}
             selectedAgentId={selectedAgentId}
@@ -935,6 +972,71 @@ function DesktopSidebar({
   );
 }
 
+function WorkspacesSectionHeader({
+  serverId,
+  organizationMode,
+}: {
+  serverId: string | null;
+  organizationMode: WorkspaceOrganizationMode;
+}) {
+  const { theme } = useUnistyles();
+  const setCommandCenterOpen = useKeyboardShortcutsStore((state) => state.setCommandCenterOpen);
+  const commandCenterKeys = useShortcutKeys("toggle-command-center");
+  const handleSearchPress = useCallback(() => setCommandCenterOpen(true), [setCommandCenterOpen]);
+  const sectionTitle = organizationMode === "thread-first" ? "Threads" : "Workspaces";
+  const showGroupingSelector = organizationMode === "workspace-first";
+  const searchButtonStyle = useCallback(
+    ({ hovered = false, pressed }: PressableStateCallbackType & { hovered?: boolean }) => [
+      styles.workspacesHeaderIconButton,
+      (hovered || pressed) && styles.workspacesHeaderIconButtonHovered,
+    ],
+    [],
+  );
+
+  return (
+    <View style={styles.workspacesSectionHeader}>
+      <Text style={styles.workspacesSectionTitle}>{sectionTitle}</Text>
+      <View style={styles.workspacesSectionActions}>
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open command center"
+              testID="sidebar-command-center-search"
+              style={searchButtonStyle}
+              onPress={handleSearchPress}
+            >
+              {({ hovered, pressed }) => (
+                <Search
+                  size={14}
+                  color={
+                    hovered || pressed ? theme.colors.foreground : theme.colors.foregroundMuted
+                  }
+                />
+              )}
+            </Pressable>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="center" offset={8}>
+            <HeaderIconTooltipContent label="Search" shortcutKeys={commandCenterKeys} />
+          </TooltipContent>
+        </Tooltip>
+        {showGroupingSelector ? (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <View>
+                <SidebarGroupingSelector serverId={serverId} />
+              </View>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="center" offset={8}>
+              <HeaderIconTooltipContent label="Display preferences" />
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 // Static styles for Animated.Views — must NOT use Unistyles dynamic theme to
 // avoid the "Unable to find node on an unmounted component" crash when Unistyles
 // tries to patch the native node that Reanimated also manages.
@@ -956,6 +1058,39 @@ const staticStyles = RNStyleSheet.create({
 });
 
 const styles = StyleSheet.create((theme) => ({
+  sidebarHeaderRow: {
+    position: "relative",
+  },
+  workspacesSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: theme.spacing[2],
+    paddingLeft: theme.spacing[2] + theme.spacing[3],
+    paddingRight: theme.spacing[4],
+    paddingTop: theme.spacing[2],
+    paddingBottom: theme.spacing[1],
+  },
+  workspacesSectionTitle: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.normal,
+  },
+  workspacesSectionActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[1],
+  },
+  workspacesHeaderIconButton: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.borderRadius.md,
+  },
+  workspacesHeaderIconButtonHovered: {
+    backgroundColor: theme.colors.surfaceSidebarHover,
+  },
   sidebarContent: {
     flex: 1,
     minHeight: 0,

@@ -55,6 +55,7 @@ function sidebarProject(input: {
 }
 
 function workspaceDescriptor(overrides: Partial<WorkspaceDescriptor> = {}): WorkspaceDescriptor {
+  const { statusEnteredAt = null, ...rest } = overrides;
   return {
     id: "ws-main",
     projectId: "project-1",
@@ -66,6 +67,7 @@ function workspaceDescriptor(overrides: Partial<WorkspaceDescriptor> = {}): Work
     workspaceKind: "checkout",
     name: "main",
     status: "done",
+    statusEnteredAt,
     archivingAt: null,
     diffStat: null,
     scripts: [],
@@ -82,7 +84,7 @@ function workspaceDescriptor(overrides: Partial<WorkspaceDescriptor> = {}): Work
         mainRepoRoot: null,
       },
     },
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -283,6 +285,28 @@ describe("buildSidebarProjectsWithAgents", () => {
         branchName: "main",
       }),
     ]);
+  });
+
+  it("does not count initializing agents as running", () => {
+    const baseProjects = buildSidebarProjectsFromStructure({
+      serverId: "srv",
+      projects: [
+        project({
+          projectKey: "project-1",
+          projectName: "Project 1",
+          iconWorkingDir: "/repo",
+          workspaceKeys: ["ws-main"],
+        }),
+      ],
+    });
+
+    const projects = buildSidebarProjectsWithAgents({
+      projects: baseProjects,
+      agents: [agent({ status: "initializing" })],
+      workspaces: [workspaceDescriptor()],
+    });
+
+    expect(projects[0]?.agents[0]?.statusBucket).toBe("done");
   });
 
   it("creates a synthetic project for active agents without a workspace descriptor", () => {

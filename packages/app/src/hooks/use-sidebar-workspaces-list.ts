@@ -55,6 +55,7 @@ export function createSidebarWorkspaceEntry(input: {
     name: input.workspace.name,
     branchName: normalizeSidebarBranchName(input.workspace.gitRuntime?.currentBranch),
     statusBucket: input.workspace.status,
+    statusEnteredAt: input.workspace.statusEnteredAt,
     archivingAt: input.workspace.archivingAt,
     diffStat: input.workspace.diffStat,
     prHint: selectPrHintFromStatus(input.workspace.githubRuntime?.pullRequest),

@@ -65,6 +65,7 @@ export interface SidebarWorkspaceEntry {
   name: string;
   branchName: string | null;
   statusBucket: SidebarStateBucket;
+  statusEnteredAt: Date | null;
   archivingAt: string | null;
   diffStat: { additions: number; deletions: number } | null;
   prHint: PrHint | null;
@@ -110,6 +111,7 @@ function createStructuralWorkspaceEntry(input: {
     name: details?.workspaceName?.trim() || input.workspaceId,
     branchName: normalizeSidebarBranchName(details?.currentBranch),
     statusBucket: "done",
+    statusEnteredAt: null,
     archivingAt: null,
     diffStat: null,
     prHint: null,
@@ -151,7 +153,7 @@ function resolveAgentStatusBucket(agent: SidebarAgentProjectionSource): SidebarS
   if (agent.status === "error") {
     return "failed";
   }
-  if (agent.status === "running" || agent.status === "initializing") {
+  if (agent.status === "running") {
     return "running";
   }
   if (agent.requiresAttention) {
