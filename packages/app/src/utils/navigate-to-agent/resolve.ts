@@ -8,6 +8,7 @@ export interface NavigateToAgentInput {
   agentId: string;
   currentPathname?: string | null;
   pin?: boolean;
+  allowArchived?: boolean;
 }
 
 export interface AgentNavTarget {
@@ -43,7 +44,11 @@ export function resolveNavigateToAgent(
   return deps.navigateToPreparedWorkspaceTab({
     serverId: input.serverId,
     workspaceId,
-    target: { kind: "agent", agentId: input.agentId },
+    target: {
+      kind: "agent",
+      agentId: input.agentId,
+      ...(input.allowArchived === true ? { allowArchived: true } : {}),
+    },
     currentPathname: input.currentPathname,
     pin: input.pin,
   });

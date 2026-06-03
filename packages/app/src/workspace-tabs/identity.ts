@@ -24,12 +24,7 @@ export function normalizeWorkspaceTabTarget(
     };
   }
   if (value.kind === "agent") {
-    const agentId = trimNonEmpty(value.agentId);
-    if (!agentId) {
-      return null;
-    }
-    const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
-    return { kind: "agent", agentId, ...(workspaceId ? { workspaceId } : {}) };
+    return normalizeAgentTabTarget(value);
   }
   if (value.kind === "terminal") {
     const terminalId = trimNonEmpty(value.terminalId);
@@ -92,7 +87,9 @@ export function workspaceTabTargetsEqual(
     return left.draftId === right.draftId && workspaceDraftTabSetupsEqual(left.setup, right.setup);
   }
   if (left.kind === "agent" && right.kind === "agent") {
-    return left.agentId === right.agentId;
+    const leftAllowsArchived = left.allowArchived === true;
+    const rightAllowsArchived = right.allowArchived === true;
+    return left.agentId === right.agentId && leftAllowsArchived === rightAllowsArchived;
   }
   if (left.kind === "terminal" && right.kind === "terminal") {
     return left.terminalId === right.terminalId;
@@ -124,6 +121,22 @@ function workspaceDraftTabSetupsEqual(
     left.thinkingOptionId === right.thinkingOptionId &&
     recordsShallowEqual(left.featureValues, right.featureValues)
   );
+}
+
+function normalizeAgentTabTarget(
+  value: Extract<WorkspaceTabTarget, { kind: "agent" }>,
+): WorkspaceTabTarget | null {
+  const agentId = trimNonEmpty(value.agentId);
+  if (!agentId) {
+    return null;
+  }
+  const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
+  return {
+    kind: "agent",
+    agentId,
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(value.allowArchived === true ? { allowArchived: true } : {}),
+  };
 }
 
 function recordsShallowEqual(
@@ -159,8 +172,7 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
     return `setup_${target.workspaceId}`;
   }
   if (target.kind === "file") {
-    const workspaceId = normalizeTargetWorkspaceId(target.workspaceId);
-    return workspaceId ? `file_${workspaceId}_${target.path}` : `file_${target.path}`;
+    return `file_${target.path}`;
   }
   return "tab_unknown";
 }

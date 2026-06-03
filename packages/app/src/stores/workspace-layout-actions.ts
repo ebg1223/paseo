@@ -1651,13 +1651,17 @@ function collapseStaleEntityTabs(input: {
   layout: WorkspaceLayout;
   snapshot: WorkspaceTabSnapshot;
   visibleAgentIds: Set<string>;
+  knownAgentIds: Set<string>;
   knownTerminalIds: Set<string>;
 }): WorkspaceLayout {
-  const { snapshot, visibleAgentIds, knownTerminalIds } = input;
+  const { snapshot, visibleAgentIds, knownAgentIds, knownTerminalIds } = input;
   const snapshotWorkspaceId = trimNonEmpty(snapshot.workspaceId);
   let nextLayout = input.layout;
   for (const tab of collectAllTabs(nextLayout.root)) {
     if (isAgentTab(tab) && snapshot.agentsHydrated && !visibleAgentIds.has(tab.target.agentId)) {
+      if (tab.target.allowArchived === true && knownAgentIds.has(tab.target.agentId)) {
+        continue;
+      }
       nextLayout =
         closeTabInLayout({
           layout: nextLayout,
@@ -1748,6 +1752,7 @@ export function reconcileWorkspaceTabs(
   const pinnedAgentIds = new Set(state.pinnedAgentIds ?? []);
   const hiddenAgentIds = new Set(state.hiddenAgentIds ?? []);
   const activeAgentIds = normalizeStringSet(snapshot.activeAgentIds);
+  const knownAgentIds = normalizeStringSet(snapshot.knownAgentIds);
   const autoOpenAgentIds = normalizeStringSet(snapshot.autoOpenAgentIds ?? []);
   const standaloneTerminalIds = normalizeStringSet(snapshot.standaloneTerminalIds);
   const knownTerminalIds = snapshot.knownTerminalIds
@@ -1805,6 +1810,7 @@ export function reconcileWorkspaceTabs(
     layout: nextLayout,
     snapshot,
     visibleAgentIds,
+    knownAgentIds,
     knownTerminalIds,
   });
 

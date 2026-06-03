@@ -317,6 +317,7 @@ export function AgentList({
         serverId,
         agentId,
         pin: Boolean(agent.archivedAt),
+        allowArchived: Boolean(agent.archivedAt),
       });
     },
     [isActionSheetVisible, onAgentSelect],

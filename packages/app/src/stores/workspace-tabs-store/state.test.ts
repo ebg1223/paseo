@@ -332,6 +332,32 @@ describe("workspace-tabs-store reducers", () => {
     expect(reopened.state.focusedTabIdByWorkspace[WORKSPACE_KEY]).toBe(fileResult.tabId);
   });
 
+  it("keeps existing file tab ids when the target carries workspace context", () => {
+    const result = applyOpenOrFocusTab(emptyState(), {
+      serverId: SERVER_ID,
+      workspaceId: WORKSPACE_ID,
+      target: {
+        kind: "file",
+        workspaceId: WORKSPACE_ID,
+        path: "/repo/worktree/src/index.ts",
+      },
+      now: NOW,
+    });
+
+    expect(result.tabId).toBe("file_/repo/worktree/src/index.ts");
+    expect(result.state.uiTabsByWorkspace[WORKSPACE_KEY]).toEqual([
+      {
+        tabId: "file_/repo/worktree/src/index.ts",
+        target: {
+          kind: "file",
+          workspaceId: WORKSPACE_ID,
+          path: "/repo/worktree/src/index.ts",
+        },
+        createdAt: NOW,
+      },
+    ]);
+  });
+
   it("builds a deterministic setup tab keyed by workspace id", () => {
     const result = applyOpenOrFocusTab(initialWorkspaceTabsCoreState, {
       serverId: SERVER_ID,

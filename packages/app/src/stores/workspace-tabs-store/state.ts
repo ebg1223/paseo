@@ -18,7 +18,7 @@ export interface WorkspaceDraftTabSetup {
 
 export type WorkspaceTabTarget =
   | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup; workspaceId?: string }
-  | { kind: "agent"; agentId: string; workspaceId?: string }
+  | { kind: "agent"; agentId: string; workspaceId?: string; allowArchived?: boolean }
   | { kind: "terminal"; terminalId: string; workspaceId?: string }
   | { kind: "browser"; browserId: string; workspaceId?: string }
   | (WorkspaceFileTabTarget & { workspaceId?: string })
@@ -533,6 +533,7 @@ function coerceAgentTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget 
     kind: "agent",
     agentId: raw.agentId,
     ...readRawWorkspaceContext(raw),
+    ...(raw.allowArchived === true ? { allowArchived: true } : {}),
   });
 }
 

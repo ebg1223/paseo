@@ -83,6 +83,33 @@ describe("resolveNavigateToAgent", () => {
     ]);
   });
 
+  it("marks explicitly opened archived agents so reconciliation can keep the viewer tab", () => {
+    const { deps, tabNavigations } = createFakeNavigators({
+      workspaces: [createWorkspace()],
+      agentCwd: "/repo/worktree",
+    });
+
+    resolveNavigateToAgent(
+      {
+        serverId: SERVER_ID,
+        agentId: AGENT_ID,
+        pin: true,
+        allowArchived: true,
+      },
+      deps,
+    );
+
+    expect(tabNavigations).toEqual([
+      {
+        serverId: SERVER_ID,
+        workspaceId: WORKSPACE_ID,
+        target: { kind: "agent", agentId: AGENT_ID, allowArchived: true },
+        currentPathname: undefined,
+        pin: true,
+      },
+    ]);
+  });
+
   it("falls back to the host agent route when the workspace is unknown", () => {
     const { deps, hostNavigations, tabNavigations } = createFakeNavigators({
       workspaces: [],

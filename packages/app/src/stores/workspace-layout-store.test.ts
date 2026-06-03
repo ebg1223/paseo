@@ -1481,6 +1481,39 @@ describe("workspace-layout-store actions", () => {
     expect(workspaceLayoutStore.getState().getWorkspaceTabs(workspaceKey)).toEqual([]);
   });
 
+  it("reconcileTabs keeps explicitly reopened archived agent viewer tabs", () => {
+    const workspaceKey = createWorkspaceKey();
+    const store = workspaceLayoutStore.getState();
+
+    store.pinAgent(workspaceKey, "archived-agent");
+    store.openTabFocused(workspaceKey, {
+      kind: "agent",
+      agentId: "archived-agent",
+      allowArchived: true,
+    });
+
+    store.reconcileTabs(workspaceKey, {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: [],
+      knownAgentIds: ["archived-agent"],
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    });
+
+    expect(workspaceLayoutStore.getState().getWorkspaceTabs(workspaceKey)).toEqual([
+      {
+        tabId: "agent_archived-agent",
+        target: {
+          kind: "agent",
+          agentId: "archived-agent",
+          allowArchived: true,
+        },
+        createdAt: expect.any(Number),
+      },
+    ]);
+  });
+
   it("reconcileTabs keeps manually opened agent tabs that remain active", () => {
     const workspaceKey = createWorkspaceKey();
     const store = workspaceLayoutStore.getState();
