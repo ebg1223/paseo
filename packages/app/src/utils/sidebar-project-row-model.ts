@@ -2,6 +2,7 @@ import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import type { WorkspaceOrganizationMode } from "@/stores/workspace-organization-store";
 
 export interface SidebarProjectWorkspaceLinkRowModel {
   kind: "workspace_link";
@@ -20,15 +21,23 @@ export type SidebarProjectRowModel =
   | SidebarProjectWorkspaceLinkRowModel
   | SidebarProjectSectionRowModel;
 
-export function isSidebarProjectFlattened(project: SidebarProjectEntry): boolean {
+export function isSidebarProjectFlattened(
+  project: SidebarProjectEntry,
+  organizationMode: WorkspaceOrganizationMode = "workspace-first",
+): boolean {
+  if (organizationMode === "thread-first" && project.agents.length > 0) {
+    return false;
+  }
   return project.workspaces.length === 1 && project.projectKind !== "git";
 }
 
 export function buildSidebarProjectRowModel(input: {
   project: SidebarProjectEntry;
   collapsed: boolean;
+  organizationMode?: WorkspaceOrganizationMode;
 }): SidebarProjectRowModel {
-  const flattenedWorkspace = isSidebarProjectFlattened(input.project)
+  const organizationMode = input.organizationMode ?? "workspace-first";
+  const flattenedWorkspace = isSidebarProjectFlattened(input.project, organizationMode)
     ? (input.project.workspaces[0] ?? null)
     : null;
 
@@ -41,7 +50,10 @@ export function buildSidebarProjectRowModel(input: {
     };
   }
 
-  const collapsible = input.project.projectKind === "git" || input.project.workspaces.length > 1;
+  const collapsible =
+    organizationMode === "thread-first"
+      ? input.project.agents.length > 0
+      : input.project.projectKind === "git" || input.project.workspaces.length > 1;
 
   let chevron: "expand" | "collapse" | null;
   if (!collapsible) chevron = null;

@@ -59,7 +59,6 @@ import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
 import { usePanelStore } from "@/stores/panel-store";
 import { type Agent, useSessionStore } from "@/stores/session-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
-import { buildWorkspaceTabPersistenceKey } from "@/stores/workspace-tabs-store";
 import type { Theme } from "@/styles/theme";
 import { useArchiveSubagent, useSubagentsForParent } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
@@ -1324,7 +1323,7 @@ function ActiveAgentComposer({
     { initialIsBelow: isCompactFormFactor },
   );
   const paneContext = usePaneContext();
-  const { workspaceId, tabId, retargetCurrentTab } = paneContext;
+  const { workspaceId, tabScopeKey, tabId, retargetCurrentTab } = paneContext;
   const { archiveAgent } = useArchiveAgent();
   const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
   const hideWorkspaceAgent = useWorkspaceLayoutStore((state) => state.hideAgent);
@@ -1377,10 +1376,9 @@ function ActiveAgentComposer({
         throw new Error("Agent not found");
       }
 
-      const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
-      if (workspaceKey) {
-        unpinWorkspaceAgent(workspaceKey, agentId);
-        hideWorkspaceAgent(workspaceKey, agentId);
+      if (tabScopeKey) {
+        unpinWorkspaceAgent(tabScopeKey, agentId);
+        hideWorkspaceAgent(tabScopeKey, agentId);
       }
 
       if (command.kind === "replace-agent-with-draft") {
@@ -1389,8 +1387,8 @@ function ActiveAgentComposer({
           draftId: generateDraftId(),
           setup: buildDraftAgentSetup(agent),
         });
-      } else if (workspaceKey) {
-        closeWorkspaceTab(workspaceKey, tabId);
+      } else if (tabScopeKey) {
+        closeWorkspaceTab(tabScopeKey, tabId);
       }
 
       await archiveAgent({ serverId, agentId });
@@ -1402,9 +1400,9 @@ function ActiveAgentComposer({
       hideWorkspaceAgent,
       retargetCurrentTab,
       serverId,
+      tabScopeKey,
       tabId,
       unpinWorkspaceAgent,
-      workspaceId,
     ],
   );
 

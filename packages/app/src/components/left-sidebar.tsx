@@ -54,6 +54,11 @@ import {
   selectIsAgentListOpen,
   usePanelStore,
 } from "@/stores/panel-store";
+import { useSessionStore } from "@/stores/session-store";
+import {
+  useWorkspaceOrganizationStore,
+  type WorkspaceOrganizationMode,
+} from "@/stores/workspace-organization-store";
 import { resolveActiveHost } from "@/utils/active-host";
 import { formatConnectionStatus } from "@/utils/daemons";
 import { useWindowControlsPadding } from "@/utils/desktop-window";
@@ -89,6 +94,8 @@ interface SidebarSharedProps {
   isInitialLoad: boolean;
   isRevalidating: boolean;
   isManualRefresh: boolean;
+  selectedAgentId?: string;
+  organizationMode: WorkspaceOrganizationMode;
   collapsedProjectKeys: SidebarShortcutModel["collapsedProjectKeys"];
   shortcutIndexByWorkspaceKey: SidebarShortcutModel["shortcutIndexByWorkspaceKey"];
   toggleProjectCollapsed: SidebarShortcutModel["toggleProjectCollapsed"];
@@ -119,11 +126,7 @@ interface DesktopSidebarProps extends SidebarSharedProps {
   handleViewMore: () => void;
 }
 
-export const LeftSidebar = memo(function LeftSidebar({
-  selectedAgentId: _selectedAgentId,
-}: LeftSidebarProps) {
-  void _selectedAgentId;
-
+export const LeftSidebar = memo(function LeftSidebar({ selectedAgentId }: LeftSidebarProps) {
   const { theme } = useUnistyles();
   const insets = useSafeAreaInsets();
   const isCompactLayout = useIsCompactFormFactor();
@@ -138,6 +141,13 @@ export const LeftSidebar = memo(function LeftSidebar({
     [daemons, pathname],
   );
   const activeServerId = activeDaemon?.serverId ?? null;
+  const focusedAgentId = useSessionStore((state) =>
+    activeServerId ? (state.sessions[activeServerId]?.focusedAgentId ?? null) : null,
+  );
+  const organizationMode = useWorkspaceOrganizationStore((state) => state.mode);
+  const effectiveSelectedAgentId =
+    selectedAgentId ??
+    (activeServerId && focusedAgentId ? `${activeServerId}:${focusedAgentId}` : undefined);
   const activeHostLabel = useMemo(() => {
     if (!activeDaemon) return "No host";
     const trimmed = activeDaemon.label?.trim();
@@ -190,7 +200,11 @@ export const LeftSidebar = memo(function LeftSidebar({
     enabled: isCompactLayout || isOpen,
   });
   const { collapsedProjectKeys, shortcutIndexByWorkspaceKey, toggleProjectCollapsed } =
-    useSidebarShortcutModel({ projects, isInitialLoad });
+    useSidebarShortcutModel({
+      projects,
+      isInitialLoad,
+      organizationMode,
+    });
 
   const [isManualRefresh, setIsManualRefresh] = useState(false);
 
@@ -268,6 +282,8 @@ export const LeftSidebar = memo(function LeftSidebar({
     isInitialLoad,
     isRevalidating,
     isManualRefresh,
+    selectedAgentId: effectiveSelectedAgentId,
+    organizationMode,
     collapsedProjectKeys,
     shortcutIndexByWorkspaceKey,
     toggleProjectCollapsed,
@@ -527,6 +543,8 @@ function MobileSidebar({
   handleOpenProject,
   handleHome,
   handleSettings,
+  selectedAgentId,
+  organizationMode,
   insetsTop,
   insetsBottom,
   isOpen,
@@ -734,6 +752,8 @@ function MobileSidebar({
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
                 projects={projects}
+                organizationMode={organizationMode}
+                selectedAgentId={selectedAgentId}
                 isRefreshing={isManualRefresh && isRevalidating}
                 onRefresh={handleRefresh}
                 onWorkspacePress={handleWorkspacePress}
@@ -786,6 +806,8 @@ function DesktopSidebar({
   handleOpenProject,
   handleHome,
   handleSettings,
+  selectedAgentId,
+  organizationMode,
   insetsTop,
   isOpen,
   handleViewMore,
@@ -878,6 +900,8 @@ function DesktopSidebar({
             onToggleProjectCollapsed={toggleProjectCollapsed}
             shortcutIndexByWorkspaceKey={shortcutIndexByWorkspaceKey}
             projects={projects}
+            organizationMode={organizationMode}
+            selectedAgentId={selectedAgentId}
             isRefreshing={isManualRefresh && isRevalidating}
             onRefresh={handleRefresh}
             onAddProject={handleOpenProject}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import type { SidebarProjectEntry } from "@/hooks/use-sidebar-workspaces-list";
+import type { WorkspaceOrganizationMode } from "@/stores/workspace-organization-store";
 import { buildSidebarShortcutModel } from "@/utils/sidebar-shortcuts";
 import { isSidebarProjectFlattened } from "@/utils/sidebar-project-row-model";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
@@ -7,8 +8,9 @@ import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sec
 export function useSidebarShortcutModel(input: {
   projects: SidebarProjectEntry[];
   isInitialLoad: boolean;
+  organizationMode: WorkspaceOrganizationMode;
 }) {
-  const { projects, isInitialLoad } = input;
+  const { projects, isInitialLoad, organizationMode } = input;
   const collapsedProjectKeys = useSidebarCollapsedSectionsStore(
     (state) => state.collapsedProjectKeys,
   );
@@ -24,8 +26,9 @@ export function useSidebarShortcutModel(input: {
       buildSidebarShortcutModel({
         projects,
         collapsedProjectKeys,
+        organizationMode,
       }),
-    [collapsedProjectKeys, projects],
+    [collapsedProjectKeys, organizationMode, projects],
   );
 
   useEffect(() => {

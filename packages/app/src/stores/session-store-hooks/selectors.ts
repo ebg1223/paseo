@@ -17,10 +17,31 @@ export interface WorkspaceStructureProject {
   projectKind: WorkspaceDescriptor["projectKind"];
   iconWorkingDir: string;
   workspaceKeys: string[];
+  workspaceDetailsById?: Record<string, WorkspaceStructureWorkspaceDetails>;
 }
 
 export interface WorkspaceStructure {
   projects: WorkspaceStructureProject[];
+}
+
+export interface WorkspaceStructureWorkspaceDetails {
+  workspaceId: string;
+  workspaceName: string;
+  workspaceDirectory: string;
+  workspaceKind: WorkspaceDescriptor["workspaceKind"];
+  currentBranch: string | null;
+}
+
+export interface SidebarAgentWorkspaceSource {
+  id: string;
+  projectId: string;
+  projectRootPath: string;
+  workspaceDirectory: string;
+  projectKind: WorkspaceDescriptor["projectKind"];
+  workspaceKind: WorkspaceDescriptor["workspaceKind"];
+  name: string;
+  gitRuntime?: { currentBranch?: string | null } | null;
+  project?: WorkspaceDescriptor["project"];
 }
 
 export interface SessionsSnapshot {
@@ -34,6 +55,7 @@ export interface SidebarOrderSnapshot {
 
 const EMPTY_WORKSPACE_KEYS: string[] = [];
 const EMPTY_WORKSPACE_STRUCTURE: WorkspaceStructure = { projects: [] };
+const EMPTY_SIDEBAR_AGENT_WORKSPACES: SidebarAgentWorkspaceSource[] = [];
 
 export const workspaceEqualityFns = {
   identity: Object.is as (a: unknown, b: unknown) => boolean,
@@ -174,7 +196,8 @@ export function selectWorkspaceStructureProjects(
   const byProject = new Map<
     string,
     WorkspaceStructureProject & {
-      workspaces: Array<{ workspaceId: string; workspaceName: string; workspaceKey: string }>;
+      workspaces: Array<WorkspaceStructureWorkspaceDetails & { workspaceKey: string }>;
+      workspaceDetailsById: Record<string, WorkspaceStructureWorkspaceDetails>;
     }
   >();
 
@@ -188,16 +211,25 @@ export function selectWorkspaceStructureProjects(
         projectKind: workspace.projectKind,
         iconWorkingDir: workspace.projectRootPath,
         workspaceKeys: [],
+        workspaceDetailsById: {},
         workspaces: [],
       } satisfies WorkspaceStructureProject & {
-        workspaces: Array<{ workspaceId: string; workspaceName: string; workspaceKey: string }>;
+        workspaces: Array<WorkspaceStructureWorkspaceDetails & { workspaceKey: string }>;
+        workspaceDetailsById: Record<string, WorkspaceStructureWorkspaceDetails>;
       });
 
-    project.workspaces.push({
+    const workspaceDetails = {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
+      workspaceDirectory: workspace.workspaceDirectory,
+      workspaceKind: workspace.workspaceKind,
+      currentBranch: workspace.gitRuntime?.currentBranch ?? null,
+    };
+    project.workspaces.push({
+      ...workspaceDetails,
       workspaceKey: `${serverId}:${workspace.id}`,
     });
+    project.workspaceDetailsById[workspace.id] = workspaceDetails;
     byProject.set(workspace.projectId, project);
   }
 
@@ -213,6 +245,34 @@ export function selectWorkspaceStructureProjects(
 
   projects.sort(compareWorkspaceStructureProjects);
   return projects;
+}
+
+export function selectSidebarAgentWorkspaces(
+  state: SessionsSnapshot,
+  serverId: string | null,
+): SidebarAgentWorkspaceSource[] {
+  if (!serverId) {
+    return EMPTY_SIDEBAR_AGENT_WORKSPACES;
+  }
+
+  const workspaces = state.sessions[serverId]?.workspaces;
+  if (!workspaces || workspaces.size === 0) {
+    return EMPTY_SIDEBAR_AGENT_WORKSPACES;
+  }
+
+  return Array.from(workspaces.values()).map((workspace) => ({
+    id: workspace.id,
+    projectId: workspace.projectId,
+    projectRootPath: workspace.projectRootPath,
+    workspaceDirectory: workspace.workspaceDirectory,
+    projectKind: workspace.projectKind,
+    workspaceKind: workspace.workspaceKind,
+    name: workspace.name,
+    gitRuntime: workspace.gitRuntime
+      ? { currentBranch: workspace.gitRuntime.currentBranch }
+      : undefined,
+    project: workspace.project,
+  }));
 }
 
 export function selectProjectOrder(state: SidebarOrderSnapshot, serverId: string | null): string[] {

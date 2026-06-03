@@ -67,9 +67,37 @@ describe("prepareWorkspaceTab", () => {
 
     expect(route).toBe("/h/server-1/workspace/b64_L3JlcG8vd29ya3RyZWU");
     expect(layout.openedTabs).toEqual([
-      { key: "server-1:/repo/worktree", target: { kind: "agent", agentId: AGENT_ID } },
+      {
+        key: "server-1:/repo/worktree",
+        target: { kind: "agent", agentId: AGENT_ID, workspaceId: WORKSPACE_ID },
+      },
     ]);
     expect(layout.pinnedAgents).toEqual([]);
+  });
+
+  it("opens and pins against an explicit tab scope key", () => {
+    const layout = createFakeLayout();
+    const tabScopeKey = "server-1:project:project-1";
+
+    const route = prepareWorkspaceTab(
+      {
+        serverId: SERVER_ID,
+        workspaceId: WORKSPACE_ID,
+        tabScopeKey,
+        target: { kind: "agent", agentId: AGENT_ID },
+        pin: true,
+      },
+      layout,
+    );
+
+    expect(route).toBe("/h/server-1/workspace/b64_L3JlcG8vd29ya3RyZWU");
+    expect(layout.openedTabs).toEqual([
+      {
+        key: tabScopeKey,
+        target: { kind: "agent", agentId: AGENT_ID, workspaceId: WORKSPACE_ID },
+      },
+    ]);
+    expect(layout.pinnedAgents).toEqual([{ key: tabScopeKey, agentId: AGENT_ID }]);
   });
 
   it("prepares a tab and navigates through the workspace navigation helper", () => {
@@ -87,7 +115,10 @@ describe("prepareWorkspaceTab", () => {
 
     expect(route).toBe("/h/server-1/workspace/b64_L3JlcG8vd29ya3RyZWU");
     expect(layout.openedTabs).toEqual([
-      { key: "server-1:/repo/worktree", target: { kind: "agent", agentId: AGENT_ID } },
+      {
+        key: "server-1:/repo/worktree",
+        target: { kind: "agent", agentId: AGENT_ID, workspaceId: WORKSPACE_ID },
+      },
     ]);
     expect(navigator.navigations).toEqual([
       { serverId: SERVER_ID, workspaceId: WORKSPACE_ID, currentPathname: undefined },

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveCloseAgentTabPolicy } from "./close-tab-policy";
 
 describe("resolveCloseAgentTabPolicy", () => {
-  it("archives root agents when their tab closes", () => {
+  it("archives root agent tabs on close", () => {
     expect(resolveCloseAgentTabPolicy({ parentAgentId: null })).toEqual({
       kind: "archive-on-close",
     });
@@ -14,7 +14,7 @@ describe("resolveCloseAgentTabPolicy", () => {
     });
   });
 
-  it("preserves the existing archive fallback when the agent is missing", () => {
+  it("archives missing agent tabs on close so root fallback stays conservative", () => {
     expect(resolveCloseAgentTabPolicy(null)).toEqual({ kind: "archive-on-close" });
     expect(resolveCloseAgentTabPolicy(undefined)).toEqual({ kind: "archive-on-close" });
   });

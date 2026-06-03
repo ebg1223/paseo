@@ -56,6 +56,11 @@ import {
   type Settings as EffectiveSettings,
 } from "@/hooks/use-settings";
 import {
+  WORKSPACE_ORGANIZATION_MODE_OPTIONS,
+  useWorkspaceOrganizationStore,
+  type WorkspaceOrganizationMode,
+} from "@/stores/workspace-organization-store";
+import {
   getHostRuntimeStore,
   isHostRuntimeConnected,
   useHostRuntimeIsConnected,
@@ -199,8 +204,10 @@ const SERVICE_URL_BEHAVIOR_VALUES: ServiceUrlBehavior[] = ["ask", "in-app", "ext
 
 interface GeneralSectionProps {
   settings: AppSettings;
+  workspaceOrganizationMode: WorkspaceOrganizationMode;
   isDesktopApp: boolean;
   handleSendBehaviorChange: (behavior: SendBehavior) => void;
+  handleWorkspaceOrganizationModeChange: (mode: WorkspaceOrganizationMode) => void;
   handleServiceUrlBehaviorChange: (behavior: ServiceUrlBehavior) => void;
   handleTerminalScrollbackLinesChange: (lines: number) => void;
 }
@@ -228,8 +235,10 @@ function ServiceUrlBehaviorMenuItem({
 
 function GeneralSection({
   settings,
+  workspaceOrganizationMode,
   isDesktopApp,
   handleSendBehaviorChange,
+  handleWorkspaceOrganizationModeChange,
   handleServiceUrlBehaviorChange,
   handleTerminalScrollbackLinesChange,
 }: GeneralSectionProps) {
@@ -275,6 +284,20 @@ function GeneralSection({
             value={settings.sendBehavior}
             onValueChange={handleSendBehaviorChange}
             options={SEND_BEHAVIOR_OPTIONS}
+          />
+        </View>
+        <View style={ROW_WITH_BORDER_STYLE}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>Workspace organization</Text>
+            <Text style={settingsStyles.rowHint}>
+              Choose whether projects show workspace rows or thread rows
+            </Text>
+          </View>
+          <SegmentedControl
+            size="sm"
+            value={workspaceOrganizationMode}
+            onValueChange={handleWorkspaceOrganizationModeChange}
+            options={WORKSPACE_ORGANIZATION_MODE_OPTIONS}
           />
         </View>
         {isDesktopApp ? (
@@ -1074,6 +1097,8 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
   const { theme } = useUnistyles();
   const voiceAudioEngine = useVoiceAudioEngineOptional();
   const { settings, isLoading: settingsLoading, updateSettings } = useAppSettings();
+  const workspaceOrganizationMode = useWorkspaceOrganizationStore((state) => state.mode);
+  const setWorkspaceOrganizationMode = useWorkspaceOrganizationStore((state) => state.setMode);
   const [isAddHostMethodVisible, setIsAddHostMethodVisible] = useState(false);
   const [isDirectHostVisible, setIsDirectHostVisible] = useState(false);
   const [isPasteLinkVisible, setIsPasteLinkVisible] = useState(false);
@@ -1108,6 +1133,13 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
       void updateSettings({ sendBehavior: behavior });
     },
     [updateSettings],
+  );
+
+  const handleWorkspaceOrganizationModeChange = useCallback(
+    (mode: WorkspaceOrganizationMode) => {
+      setWorkspaceOrganizationMode(mode);
+    },
+    [setWorkspaceOrganizationMode],
   );
 
   const handleServiceUrlBehaviorChange = useCallback(
@@ -1324,8 +1356,10 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
           return (
             <GeneralSection
               settings={settings}
+              workspaceOrganizationMode={workspaceOrganizationMode}
               isDesktopApp={isDesktopApp}
               handleSendBehaviorChange={handleSendBehaviorChange}
+              handleWorkspaceOrganizationModeChange={handleWorkspaceOrganizationModeChange}
               handleServiceUrlBehaviorChange={handleServiceUrlBehaviorChange}
               handleTerminalScrollbackLinesChange={handleTerminalScrollbackLinesChange}
             />

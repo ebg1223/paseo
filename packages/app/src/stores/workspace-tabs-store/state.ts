@@ -17,11 +17,11 @@ export interface WorkspaceDraftTabSetup {
 }
 
 export type WorkspaceTabTarget =
-  | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup }
-  | { kind: "agent"; agentId: string }
-  | { kind: "terminal"; terminalId: string }
-  | { kind: "browser"; browserId: string }
-  | WorkspaceFileTabTarget
+  | { kind: "draft"; draftId: string; setup?: WorkspaceDraftTabSetup; workspaceId?: string }
+  | { kind: "agent"; agentId: string; workspaceId?: string }
+  | { kind: "terminal"; terminalId: string; workspaceId?: string }
+  | { kind: "browser"; browserId: string; workspaceId?: string }
+  | (WorkspaceFileTabTarget & { workspaceId?: string })
   | { kind: "setup"; workspaceId: string };
 
 export interface WorkspaceTab {
@@ -60,6 +60,20 @@ export function buildWorkspaceTabPersistenceKey(input: {
     return null;
   }
   return `${serverId}:${workspaceId}`;
+}
+
+export function buildWorkspaceProjectTabScopeKey(input: {
+  serverId: string;
+  projectKey: string | null | undefined;
+}): string | null {
+  const projectKey = trimNonEmpty(input.projectKey);
+  if (!projectKey) {
+    return null;
+  }
+  return buildWorkspaceTabPersistenceKey({
+    serverId: input.serverId,
+    workspaceId: `project:${projectKey}`,
+  });
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -494,37 +508,93 @@ function extractMigrationRawSources(persistedState: unknown): MigrationRawSource
   };
 }
 
+function readRawWorkspaceContext(raw: Record<string, unknown>): { workspaceId?: string } {
+  return typeof raw.workspaceId === "string" ? { workspaceId: raw.workspaceId } : {};
+}
+
+function coerceDraftTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
+  if (typeof raw.draftId !== "string") {
+    return null;
+  }
+  const setup = normalizeWorkspaceDraftTabSetup(raw.setup);
+  return normalizeWorkspaceTabTarget({
+    kind: "draft",
+    draftId: raw.draftId,
+    ...readRawWorkspaceContext(raw),
+    ...(setup ? { setup } : {}),
+  });
+}
+
+function coerceAgentTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
+  if (typeof raw.agentId !== "string") {
+    return null;
+  }
+  return normalizeWorkspaceTabTarget({
+    kind: "agent",
+    agentId: raw.agentId,
+    ...readRawWorkspaceContext(raw),
+  });
+}
+
+function coerceTerminalTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
+  if (typeof raw.terminalId !== "string") {
+    return null;
+  }
+  return normalizeWorkspaceTabTarget({
+    kind: "terminal",
+    terminalId: raw.terminalId,
+    ...readRawWorkspaceContext(raw),
+  });
+}
+
+function coerceBrowserTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
+  if (typeof raw.browserId !== "string") {
+    return null;
+  }
+  return normalizeWorkspaceTabTarget({
+    kind: "browser",
+    browserId: raw.browserId,
+    ...readRawWorkspaceContext(raw),
+  });
+}
+
+function coerceFileTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
+  if (typeof raw.path !== "string") {
+    return null;
+  }
+  return normalizeWorkspaceTabTarget({
+    kind: "file",
+    path: raw.path,
+    ...readRawWorkspaceContext(raw),
+    lineStart: typeof raw.lineStart === "number" ? raw.lineStart : undefined,
+    lineEnd: typeof raw.lineEnd === "number" ? raw.lineEnd : undefined,
+  });
+}
+
+function coerceSetupTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
+  if (typeof raw.workspaceId !== "string") {
+    return null;
+  }
+  return normalizeWorkspaceTabTarget({ kind: "setup", workspaceId: raw.workspaceId });
+}
+
 function coerceWorkspaceTabTarget(raw: Record<string, unknown>): WorkspaceTabTarget | null {
-  const kind = typeof raw.kind === "string" ? raw.kind : null;
-  if (kind === "draft" && typeof raw.draftId === "string") {
-    const setup = normalizeWorkspaceDraftTabSetup(raw.setup);
-    return normalizeWorkspaceTabTarget({
-      kind: "draft",
-      draftId: raw.draftId,
-      ...(setup ? { setup } : {}),
-    });
+  switch (raw.kind) {
+    case "draft":
+      return coerceDraftTabTarget(raw);
+    case "agent":
+      return coerceAgentTabTarget(raw);
+    case "terminal":
+      return coerceTerminalTabTarget(raw);
+    case "browser":
+      return coerceBrowserTabTarget(raw);
+    case "file":
+      return coerceFileTabTarget(raw);
+    case "setup":
+      return coerceSetupTabTarget(raw);
+    default:
+      return null;
   }
-  if (kind === "agent" && typeof raw.agentId === "string") {
-    return normalizeWorkspaceTabTarget({ kind: "agent", agentId: raw.agentId });
-  }
-  if (kind === "terminal" && typeof raw.terminalId === "string") {
-    return normalizeWorkspaceTabTarget({ kind: "terminal", terminalId: raw.terminalId });
-  }
-  if (kind === "browser" && typeof raw.browserId === "string") {
-    return normalizeWorkspaceTabTarget({ kind: "browser", browserId: raw.browserId });
-  }
-  if (kind === "file" && typeof raw.path === "string") {
-    return normalizeWorkspaceTabTarget({
-      kind: "file",
-      path: raw.path,
-      lineStart: typeof raw.lineStart === "number" ? raw.lineStart : undefined,
-      lineEnd: typeof raw.lineEnd === "number" ? raw.lineEnd : undefined,
-    });
-  }
-  if (kind === "setup" && typeof raw.workspaceId === "string") {
-    return normalizeWorkspaceTabTarget({ kind: "setup", workspaceId: raw.workspaceId });
-  }
-  return null;
 }
 
 function migrateSingleTab(rawTab: unknown, now: number): WorkspaceTab | null {

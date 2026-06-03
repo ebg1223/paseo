@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
+  buildWorkspaceProjectTabScopeKey,
   buildWorkspaceTabPersistenceKey,
   type WorkspaceTab,
   type WorkspaceTabTarget,
@@ -46,7 +47,7 @@ import {
 } from "@/stores/workspace-layout-actions";
 import { normalizeWorkspaceTabTarget } from "@/workspace-tabs/identity";
 
-export { buildWorkspaceTabPersistenceKey };
+export { buildWorkspaceProjectTabScopeKey, buildWorkspaceTabPersistenceKey };
 export {
   collectAllPanes,
   collectAllTabs,

@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useSidebarWorkspacesList } from "@/hooks/use-sidebar-workspaces-list";
 import { useKeyboardShortcutsStore } from "@/stores/keyboard-shortcuts-store";
 import { useSidebarCollapsedSectionsStore } from "@/stores/sidebar-collapsed-sections-store";
+import { useWorkspaceOrganizationStore } from "@/stores/workspace-organization-store";
 import { buildSidebarShortcutModel } from "@/utils/sidebar-shortcuts";
 
 export function WorkspaceShortcutTargetsSubscriber({
@@ -18,14 +19,16 @@ export function WorkspaceShortcutTargetsSubscriber({
   const setSidebarShortcutWorkspaceTargets = useKeyboardShortcutsStore(
     (state) => state.setSidebarShortcutWorkspaceTargets,
   );
+  const organizationMode = useWorkspaceOrganizationStore((state) => state.mode);
 
   const shortcutModel = useMemo(
     () =>
       buildSidebarShortcutModel({
         projects,
         collapsedProjectKeys,
+        organizationMode,
       }),
-    [collapsedProjectKeys, projects],
+    [collapsedProjectKeys, organizationMode, projects],
   );
 
   useEffect(() => {

@@ -1,6 +1,5 @@
-import type { Agent } from "@/stores/session-store";
+import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import type { WorkspaceTabSnapshot } from "@/stores/workspace-layout-actions";
-import { shouldAutoOpenAgentTab } from "@/subagents/policies";
 import { normalizeWorkspacePath } from "@/utils/workspace-identity";
 
 function normalizeWorkspaceId(value: string | null | undefined): string {
@@ -9,7 +8,6 @@ function normalizeWorkspaceId(value: string | null | undefined): string {
 
 export interface WorkspaceAgentVisibility {
   activeAgentIds: Set<string>;
-  autoOpenAgentIds: Set<string>;
   knownAgentIds: Set<string>;
 }
 
@@ -23,13 +21,11 @@ export function deriveWorkspaceAgentVisibility(input: {
   if ((!sessionAgents && !agentDetails) || !normalizedWorkspaceDirectory) {
     return {
       activeAgentIds: new Set<string>(),
-      autoOpenAgentIds: new Set<string>(),
       knownAgentIds: new Set<string>(),
     };
   }
 
   const activeAgentIds = new Set<string>();
-  const autoOpenAgentIds = new Set<string>();
   const knownAgentIds = new Set<string>();
   for (const agent of sessionAgents?.values() ?? []) {
     if (normalizeWorkspaceId(agent.cwd) !== normalizedWorkspaceDirectory) {
@@ -38,9 +34,6 @@ export function deriveWorkspaceAgentVisibility(input: {
     knownAgentIds.add(agent.id);
     if (!agent.archivedAt) {
       activeAgentIds.add(agent.id);
-      if (shouldAutoOpenAgentTab(agent)) {
-        autoOpenAgentIds.add(agent.id);
-      }
     }
   }
   for (const agent of agentDetails?.values() ?? []) {
@@ -50,11 +43,93 @@ export function deriveWorkspaceAgentVisibility(input: {
     knownAgentIds.add(agent.id);
   }
 
-  return { activeAgentIds, autoOpenAgentIds, knownAgentIds };
+  return { activeAgentIds, knownAgentIds };
+}
+
+function buildNormalizedProjectWorkspaceDirectories(
+  workspaces: Map<string, WorkspaceDescriptor> | undefined,
+  projectKey: string | null,
+): Set<string> {
+  const directories = new Set<string>();
+  if (!workspaces || !projectKey) {
+    return directories;
+  }
+  for (const workspace of workspaces.values()) {
+    const workspaceProjectKey = workspace.project?.projectKey ?? workspace.projectId;
+    if (workspaceProjectKey !== projectKey) {
+      continue;
+    }
+    const normalizedDirectory = normalizeWorkspaceId(workspace.workspaceDirectory);
+    if (normalizedDirectory) {
+      directories.add(normalizedDirectory);
+    }
+  }
+  return directories;
+}
+
+function agentBelongsToProject(input: {
+  agent: Agent;
+  projectKey: string | null;
+  workspaceDirectories: Set<string>;
+}): boolean {
+  const normalizedCwd = normalizeWorkspaceId(input.agent.cwd);
+  if (!normalizedCwd) {
+    return false;
+  }
+  if (input.projectKey && input.agent.projectPlacement?.projectKey === input.projectKey) {
+    return true;
+  }
+  return input.workspaceDirectories.has(normalizedCwd);
+}
+
+export function deriveProjectAgentVisibility(input: {
+  sessionAgents: Map<string, Agent> | undefined;
+  agentDetails?: Map<string, Agent> | undefined;
+  workspaces: Map<string, WorkspaceDescriptor> | undefined;
+  projectKey: string | null | undefined;
+  fallbackWorkspaceDirectory: string | null | undefined;
+}): WorkspaceAgentVisibility {
+  const projectKey = input.projectKey?.trim() || null;
+  const workspaceDirectories = buildNormalizedProjectWorkspaceDirectories(
+    input.workspaces,
+    projectKey,
+  );
+  const fallbackWorkspaceDirectory = normalizeWorkspaceId(input.fallbackWorkspaceDirectory);
+  if (workspaceDirectories.size === 0 && fallbackWorkspaceDirectory) {
+    workspaceDirectories.add(fallbackWorkspaceDirectory);
+  }
+  if ((!input.sessionAgents && !input.agentDetails) || workspaceDirectories.size === 0) {
+    return {
+      activeAgentIds: new Set<string>(),
+      knownAgentIds: new Set<string>(),
+    };
+  }
+
+  const activeAgentIds = new Set<string>();
+  const knownAgentIds = new Set<string>();
+  for (const agent of input.sessionAgents?.values() ?? []) {
+    if (!agentBelongsToProject({ agent, projectKey, workspaceDirectories })) {
+      continue;
+    }
+    knownAgentIds.add(agent.id);
+    if (!agent.archivedAt) {
+      activeAgentIds.add(agent.id);
+    }
+  }
+  for (const agent of input.agentDetails?.values() ?? []) {
+    if (!agentBelongsToProject({ agent, projectKey, workspaceDirectories })) {
+      continue;
+    }
+    knownAgentIds.add(agent.id);
+  }
+
+  return { activeAgentIds, knownAgentIds };
 }
 
 export function buildWorkspaceTabSnapshot(input: {
+  workspaceId?: string | null;
   agentVisibility: WorkspaceAgentVisibility;
+  autoOpenAgentIds?: Iterable<string>;
   agentsHydrated: boolean;
   terminalsHydrated: boolean;
   knownTerminalIds: Iterable<string>;
@@ -62,10 +137,11 @@ export function buildWorkspaceTabSnapshot(input: {
   hasActivePendingDraftCreate: boolean;
 }): WorkspaceTabSnapshot {
   return {
+    workspaceId: input.workspaceId,
     agentsHydrated: input.agentsHydrated,
     terminalsHydrated: input.terminalsHydrated,
     activeAgentIds: input.agentVisibility.activeAgentIds,
-    autoOpenAgentIds: input.agentVisibility.autoOpenAgentIds,
+    autoOpenAgentIds: input.autoOpenAgentIds,
     knownAgentIds: input.agentVisibility.knownAgentIds,
     knownTerminalIds: input.knownTerminalIds,
     standaloneTerminalIds: input.standaloneTerminalIds,
@@ -78,9 +154,7 @@ export function workspaceAgentVisibilityEqual(
   b: WorkspaceAgentVisibility,
 ): boolean {
   return (
-    setsEqual(a.activeAgentIds, b.activeAgentIds) &&
-    setsEqual(a.autoOpenAgentIds, b.autoOpenAgentIds) &&
-    setsEqual(a.knownAgentIds, b.knownAgentIds)
+    setsEqual(a.activeAgentIds, b.activeAgentIds) && setsEqual(a.knownAgentIds, b.knownAgentIds)
   );
 }
 

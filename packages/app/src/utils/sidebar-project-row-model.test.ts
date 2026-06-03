@@ -4,6 +4,7 @@ import {
   isSidebarProjectFlattened,
 } from "./sidebar-project-row-model";
 import type {
+  SidebarAgentEntry,
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
@@ -18,6 +19,7 @@ function workspace(overrides: Partial<SidebarWorkspaceEntry> = {}): SidebarWorks
     projectKind: "git",
     workspaceKind: "checkout",
     name: "paseo",
+    branchName: null,
     statusBucket: "done",
     diffStat: null,
     prHint: null,
@@ -37,6 +39,28 @@ function project(overrides: Partial<SidebarProjectEntry> = {}): SidebarProjectEn
     projectKind: "git",
     iconWorkingDir: "/repo",
     workspaces: [workspace()],
+    agents: [],
+    ...overrides,
+  };
+}
+
+function agent(overrides: Partial<SidebarAgentEntry> = {}): SidebarAgentEntry {
+  return {
+    rowKey: "srv:agent:agent-1",
+    serverId: "srv",
+    agentId: "agent-1",
+    projectKey: "project-1",
+    workspaceId: "ws-root",
+    workspaceDirectory: "/repo",
+    workspaceName: "paseo",
+    workspaceKind: "checkout",
+    title: "Trial sidebar",
+    statusBucket: "running",
+    provider: "codex",
+    branchName: "main",
+    lastActivityAt: new Date("2026-06-02T12:00:00.000Z"),
+    pendingPermissionCount: 0,
+    requiresAttention: false,
     ...overrides,
   };
 }
@@ -109,7 +133,7 @@ describe("buildSidebarProjectRowModel", () => {
     });
   });
 
-  it("keeps multi-workspace git projects as expandable sections with a new worktree action", () => {
+  it("keeps multi-workspace git projects expandable in workspace-first mode", () => {
     const result = buildSidebarProjectRowModel({
       project: project({
         projectKind: "git",
@@ -119,6 +143,42 @@ describe("buildSidebarProjectRowModel", () => {
         ],
       }),
       collapsed: true,
+    });
+
+    expect(result).toEqual({
+      kind: "project_section",
+      chevron: "expand",
+      trailingAction: "new_worktree",
+    });
+  });
+
+  it("uses thread rows, not workspace count, for thread-first expandability", () => {
+    const result = buildSidebarProjectRowModel({
+      project: project({
+        projectKind: "git",
+        workspaces: [
+          workspace({ workspaceId: "ws-main", workspaceKind: "checkout" }),
+          workspace({ workspaceId: "ws-feature", workspaceKind: "worktree" }),
+        ],
+      }),
+      collapsed: true,
+      organizationMode: "thread-first",
+    });
+
+    expect(result).toEqual({
+      kind: "project_section",
+      chevron: null,
+      trailingAction: "new_worktree",
+    });
+  });
+
+  it("makes projects with thread rows expandable in thread-first mode", () => {
+    const result = buildSidebarProjectRowModel({
+      project: project({
+        agents: [agent()],
+      }),
+      collapsed: true,
+      organizationMode: "thread-first",
     });
 
     expect(result).toEqual({
@@ -148,6 +208,31 @@ describe("isSidebarProjectFlattened", () => {
             workspace({ workspaceId: "ws-feat" }),
           ],
         }),
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores hidden agent rows when flattening workspace-first projects", () => {
+    expect(
+      isSidebarProjectFlattened(
+        project({
+          projectKind: "directory",
+          workspaces: [workspace()],
+          agents: [agent()],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for thread-first projects that have agent rows", () => {
+    expect(
+      isSidebarProjectFlattened(
+        project({
+          projectKind: "directory",
+          workspaces: [workspace()],
+          agents: [agent()],
+        }),
+        "thread-first",
       ),
     ).toBe(false);
   });

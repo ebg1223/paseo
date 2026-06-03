@@ -71,6 +71,7 @@ import { selectIsFileExplorerOpen, usePanelStore } from "@/stores/panel-store";
 import { type ExplorerCheckoutContext } from "@/stores/explorer-checkout-context";
 import { useSessionStore, type WorkspaceDescriptor } from "@/stores/session-store";
 import {
+  buildWorkspaceProjectTabScopeKey,
   buildWorkspaceTabPersistenceKey,
   collectAllTabs,
   getFocusedBrowserId,
@@ -142,6 +143,7 @@ import {
 import { renderWorkspaceRouteGate } from "@/screens/workspace/workspace-route-state-views";
 import {
   buildWorkspaceTabSnapshot,
+  deriveProjectAgentVisibility,
   deriveWorkspaceAgentVisibility,
   workspaceAgentVisibilityEqual,
 } from "@/workspace-tabs/agent-visibility";
@@ -162,7 +164,7 @@ import {
   classifyBulkClosableTabs,
   closeBulkWorkspaceTabs,
 } from "@/screens/workspace/workspace-bulk-close";
-import { resolveCloseAgentTabPolicy } from "@/subagents";
+import { resolveCloseAgentTabPolicy, shouldAutoOpenAgentTab } from "@/subagents";
 import { findAdjacentPane } from "@/utils/split-navigation";
 import { isAbsolutePath } from "@/utils/path";
 import { useIsCompactFormFactor, supportsDesktopPaneSplits } from "@/constants/layout";
@@ -178,6 +180,10 @@ import {
   type WorkspaceFileOpenRequest,
 } from "@/workspace/file-open";
 import { RenderProfile } from "@/utils/render-profiler";
+import {
+  getWorkspaceOrganizationPolicy,
+  useWorkspaceOrganizationStore,
+} from "@/stores/workspace-organization-store";
 
 const WORKSPACE_SETUP_AUTO_OPEN_WINDOW_MS = 30_000;
 const WORKSPACE_FLOATING_PANEL_PORTAL_HOST_PREFIX = "workspace-floating-panels";
@@ -241,6 +247,32 @@ function trimNonEmpty(value: string | null | undefined): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function getTargetWorkspaceId(target: WorkspaceTabTarget): string | null {
+  if (target.kind === "setup") {
+    return trimNonEmpty(target.workspaceId);
+  }
+  if ("workspaceId" in target) {
+    return trimNonEmpty(target.workspaceId);
+  }
+  return null;
+}
+
+function withWorkspaceTargetContext(
+  target: WorkspaceTabTarget,
+  workspaceId: string,
+): WorkspaceTabTarget {
+  if (target.kind === "setup") {
+    return target;
+  }
+  if (getTargetWorkspaceId(target)) {
+    return target;
+  }
+  return {
+    ...target,
+    workspaceId,
+  } as WorkspaceTabTarget;
 }
 
 function decodeSegment(value: string): string {
@@ -1426,6 +1458,7 @@ function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): 
 
 interface WorkspaceTerminalTabActionsInput {
   persistenceKey: string | null;
+  workspaceId: string;
   focusWorkspacePane: (workspaceKey: string, paneId: string) => void;
   openWorkspaceTabFocused: (workspaceKey: string, target: WorkspaceTabTarget) => string | null;
   toast: {
@@ -1443,6 +1476,7 @@ interface WorkspaceTerminalTabActions {
 
 function useWorkspaceTerminalTabActions({
   persistenceKey,
+  workspaceId,
   focusWorkspacePane,
   openWorkspaceTabFocused,
   toast,
@@ -1455,18 +1489,18 @@ function useWorkspaceTerminalTabActions({
       if (paneId) {
         focusWorkspacePane(persistenceKey, paneId);
       }
-      openWorkspaceTabFocused(persistenceKey, { kind: "terminal", terminalId });
+      openWorkspaceTabFocused(persistenceKey, { kind: "terminal", terminalId, workspaceId });
     },
-    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey, workspaceId],
   );
   const handleScriptTerminalSelected = useCallback(
     (terminalId: string) => {
       if (!persistenceKey) {
         return;
       }
-      openWorkspaceTabFocused(persistenceKey, { kind: "terminal", terminalId });
+      openWorkspaceTabFocused(persistenceKey, { kind: "terminal", terminalId, workspaceId });
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [openWorkspaceTabFocused, persistenceKey, workspaceId],
   );
   const handleWorkspacePathUnavailable = useCallback(() => {
     toast.error("Workspace path is not available yet");
@@ -1535,6 +1569,8 @@ function WorkspaceScreenContent({
   const toast = useToast();
   const isMobile = useIsCompactFormFactor();
   const isFocusModeEnabled = usePanelStore((state) => state.desktop.focusModeEnabled);
+  const organizationMode = useWorkspaceOrganizationStore((state) => state.mode);
+  const organizationPolicy = getWorkspaceOrganizationPolicy(organizationMode);
 
   const normalizedServerId = useMemo(() => trimNonEmpty(decodeSegment(serverId)) ?? "", [serverId]);
 
@@ -1581,7 +1617,7 @@ function WorkspaceScreenContent({
     enabled: isRouteFocused,
   });
 
-  const persistenceKey = useMemo(
+  const workspacePersistenceKey = useMemo(
     () =>
       buildWorkspaceTabPersistenceKey({
         serverId: normalizedServerId,
@@ -1589,6 +1625,23 @@ function WorkspaceScreenContent({
       }),
     [normalizedServerId, normalizedWorkspaceId],
   );
+  const projectTabScopeKey = useMemo(() => {
+    const projectKey =
+      workspaceDescriptor?.project?.projectKey ?? workspaceDescriptor?.projectId ?? null;
+    return (
+      buildWorkspaceProjectTabScopeKey({
+        serverId: normalizedServerId,
+        projectKey,
+      }) ?? workspacePersistenceKey
+    );
+  }, [
+    normalizedServerId,
+    workspaceDescriptor?.project?.projectKey,
+    workspaceDescriptor?.projectId,
+    workspacePersistenceKey,
+  ]);
+  const persistenceKey =
+    organizationPolicy.tabScope === "project" ? projectTabScopeKey : workspacePersistenceKey;
   const openWorkspaceTabFocused = useWorkspaceLayoutStore((state) => state.openTabFocused);
   const openWorkspaceChildTabFocused = useWorkspaceLayoutStore(
     (state) => state.openChildTabFocused,
@@ -1600,14 +1653,46 @@ function WorkspaceScreenContent({
 
   const workspaceAgentVisibility = useStoreWithEqualityFn(
     useSessionStore,
-    (state) =>
-      deriveWorkspaceAgentVisibility({
-        sessionAgents: state.sessions[normalizedServerId]?.agents,
-        agentDetails: state.sessions[normalizedServerId]?.agentDetails,
+    (state) => {
+      const session = state.sessions[normalizedServerId];
+      if (organizationPolicy.agentVisibilityScope === "project") {
+        return deriveProjectAgentVisibility({
+          sessionAgents: session?.agents,
+          agentDetails: session?.agentDetails,
+          workspaces: session?.workspaces,
+          projectKey: workspaceDescriptor?.project?.projectKey ?? workspaceDescriptor?.projectId,
+          fallbackWorkspaceDirectory: workspaceDirectory,
+        });
+      }
+      return deriveWorkspaceAgentVisibility({
+        sessionAgents: session?.agents,
+        agentDetails: session?.agentDetails,
         workspaceDirectory,
-      }),
+      });
+    },
     workspaceAgentVisibilityEqual,
   );
+  const autoOpenAgentIds = useMemo(() => {
+    if (organizationPolicy.agentTabPopulation !== "auto-active") {
+      return EMPTY_SET;
+    }
+    const session = useSessionStore.getState().sessions[normalizedServerId];
+    if (!session) {
+      return EMPTY_SET;
+    }
+    const next = new Set<string>();
+    for (const agentId of workspaceAgentVisibility.activeAgentIds) {
+      const agent = session.agents.get(agentId) ?? session.agentDetails.get(agentId) ?? null;
+      if (agent && shouldAutoOpenAgentTab(agent)) {
+        next.add(agentId);
+      }
+    }
+    return next;
+  }, [
+    normalizedServerId,
+    organizationPolicy.agentTabPopulation,
+    workspaceAgentVisibility.activeAgentIds,
+  ]);
 
   const {
     handleTerminalCreated,
@@ -1616,6 +1701,7 @@ function WorkspaceScreenContent({
     handleTerminalCreateQueued,
   } = useWorkspaceTerminalTabActions({
     persistenceKey,
+    workspaceId: normalizedWorkspaceId,
     focusWorkspacePane,
     openWorkspaceTabFocused,
     toast,
@@ -1652,7 +1738,6 @@ function WorkspaceScreenContent({
     onTerminalCreateQueued: handleTerminalCreateQueued,
   });
   const { archiveAgent } = useArchiveAgent();
-
   const { checkoutQuery, isCheckoutStatusLoading } = useWorkspaceCheckoutStatus({
     client,
     isConnected,
@@ -1761,7 +1846,7 @@ function WorkspaceScreenContent({
   );
   const hasHydratedWorkspaceLayoutStore = useWorkspaceLayoutStoreHydrated();
   const workspaceSetupSnapshot = useWorkspaceSetupStore((state) =>
-    persistenceKey ? (state.snapshots[persistenceKey] ?? null) : null,
+    workspacePersistenceKey ? (state.snapshots[workspacePersistenceKey] ?? null) : null,
   );
   const upsertWorkspaceSetupProgress = useWorkspaceSetupStore((state) => state.upsertProgress);
   const showWorkspaceSetup = shouldShowWorkspaceSetup(workspaceSetupSnapshot);
@@ -1863,6 +1948,7 @@ function WorkspaceScreenContent({
       const target = normalizeWorkspaceTabTarget({
         kind: "draft",
         draftId: trimNonEmpty(input?.draftId) ?? generateDraftId(),
+        workspaceId: normalizedWorkspaceId,
       });
       invariant(target?.kind === "draft", "Draft tab target must be valid");
       if (input?.focus === false) {
@@ -1870,7 +1956,7 @@ function WorkspaceScreenContent({
       }
       return openWorkspaceTabFocused(persistenceKey, target);
     },
-    [openWorkspaceTabFocused, openWorkspaceTabInBackground, persistenceKey],
+    [normalizedWorkspaceId, openWorkspaceTabFocused, openWorkspaceTabInBackground, persistenceKey],
   );
 
   useEffect(() => {
@@ -1889,13 +1975,19 @@ function WorkspaceScreenContent({
         return false;
       }
       const pending = pendingByDraftId[tab.target.draftId];
-      return pending?.serverId === normalizedServerId && pending.lifecycle === "active";
+      return (
+        pending?.serverId === normalizedServerId &&
+        getTargetWorkspaceId(tab.target) === normalizedWorkspaceId &&
+        pending.lifecycle === "active"
+      );
     });
 
     reconcileWorkspaceTabs(
       persistenceKey,
       buildWorkspaceTabSnapshot({
+        workspaceId: normalizedWorkspaceId,
         agentVisibility: workspaceAgentVisibility,
+        autoOpenAgentIds,
         agentsHydrated: hasHydratedAgents,
         terminalsHydrated: terminalsQuery.isSuccess,
         knownTerminalIds,
@@ -1909,6 +2001,7 @@ function WorkspaceScreenContent({
     isRouteFocused,
     normalizedServerId,
     normalizedWorkspaceId,
+    autoOpenAgentIds,
     pendingByDraftId,
     persistenceKey,
     reconcileWorkspaceTabs,
@@ -1948,12 +2041,16 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
-      const tabId = openWorkspaceTabFocused(persistenceKey, { kind: "agent", agentId });
+      const tabId = openWorkspaceTabFocused(persistenceKey, {
+        kind: "agent",
+        agentId,
+        workspaceId: normalizedWorkspaceId,
+      });
       if (tabId) {
         navigateToTabId(tabId);
       }
     },
-    [navigateToTabId, openWorkspaceTabFocused, persistenceKey],
+    [navigateToTabId, normalizedWorkspaceId, openWorkspaceTabFocused, persistenceKey],
   );
 
   const emptyWorkspaceSeedRef = useRef<string | null>(null);
@@ -1964,17 +2061,17 @@ function WorkspaceScreenContent({
     if (!isRouteFocused) {
       return;
     }
-    if (!client || !normalizedServerId || !normalizedWorkspaceId || !persistenceKey) {
+    if (!client || !normalizedServerId || !normalizedWorkspaceId || !workspacePersistenceKey) {
       return;
     }
     if (workspaceSetupSnapshot) {
       return;
     }
-    if (requestedWorkspaceSetupStatusKeyRef.current === persistenceKey) {
+    if (requestedWorkspaceSetupStatusKeyRef.current === workspacePersistenceKey) {
       return;
     }
 
-    requestedWorkspaceSetupStatusKeyRef.current = persistenceKey;
+    requestedWorkspaceSetupStatusKeyRef.current = workspacePersistenceKey;
     let isCancelled = false;
 
     client
@@ -1990,7 +2087,7 @@ function WorkspaceScreenContent({
         return;
       })
       .catch(() => {
-        if (requestedWorkspaceSetupStatusKeyRef.current === persistenceKey) {
+        if (requestedWorkspaceSetupStatusKeyRef.current === workspacePersistenceKey) {
           requestedWorkspaceSetupStatusKeyRef.current = null;
         }
       });
@@ -2003,7 +2100,7 @@ function WorkspaceScreenContent({
     isRouteFocused,
     normalizedServerId,
     normalizedWorkspaceId,
-    persistenceKey,
+    workspacePersistenceKey,
     upsertWorkspaceSetupProgress,
     workspaceSetupSnapshot,
   ]);
@@ -2054,7 +2151,7 @@ function WorkspaceScreenContent({
       return;
     }
     if (!workspaceSetupSnapshot || !showWorkspaceSetup) {
-      if (autoOpenedSetupTabWorkspaceRef.current === persistenceKey) {
+      if (autoOpenedSetupTabWorkspaceRef.current === workspacePersistenceKey) {
         autoOpenedSetupTabWorkspaceRef.current = null;
       }
       return;
@@ -2068,10 +2165,10 @@ function WorkspaceScreenContent({
       return;
     }
     if (hasSetupTab) {
-      autoOpenedSetupTabWorkspaceRef.current = persistenceKey;
+      autoOpenedSetupTabWorkspaceRef.current = workspacePersistenceKey;
       return;
     }
-    if (autoOpenedSetupTabWorkspaceRef.current === persistenceKey) {
+    if (autoOpenedSetupTabWorkspaceRef.current === workspacePersistenceKey) {
       return;
     }
 
@@ -2088,7 +2185,7 @@ function WorkspaceScreenContent({
       return;
     }
 
-    autoOpenedSetupTabWorkspaceRef.current = persistenceKey;
+    autoOpenedSetupTabWorkspaceRef.current = workspacePersistenceKey;
   }, [
     hasSetupTab,
     isRouteFocused,
@@ -2096,6 +2193,7 @@ function WorkspaceScreenContent({
     openWorkspaceTabInBackground,
     persistenceKey,
     showWorkspaceSetup,
+    workspacePersistenceKey,
     workspaceSetupSnapshot,
   ]);
 
@@ -2111,16 +2209,29 @@ function WorkspaceScreenContent({
       if (!location) {
         return;
       }
-      const tabId = openWorkspaceTabFocused(persistenceKey, createWorkspaceFileTabTarget(location));
+      const tabId = openWorkspaceTabFocused(persistenceKey, {
+        ...createWorkspaceFileTabTarget(location),
+        workspaceId: normalizedWorkspaceId,
+      });
       if (tabId) {
         navigateToTabId(tabId);
       }
     },
-    [isMobile, navigateToTabId, openWorkspaceTabFocused, persistenceKey, showMobileAgent],
+    [
+      isMobile,
+      navigateToTabId,
+      normalizedWorkspaceId,
+      openWorkspaceTabFocused,
+      persistenceKey,
+      showMobileAgent,
+    ],
   );
 
   const handleOpenFileFromChat = useCallback(
-    (location: WorkspaceFileLocation, options?: { parentTabId?: string | null }) => {
+    (
+      location: WorkspaceFileLocation,
+      options?: { parentTabId?: string | null; workspaceId?: string | null },
+    ) => {
       const normalizedLocation = normalizeWorkspaceFileLocation(location);
       if (!normalizedLocation) {
         return;
@@ -2131,7 +2242,11 @@ function WorkspaceScreenContent({
       if (!persistenceKey) {
         return;
       }
-      const target = createWorkspaceFileTabTarget(normalizedLocation);
+      const targetWorkspaceId = trimNonEmpty(options?.workspaceId) ?? normalizedWorkspaceId;
+      const target = {
+        ...createWorkspaceFileTabTarget(normalizedLocation),
+        workspaceId: targetWorkspaceId,
+      };
       const tabId = options?.parentTabId
         ? openWorkspaceChildTabFocused(persistenceKey, target, options.parentTabId)
         : openWorkspaceTabFocused(persistenceKey, target);
@@ -2142,6 +2257,7 @@ function WorkspaceScreenContent({
     [
       isMobile,
       navigateToTabId,
+      normalizedWorkspaceId,
       openWorkspaceChildTabFocused,
       openWorkspaceTabFocused,
       persistenceKey,
@@ -2154,17 +2270,25 @@ function WorkspaceScreenContent({
       location: WorkspaceFileLocation;
       sourcePaneId?: string;
       parentTabId?: string | null;
+      workspaceId?: string | null;
     }) => {
       const location = normalizeWorkspaceFileLocation(input.location);
       if (!location) {
         return;
       }
       if (!persistenceKey || isMobile || !input.sourcePaneId) {
-        handleOpenFileFromChat(location, { parentTabId: input.parentTabId });
+        handleOpenFileFromChat(location, {
+          parentTabId: input.parentTabId,
+          workspaceId: input.workspaceId,
+        });
         return;
       }
+      const targetWorkspaceId = trimNonEmpty(input.workspaceId) ?? normalizedWorkspaceId;
 
-      const target: WorkspaceTabTarget = createWorkspaceFileTabTarget(location);
+      const target: WorkspaceTabTarget = {
+        ...createWorkspaceFileTabTarget(location),
+        workspaceId: targetWorkspaceId,
+      };
       const placement = resolveSideFileOpenPlacement({
         layout: workspaceLayout,
         sourcePaneId: input.sourcePaneId,
@@ -2192,6 +2316,7 @@ function WorkspaceScreenContent({
       isMobile,
       focusWorkspacePane,
       navigateToTabId,
+      normalizedWorkspaceId,
       openWorkspaceChildTabFocused,
       openWorkspaceTabFocused,
       persistenceKey,
@@ -2206,11 +2331,13 @@ function WorkspaceScreenContent({
     paneId,
     parentTabId,
     focusPaneBeforeOpen,
+    workspaceId: targetWorkspaceId,
   }: {
     request: WorkspaceFileOpenRequest;
     paneId?: string | null;
     parentTabId: string;
     focusPaneBeforeOpen?: boolean;
+    workspaceId?: string | null;
   }) {
     if (focusPaneBeforeOpen && paneId && persistenceKey) {
       focusWorkspacePane(persistenceKey, paneId);
@@ -2220,10 +2347,11 @@ function WorkspaceScreenContent({
         location: request.location,
         sourcePaneId: paneId ?? undefined,
         parentTabId,
+        workspaceId: targetWorkspaceId,
       });
       return;
     }
-    handleOpenFileFromChat(request.location, { parentTabId });
+    handleOpenFileFromChat(request.location, { parentTabId, workspaceId: targetWorkspaceId });
   });
 
   const [hoveredCloseTabKey, setHoveredCloseTabKey] = useState<string | null>(null);
@@ -2290,9 +2418,13 @@ function WorkspaceScreenContent({
         focusWorkspacePane(persistenceKey, input.paneId);
       }
       const { browserId } = createWorkspaceBrowser();
-      openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+      openWorkspaceTabFocused(persistenceKey, {
+        kind: "browser",
+        browserId,
+        workspaceId: normalizedWorkspaceId,
+      });
     },
-    [focusWorkspacePane, openWorkspaceTabFocused, persistenceKey],
+    [focusWorkspacePane, normalizedWorkspaceId, openWorkspaceTabFocused, persistenceKey],
   );
 
   const handleOpenUrlInBrowserTab = useCallback(
@@ -2301,9 +2433,13 @@ function WorkspaceScreenContent({
         return;
       }
       const { browserId } = createWorkspaceBrowser({ initialUrl: url });
-      openWorkspaceTabFocused(persistenceKey, { kind: "browser", browserId });
+      openWorkspaceTabFocused(persistenceKey, {
+        kind: "browser",
+        browserId,
+        workspaceId: normalizedWorkspaceId,
+      });
     },
-    [openWorkspaceTabFocused, persistenceKey],
+    [normalizedWorkspaceId, openWorkspaceTabFocused, persistenceKey],
   );
 
   const handleSelectSwitcherTab = useCallback(
@@ -2378,7 +2514,10 @@ function WorkspaceScreenContent({
 
         const agent =
           useSessionStore.getState().sessions[normalizedServerId]?.agents?.get(agentId) ?? null;
-        const closePolicy = resolveCloseAgentTabPolicy(agent);
+        const closePolicy =
+          organizationPolicy.agentTabClose === "archive-root"
+            ? resolveCloseAgentTabPolicy(agent)
+            : { kind: "layout-only" as const };
         const isRunning = agent?.status === "running" || agent?.status === "initializing";
 
         if (isRunning && closePolicy.kind === "archive-on-close") {
@@ -2407,11 +2546,17 @@ function WorkspaceScreenContent({
           return;
         }
 
-        // Errors (e.g. timeout) are handled by the mutation's onSettled callback
         void archiveAgent({ serverId: normalizedServerId, agentId }).catch(() => {});
       });
     },
-    [archiveAgent, closeTab, closeWorkspaceTabWithCleanup, normalizedServerId, persistenceKey],
+    [
+      archiveAgent,
+      closeTab,
+      closeWorkspaceTabWithCleanup,
+      normalizedServerId,
+      organizationPolicy.agentTabClose,
+      persistenceKey,
+    ],
   );
 
   const handleCloseDraftOrFileTab = useCallback(
@@ -2572,9 +2717,10 @@ function WorkspaceScreenContent({
       }
 
       const groups = classifyBulkClosableTabs(tabsToClose);
+      const archiveAgentTabs = organizationPolicy.agentTabClose === "archive-root";
       const confirmed = await confirmDialog({
         title,
-        message: buildBulkCloseConfirmationMessage(groups),
+        message: buildBulkCloseConfirmationMessage(groups, { archiveAgentTabs }),
         confirmLabel: "Close",
         cancelLabel: "Cancel",
         destructive: true,
@@ -2586,6 +2732,7 @@ function WorkspaceScreenContent({
       await closeBulkWorkspaceTabs({
         client,
         groups,
+        archiveAgentTabs,
         closeTab,
         closeWorkspaceTabWithCleanup: (cleanupInput) => {
           if (!persistenceKey) {
@@ -2602,7 +2749,13 @@ function WorkspaceScreenContent({
       const closedKeys = new Set(tabsToClose.map((tab) => tab.key));
       setHoveredCloseTabKey((current) => (current && closedKeys.has(current) ? null : current));
     },
-    [client, closeTab, closeWorkspaceTabWithCleanup, persistenceKey],
+    [
+      client,
+      closeTab,
+      closeWorkspaceTabWithCleanup,
+      organizationPolicy.agentTabClose,
+      persistenceKey,
+    ],
   );
 
   const handleCloseTabsToLeftInPane = useCallback(
@@ -2867,11 +3020,13 @@ function WorkspaceScreenContent({
       tab: WorkspaceTabDescriptor;
       paneId?: string | null;
       focusPaneBeforeOpen?: boolean;
-    }) =>
-      buildWorkspacePaneContentModel({
+    }) => {
+      const paneWorkspaceId = getTargetWorkspaceId(input.tab.target) ?? normalizedWorkspaceId;
+      return buildWorkspacePaneContentModel({
         tab: input.tab,
         normalizedServerId,
         normalizedWorkspaceId,
+        tabScopeKey: persistenceKey,
         onOpenTab: (target) => {
           if (!persistenceKey) {
             return;
@@ -2879,7 +3034,11 @@ function WorkspaceScreenContent({
           if (input.focusPaneBeforeOpen && input.paneId) {
             focusWorkspacePane(persistenceKey, input.paneId);
           }
-          const tabId = openWorkspaceChildTabFocused(persistenceKey, target, input.tab.tabId);
+          const tabId = openWorkspaceChildTabFocused(
+            persistenceKey,
+            withWorkspaceTargetContext(target, paneWorkspaceId),
+            input.tab.tabId,
+          );
           if (tabId) {
             navigateToTabId(tabId);
           }
@@ -2891,7 +3050,11 @@ function WorkspaceScreenContent({
           if (!persistenceKey) {
             return;
           }
-          retargetWorkspaceTab(persistenceKey, input.tab.tabId, target);
+          retargetWorkspaceTab(
+            persistenceKey,
+            input.tab.tabId,
+            withWorkspaceTargetContext(target, paneWorkspaceId),
+          );
         },
         onOpenWorkspaceFile: (request: WorkspaceFileOpenRequest) => {
           handleOpenWorkspaceFileFromPane({
@@ -2899,10 +3062,12 @@ function WorkspaceScreenContent({
             paneId: input.paneId,
             parentTabId: input.tab.tabId,
             focusPaneBeforeOpen: input.focusPaneBeforeOpen,
+            workspaceId: paneWorkspaceId,
           });
         },
         onOpenImportSheet: openImportSheet,
-      }),
+      });
+    },
     [
       handleCloseTabById,
       focusWorkspacePane,

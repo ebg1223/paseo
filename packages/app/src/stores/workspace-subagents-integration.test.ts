@@ -127,7 +127,7 @@ afterEach(() => {
 });
 
 describe("workspace subagents integration", () => {
-  it("keeps a child ingested before its parent out of auto-tabs, then exposes it in the parent section", () => {
+  it("keeps child and parent hydration out of auto-tabs while preserving parent selection", () => {
     const workspaceKey = buildWorkspaceTabPersistenceKey({
       serverId: SERVER_ID,
       workspaceId: WORKSPACE_ID,
@@ -154,7 +154,7 @@ describe("workspace subagents integration", () => {
 
     reconcileWorkspaceTabs(workspaceKey!, deriveVisibilityFromSession());
 
-    expect(getWorkspaceTabIds(workspaceKey!)).toEqual(["agent_parent-agent"]);
+    expect(getWorkspaceTabIds(workspaceKey!)).toEqual([]);
     expect(
       selectSubagentsForParent(
         useSessionStore.getState(),

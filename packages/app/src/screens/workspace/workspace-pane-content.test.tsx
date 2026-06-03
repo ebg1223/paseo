@@ -60,6 +60,7 @@ function buildContent(tab: WorkspaceTabDescriptor = agentTab) {
     tab,
     normalizedServerId: "server-a",
     normalizedWorkspaceId: "workspace-a",
+    tabScopeKey: "server-a:project:project-a",
     onOpenTab: vi.fn(),
     onCloseCurrentTab: vi.fn(),
     onRetargetCurrentTab: vi.fn(),
@@ -158,5 +159,18 @@ describe("WorkspacePaneContent", () => {
       kind: "agent",
       agentId: "agent-a",
     });
+  });
+
+  it("uses the tab workspace context when it differs from the selected workspace", () => {
+    const content = buildContent({
+      key: "agent_agent-b",
+      tabId: "agent_agent-b",
+      kind: "agent",
+      target: { kind: "agent", agentId: "agent-b", workspaceId: "workspace-b" },
+    });
+
+    expect(content.key).toBe("server-a:workspace-b:agent_agent-b");
+    expect(content.paneContextValue.workspaceId).toBe("workspace-b");
+    expect(content.paneContextValue.tabScopeKey).toBe("server-a:project:project-a");
   });
 });

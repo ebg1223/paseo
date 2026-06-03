@@ -53,7 +53,7 @@ describe("workspace bulk close helpers", () => {
     });
   });
 
-  it("describes mixed destructive bulk close operations in the confirmation copy", () => {
+  it("describes mixed bulk close operations in the confirmation copy", () => {
     const message = buildBulkCloseConfirmationMessage(
       classifyBulkClosableTabs([
         makeAgentTab("a1"),
@@ -64,7 +64,7 @@ describe("workspace bulk close helpers", () => {
     );
 
     expect(message).toBe(
-      "This will archive 2 agent(s), close 1 terminal(s), and close 1 tab(s). Any running process in a closed terminal will be stopped immediately.",
+      "This will close 2 thread tab(s), close 1 terminal(s), and close 1 tab(s). Any running process in a closed terminal will be stopped immediately.",
     );
   });
 
@@ -78,7 +78,18 @@ describe("workspace bulk close helpers", () => {
     );
   });
 
-  it("closes all tabs immediately and fires one mixed closeItems RPC in the background", async () => {
+  it("describes workspace-first agent tab closes as archives", () => {
+    const message = buildBulkCloseConfirmationMessage(
+      classifyBulkClosableTabs([makeAgentTab("a1"), makeTerminalTab("t1")]),
+      { archiveAgentTabs: true },
+    );
+
+    expect(message).toBe(
+      "This will archive 1 agent(s) and close 1 terminal(s). Any running process in a closed terminal will be stopped immediately.",
+    );
+  });
+
+  it("closes all tabs immediately and fires one terminal closeItems RPC in the background", async () => {
     const groups = classifyBulkClosableTabs([
       makeAgentTab("a1"),
       makeTerminalTab("t1"),
@@ -88,7 +99,7 @@ describe("workspace bulk close helpers", () => {
     const closedTabIds: string[] = [];
     const cleanupCalls: Array<{ tabId: string; target?: WorkspaceTabDescriptor["target"] }> = [];
     const closeItems = vi.fn(async () => ({
-      agents: [{ agentId: "a1", archivedAt: "2026-04-01T04:00:00.000Z" }],
+      agents: [],
       terminals: [
         { terminalId: "t1", success: true },
         { terminalId: "t2", success: false },
@@ -99,6 +110,7 @@ describe("workspace bulk close helpers", () => {
     await closeBulkWorkspaceTabs({
       groups,
       client: { closeItems },
+      archiveAgentTabs: false,
       closeTab: async (tabId, action) => {
         closedTabIds.push(tabId);
         await action();
@@ -111,7 +123,7 @@ describe("workspace bulk close helpers", () => {
 
     expect(closeItems).toHaveBeenCalledTimes(1);
     expect(closeItems).toHaveBeenCalledWith({
-      agentIds: ["a1"],
+      agentIds: [],
       terminalIds: ["t1", "t2"],
     });
     expect(closedTabIds).toEqual([
@@ -145,6 +157,7 @@ describe("workspace bulk close helpers", () => {
           throw new Error("rpc failed");
         },
       },
+      archiveAgentTabs: false,
       closeTab: async (tabId, action) => {
         closedTabIds.push(tabId);
         await action();
@@ -165,5 +178,30 @@ describe("workspace bulk close helpers", () => {
       { tabId: "terminal_t1", target: { kind: "terminal", terminalId: "t1" } },
       { tabId: "file_/repo/README.md", target: { kind: "file", path: "/repo/README.md" } },
     ]);
+  });
+
+  it("archives agent tabs through closeItems when workspace-first bulk close requests it", async () => {
+    const groups = classifyBulkClosableTabs([makeAgentTab("a1"), makeTerminalTab("t1")]);
+    const closeItems = vi.fn(async () => ({
+      agents: [{ agentId: "a1", archivedAt: "2026-06-03T00:00:00.000Z" }],
+      terminals: [{ terminalId: "t1", success: true }],
+      requestId: "req-archive",
+    }));
+
+    await closeBulkWorkspaceTabs({
+      groups,
+      client: { closeItems },
+      archiveAgentTabs: true,
+      closeTab: async (_tabId, action) => {
+        await action();
+      },
+      closeWorkspaceTabWithCleanup: vi.fn(),
+      logLabel: "workspace-first",
+    });
+
+    expect(closeItems).toHaveBeenCalledWith({
+      agentIds: ["a1"],
+      terminalIds: ["t1"],
+    });
   });
 });

@@ -48,11 +48,12 @@ These are two distinct concepts that used to be conflated:
 | **Tab** (workspace layout) | Per-client | User opens/closes a view   |
 | **Archive** (lifecycle)    | Global     | Explicit lifecycle gesture |
 
-Closing a tab on a **root agent** still archives — the tab is the agent's home, so closing it means "I'm done with this agent." A confirm dialog protects against archiving a running agent by accident.
+Agent tab close behavior depends on the client-side workspace organization mode:
 
-Closing a tab on a **subagent** (any agent with `parentAgentId`) is **layout-only**. The agent stays unarchived and stays in its parent's track. The user can re-open the tab from the track at any time. This is implemented in `handleCloseAgentTab` (`packages/app/src/screens/workspace/workspace-screen.tsx`).
+- **Workspace-first** (default): root agent tabs represent workspace threads. Closing a root agent tab archives the agent; closing a subagent tab is layout-only.
+- **Thread-first**: sidebar thread rows are the persistent home surface. Closing an agent tab is layout-only for both root agents and subagents; closing a thread from its sidebar row is the explicit lifecycle gesture.
 
-The asymmetry is intentional: a subagent's home is the parent's track, not the tab. Tabs are ephemeral viewing slots; the track is the persistent record of the parent's children.
+Archive is always authoritative. Once an agent is archived, pinned or locally-open tab state must not keep it visible.
 
 ## The subagents track
 
@@ -66,14 +67,12 @@ Archived subagents disappear from the track, by design. To remove a subagent fro
 
 ## Why this shape
 
-The decision was to **decouple "close tab" from "archive" only for subagents**, rather than universally:
+The thread-first organization mode decouples "close tab" from "archive":
 
-- **Closing a tab on a root agent still archives** — preserves the existing UX users are trained on
-- **Closing a tab on a subagent is layout-only** — fixes the lossy "click to read, close to dismiss view, lose the row" flow
+- **Closing any agent tab is layout-only** — tabs are view slots, not lifecycle ownership
+- **Close thread on sidebar rows** — gives root agents an explicit lifecycle gesture in their home surface
 - **Archive button on track rows** — gives subagents an explicit lifecycle gesture in their home surface
 - **Cascade archive on parent** — keeps subagents from leaking when the parent is archived
-
-We considered universal decoupling (no tab close ever archives, archive is always explicit) but rejected it: it changes a behavior root-agent users rely on.
 
 ## Limitations
 
@@ -83,7 +82,7 @@ A parent that spawns many subagents will see the track grow. There's no automati
 
 ### Cross-client tab dismissal
 
-Closing a subagent's tab on one client doesn't affect other clients' layouts. This is the expected behavior of decoupled tabs and is consistent with how layouts have always worked. Archive remains the global gesture for cross-client cleanup.
+In thread-first mode, closing an agent tab on one client doesn't affect other clients' layouts. This is the expected behavior of decoupled tabs and is consistent with how layouts have always worked. Archive remains the global gesture for cross-client cleanup.
 
 ## Storage
 

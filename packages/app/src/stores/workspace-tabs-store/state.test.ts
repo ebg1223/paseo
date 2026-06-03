@@ -6,6 +6,7 @@ import {
   applyOpenDraftTab,
   applyOpenOrFocusTab,
   applyRetargetTab,
+  buildWorkspaceProjectTabScopeKey,
   buildWorkspaceTabPersistenceKey,
   initialWorkspaceTabsCoreState,
   type WorkspaceTabsCoreState,
@@ -33,6 +34,15 @@ describe("buildWorkspaceTabPersistenceKey", () => {
         workspaceId: "  setup\\workspace\\  ",
       }),
     ).toBe("server-1:setup\\workspace\\");
+  });
+
+  it("builds a project-scoped tab key without colliding with workspace ids", () => {
+    expect(
+      buildWorkspaceProjectTabScopeKey({
+        serverId: SERVER_ID,
+        projectKey: "project-1",
+      }),
+    ).toBe("server-1:project:project-1");
   });
 });
 

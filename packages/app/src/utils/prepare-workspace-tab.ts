@@ -8,6 +8,7 @@ import { buildHostWorkspaceRoute } from "@/utils/host-routes";
 export interface PrepareWorkspaceTabInput {
   serverId: string;
   workspaceId: string;
+  tabScopeKey?: string | null;
   target: WorkspaceTabTarget;
   pin?: boolean;
 }
@@ -29,23 +30,39 @@ export interface NavigateToPreparedWorkspaceTabDeps extends PrepareWorkspaceTabD
   ) => void;
 }
 
-function getPreparedTarget(target: WorkspaceTabTarget): WorkspaceTabTarget {
-  if (target.kind !== "draft" || target.draftId.trim() !== "new") {
+function withWorkspaceContext(target: WorkspaceTabTarget, workspaceId: string): WorkspaceTabTarget {
+  if (target.kind === "setup") {
     return target;
   }
-  return { kind: "draft", draftId: generateDraftId() };
+  if ("workspaceId" in target && target.workspaceId?.trim()) {
+    return target;
+  }
+  return {
+    ...target,
+    workspaceId,
+  } as WorkspaceTabTarget;
+}
+
+function getPreparedTarget(target: WorkspaceTabTarget, workspaceId: string): WorkspaceTabTarget {
+  const contextualTarget = withWorkspaceContext(target, workspaceId);
+  if (contextualTarget.kind !== "draft" || contextualTarget.draftId.trim() !== "new") {
+    return contextualTarget;
+  }
+  return { ...contextualTarget, draftId: generateDraftId() };
 }
 
 export function prepareWorkspaceTab(
   input: PrepareWorkspaceTabInput,
   deps: PrepareWorkspaceTabDeps,
 ): string {
-  const target = getPreparedTarget(input.target);
+  const target = getPreparedTarget(input.target, input.workspaceId);
   const key =
+    input.tabScopeKey ??
     buildWorkspaceTabPersistenceKey({
       serverId: input.serverId,
       workspaceId: input.workspaceId,
-    }) ?? "";
+    }) ??
+    "";
 
   deps.openTabFocused(key, target);
 

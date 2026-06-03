@@ -1330,7 +1330,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["agent-1"],
-      autoOpenAgentIds: ["agent-1"],
       knownAgentIds: ["agent-1", "agent-2"],
       standaloneTerminalIds: ["term-1"],
       hasActivePendingDraftCreate: false,
@@ -1339,12 +1338,7 @@ describe("workspace-layout-store actions", () => {
     const layout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
     const tabs = collectAllTabs(layout.root);
 
-    expect(tabs.map((tab) => tab.tabId)).toEqual([
-      "agent_agent-1",
-      "draft-1",
-      "agent_agent-2",
-      "terminal_term-1",
-    ]);
+    expect(tabs.map((tab) => tab.tabId)).toEqual(["agent_agent-1", "draft-1", "terminal_term-1"]);
     expect(tabs.find((tab) => tab.tabId === "agent_agent-1")).toEqual({
       tabId: "agent_agent-1",
       target: { kind: "agent", agentId: "agent-1" },
@@ -1386,7 +1380,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["agent-1"],
-      autoOpenAgentIds: ["agent-1"],
       knownAgentIds: ["agent-1"],
       standaloneTerminalIds: [],
       hasActivePendingDraftCreate: false,
@@ -1418,7 +1411,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["agent-1"],
-      autoOpenAgentIds: ["agent-1"],
       knownAgentIds: ["agent-1"],
       standaloneTerminalIds: [],
       hasActivePendingDraftCreate: false,
@@ -1427,14 +1419,13 @@ describe("workspace-layout-store actions", () => {
     expect(workspaceLayoutStore.getState().getWorkspaceTabs(workspaceKey)).toEqual([]);
   });
 
-  it("reconcileTabs does not auto-open subagents omitted from autoOpenAgentIds", () => {
+  it("reconcileTabs does not auto-open active agent tabs", () => {
     const workspaceKey = createWorkspaceKey();
 
     workspaceLayoutStore.getState().reconcileTabs(workspaceKey, {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["parent-agent", "child-agent"],
-      autoOpenAgentIds: ["parent-agent"],
       knownAgentIds: ["parent-agent", "child-agent"],
       standaloneTerminalIds: [],
       hasActivePendingDraftCreate: false,
@@ -1445,10 +1436,52 @@ describe("workspace-layout-store actions", () => {
         .getState()
         .getWorkspaceTabs(workspaceKey)
         .map((tab) => tab.tabId),
-    ).toEqual(["agent_parent-agent"]);
+    ).toEqual([]);
   });
 
-  it("reconcileTabs keeps manually opened subagent tabs that remain active", () => {
+  it("reconcileTabs auto-opens agent tabs when the snapshot requests workspace-mode population", () => {
+    const workspaceKey = createWorkspaceKey();
+
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, {
+      workspaceId: WORKSPACE_ID,
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: ["parent-agent", "child-agent"],
+      autoOpenAgentIds: ["parent-agent"],
+      knownAgentIds: ["parent-agent", "child-agent"],
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    });
+
+    expect(workspaceLayoutStore.getState().getWorkspaceTabs(workspaceKey)).toEqual([
+      {
+        tabId: "agent_parent-agent",
+        target: { kind: "agent", agentId: "parent-agent", workspaceId: WORKSPACE_ID },
+        createdAt: expect.any(Number),
+      },
+    ]);
+  });
+
+  it("reconcileTabs prunes pinned archived agent tabs because archive state is authoritative", () => {
+    const workspaceKey = createWorkspaceKey();
+    const store = workspaceLayoutStore.getState();
+
+    store.pinAgent(workspaceKey, "archived-agent");
+    store.openTabFocused(workspaceKey, { kind: "agent", agentId: "archived-agent" });
+
+    store.reconcileTabs(workspaceKey, {
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: [],
+      knownAgentIds: ["archived-agent"],
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    });
+
+    expect(workspaceLayoutStore.getState().getWorkspaceTabs(workspaceKey)).toEqual([]);
+  });
+
+  it("reconcileTabs keeps manually opened agent tabs that remain active", () => {
     const workspaceKey = createWorkspaceKey();
     const store = workspaceLayoutStore.getState();
 
@@ -1458,7 +1491,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["parent-agent", "child-agent"],
-      autoOpenAgentIds: ["parent-agent"],
       knownAgentIds: ["parent-agent", "child-agent"],
       standaloneTerminalIds: [],
       hasActivePendingDraftCreate: false,
@@ -1469,7 +1501,7 @@ describe("workspace-layout-store actions", () => {
         .getState()
         .getWorkspaceTabs(workspaceKey)
         .map((tab) => tab.tabId),
-    ).toEqual(["agent_child-agent", "agent_parent-agent"]);
+    ).toEqual(["agent_child-agent"]);
   });
 
   it("reconcileTabs prunes archived subagent tabs that are no longer active", () => {
@@ -1482,7 +1514,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["parent-agent"],
-      autoOpenAgentIds: ["parent-agent"],
       knownAgentIds: ["parent-agent", "child-agent"],
       standaloneTerminalIds: [],
       hasActivePendingDraftCreate: false,
@@ -1493,7 +1524,7 @@ describe("workspace-layout-store actions", () => {
         .getState()
         .getWorkspaceTabs(workspaceKey)
         .map((tab) => tab.tabId),
-    ).toEqual(["agent_parent-agent"]);
+    ).toEqual([]);
   });
 
   it("openTabFocused reopens hidden subagent tabs and clears hidden intent", () => {
@@ -1505,7 +1536,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: ["child-agent"],
-      autoOpenAgentIds: [],
       knownAgentIds: ["child-agent"],
       standaloneTerminalIds: [],
       hasActivePendingDraftCreate: false,
@@ -1535,7 +1565,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: [],
-      autoOpenAgentIds: [],
       knownAgentIds: [],
       knownTerminalIds: ["term-script", "term-manual"],
       standaloneTerminalIds: ["term-manual"],
@@ -1548,6 +1577,86 @@ describe("workspace-layout-store actions", () => {
     expect(findPaneById(layout.root, layout.focusedPaneId)?.focusedTabId).toBe(scriptTabId);
   });
 
+  it("reconcileTabs keeps terminal tabs from sibling workspaces in a shared project scope", () => {
+    const workspaceKey = createWorkspaceKey();
+
+    workspaceLayoutStore.setState((state) => ({
+      ...state,
+      layoutByWorkspace: {
+        ...state.layoutByWorkspace,
+        [workspaceKey]: {
+          root: {
+            kind: "pane",
+            pane: {
+              id: "main",
+              tabIds: [
+                "terminal_term-current",
+                "terminal_term-sibling",
+                "terminal_term-stale-current",
+              ],
+              focusedTabId: "terminal_term-sibling",
+              tabs: [
+                {
+                  tabId: "terminal_term-current",
+                  target: {
+                    kind: "terminal",
+                    terminalId: "term-current",
+                    workspaceId: WORKSPACE_ID,
+                  },
+                  createdAt: 1,
+                },
+                {
+                  tabId: "terminal_term-sibling",
+                  target: {
+                    kind: "terminal",
+                    terminalId: "term-sibling",
+                    workspaceId: "ws-sibling",
+                  },
+                  createdAt: 2,
+                },
+                {
+                  tabId: "terminal_term-stale-current",
+                  target: {
+                    kind: "terminal",
+                    terminalId: "term-stale-current",
+                    workspaceId: WORKSPACE_ID,
+                  },
+                  createdAt: 3,
+                },
+              ],
+            } as SplitPane,
+          },
+          focusedPaneId: "main",
+        },
+      },
+    }));
+
+    workspaceLayoutStore.getState().reconcileTabs(workspaceKey, {
+      workspaceId: WORKSPACE_ID,
+      agentsHydrated: true,
+      terminalsHydrated: true,
+      activeAgentIds: [],
+      knownAgentIds: [],
+      knownTerminalIds: ["term-current"],
+      standaloneTerminalIds: [],
+      hasActivePendingDraftCreate: false,
+    });
+
+    const layout = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey];
+    const tabs = collectAllTabs(layout.root);
+
+    expect(tabs.map((tab) => tab.tabId)).toEqual([
+      "terminal_term-current",
+      "terminal_term-sibling",
+    ]);
+    expect(tabs.find((tab) => tab.tabId === "terminal_term-sibling")?.target).toEqual({
+      kind: "terminal",
+      terminalId: "term-sibling",
+      workspaceId: "ws-sibling",
+    });
+    expect(findPaneById(layout.root, "main")?.focusedTabId).toBe("terminal_term-sibling");
+  });
+
   it("reconcileTabs does not auto-open live non-standalone terminals", () => {
     const workspaceKey = createWorkspaceKey();
 
@@ -1555,7 +1664,6 @@ describe("workspace-layout-store actions", () => {
       agentsHydrated: true,
       terminalsHydrated: true,
       activeAgentIds: [],
-      autoOpenAgentIds: [],
       knownAgentIds: [],
       knownTerminalIds: ["term-script"],
       standaloneTerminalIds: [],

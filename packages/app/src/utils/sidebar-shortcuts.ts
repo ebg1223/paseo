@@ -2,6 +2,7 @@ import type {
   SidebarProjectEntry,
   SidebarWorkspaceEntry,
 } from "@/hooks/use-sidebar-workspaces-list";
+import type { WorkspaceOrganizationMode } from "@/stores/workspace-organization-store";
 import { isSidebarProjectFlattened } from "./sidebar-project-row-model";
 
 export interface SidebarShortcutWorkspaceTarget {
@@ -24,11 +25,16 @@ function createShortcutTarget(workspace: SidebarWorkspaceEntry): SidebarShortcut
 export function buildSidebarShortcutModel(input: {
   projects: SidebarProjectEntry[];
   collapsedProjectKeys: ReadonlySet<string>;
+  organizationMode?: WorkspaceOrganizationMode;
   shortcutLimit?: number;
 }): SidebarShortcutModel {
   const maxShortcuts = Math.max(0, Math.floor(input.shortcutLimit ?? 9));
   const shortcutTargets: SidebarShortcutWorkspaceTarget[] = [];
   const shortcutIndexByWorkspaceKey = new Map<string, number>();
+
+  if (input.organizationMode === "thread-first") {
+    return { shortcutTargets, shortcutIndexByWorkspaceKey };
+  }
 
   for (const project of input.projects) {
     if (!isSidebarProjectFlattened(project) && input.collapsedProjectKeys.has(project.projectKey)) {

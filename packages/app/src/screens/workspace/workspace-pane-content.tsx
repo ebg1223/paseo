@@ -23,6 +23,7 @@ export interface BuildWorkspacePaneContentModelInput {
   tab: WorkspaceTabDescriptor;
   normalizedServerId: string;
   normalizedWorkspaceId: string;
+  tabScopeKey: string | null;
   onOpenTab: (target: WorkspaceTabDescriptor["target"]) => void;
   onCloseCurrentTab: () => void;
   onRetargetCurrentTab: (target: WorkspaceTabDescriptor["target"]) => void;
@@ -30,10 +31,29 @@ export interface BuildWorkspacePaneContentModelInput {
   onOpenImportSheet: () => void;
 }
 
+function trimNonEmpty(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveTabWorkspaceId(tab: WorkspaceTabDescriptor, fallbackWorkspaceId: string): string {
+  if (tab.target.kind === "setup") {
+    return tab.target.workspaceId;
+  }
+  if ("workspaceId" in tab.target) {
+    return trimNonEmpty(tab.target.workspaceId) ?? fallbackWorkspaceId;
+  }
+  return fallbackWorkspaceId;
+}
+
 export function buildWorkspacePaneContentModel({
   tab,
   normalizedServerId,
   normalizedWorkspaceId,
+  tabScopeKey,
   onOpenTab,
   onCloseCurrentTab,
   onRetargetCurrentTab,
@@ -43,12 +63,14 @@ export function buildWorkspacePaneContentModel({
   ensurePanelsRegistered();
   const registration = getPanelRegistration(tab.kind);
   invariant(registration, `No panel registration for kind: ${tab.kind}`);
+  const tabWorkspaceId = resolveTabWorkspaceId(tab, normalizedWorkspaceId);
   return {
-    key: `${normalizedServerId}:${normalizedWorkspaceId}:${tab.tabId}`,
+    key: `${normalizedServerId}:${tabWorkspaceId}:${tab.tabId}`,
     Component: registration.component,
     paneContextValue: {
       serverId: normalizedServerId,
-      workspaceId: normalizedWorkspaceId,
+      workspaceId: tabWorkspaceId,
+      tabScopeKey,
       tabId: tab.tabId,
       target: tab.target,
       openTab: onOpenTab,
@@ -83,6 +105,7 @@ export function WorkspacePaneContent({
     () => ({
       serverId: paneContextValue.serverId,
       workspaceId: paneContextValue.workspaceId,
+      tabScopeKey: paneContextValue.tabScopeKey,
       tabId: paneContextValue.tabId,
       target: paneContextValue.target,
       openTab,
@@ -97,6 +120,7 @@ export function WorkspacePaneContent({
       openImportSheet,
       openTab,
       paneContextValue.serverId,
+      paneContextValue.tabScopeKey,
       paneContextValue.tabId,
       paneContextValue.target,
       paneContextValue.workspaceId,

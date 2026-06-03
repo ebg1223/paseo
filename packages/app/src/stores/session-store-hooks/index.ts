@@ -7,6 +7,7 @@ import {
   selectProjectOrder,
   selectRecommendedProjectPaths,
   selectResolveWorkspaceIdByCwd,
+  selectSidebarAgentWorkspaces,
   selectWorkspace,
   selectWorkspaceExecutionAuthority,
   selectWorkspaceFields,
@@ -15,6 +16,7 @@ import {
   selectWorkspaceStatusesForBadges,
   selectWorkspaceStructureProjects,
   workspaceEqualityFns,
+  type SidebarAgentWorkspaceSource,
   type WorkspaceStructure,
 } from "./selectors";
 import { useSessionStore, type WorkspaceDescriptor } from "../session-store";
@@ -27,6 +29,7 @@ import type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
 
 export type {
   DesktopBadgeWorkspaceStatus,
+  SidebarAgentWorkspaceSource,
   WorkspaceStructure,
   WorkspaceStructureProject,
 } from "./selectors";
@@ -91,6 +94,14 @@ export function useWorkspaceStructure(serverId: string | null): WorkspaceStructu
         workspaceOrderByScope,
       }),
     [projectOrder, projects, serverId, workspaceOrderByScope],
+  );
+}
+
+export function useSidebarAgentWorkspaces(serverId: string | null): SidebarAgentWorkspaceSource[] {
+  return useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => selectSidebarAgentWorkspaces(state, serverId),
+    workspaceEqualityFns.deep,
   );
 }
 

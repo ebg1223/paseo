@@ -37,6 +37,21 @@ function createWorkspace(
     archivingAt: input.archivingAt ?? null,
     diffStat: input.diffStat ?? null,
     scripts: input.scripts ?? [],
+    gitRuntime: input.gitRuntime,
+    githubRuntime: input.githubRuntime,
+    project: input.project,
+  };
+}
+
+function gitRuntime(currentBranch: string): NonNullable<WorkspaceDescriptor["gitRuntime"]> {
+  return {
+    currentBranch,
+    remoteUrl: null,
+    isPaseoOwnedWorktree: false,
+    isDirty: false,
+    aheadBehind: null,
+    aheadOfOrigin: null,
+    behindOfOrigin: null,
   };
 }
 
@@ -231,6 +246,48 @@ describe("workspace structure composition", () => {
 
     useSessionStore.getState().mergeWorkspaces(SERVER_ID, [{ ...workspaceA, status: "running" }]);
     expect(tracked.current).toBe(afterAdd);
+
+    tracked.stop();
+  });
+
+  it("includes workspace branch details for sidebar structural rows", () => {
+    const workspace = createWorkspace({
+      id: "/Users/ethan/paseo",
+      name: "/Users/ethan/paseo",
+      workspaceDirectory: "/Users/ethan/paseo",
+      gitRuntime: gitRuntime("feature/sidebar"),
+    });
+    initializeWorkspaces([workspace]);
+
+    const projects = selectWorkspaceStructureProjects(useSessionStore.getState(), SERVER_ID);
+
+    expect(projects[0]?.workspaceDetailsById?.["/Users/ethan/paseo"]).toEqual({
+      workspaceId: "/Users/ethan/paseo",
+      workspaceName: "/Users/ethan/paseo",
+      workspaceDirectory: "/Users/ethan/paseo",
+      workspaceKind: "local_checkout",
+      currentBranch: "feature/sidebar",
+    });
+  });
+
+  it("changes when a workspace branch changes", () => {
+    const workspace = createWorkspace({
+      id: "workspace-a",
+      gitRuntime: gitRuntime("main"),
+    });
+    initializeWorkspaces([workspace]);
+
+    const tracked = trackSelector(
+      useSessionStore,
+      (state) => selectWorkspaceStructureProjects(state, SERVER_ID),
+      workspaceEqualityFns.deep,
+    );
+    const before = tracked.current;
+
+    useSessionStore
+      .getState()
+      .mergeWorkspaces(SERVER_ID, [{ ...workspace, gitRuntime: gitRuntime("feature/sidebar") }]);
+    expect(tracked.current).not.toBe(before);
 
     tracked.stop();
   });

@@ -15,19 +15,37 @@ export function normalizeWorkspaceTabTarget(
       return null;
     }
     const setup = normalizeWorkspaceDraftTabSetup(value.setup);
-    return setup ? { kind: "draft", draftId, setup } : { kind: "draft", draftId };
+    const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
+    return {
+      kind: "draft",
+      draftId,
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(setup ? { setup } : {}),
+    };
   }
   if (value.kind === "agent") {
     const agentId = trimNonEmpty(value.agentId);
-    return agentId ? { kind: "agent", agentId } : null;
+    if (!agentId) {
+      return null;
+    }
+    const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
+    return { kind: "agent", agentId, ...(workspaceId ? { workspaceId } : {}) };
   }
   if (value.kind === "terminal") {
     const terminalId = trimNonEmpty(value.terminalId);
-    return terminalId ? { kind: "terminal", terminalId } : null;
+    if (!terminalId) {
+      return null;
+    }
+    const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
+    return { kind: "terminal", terminalId, ...(workspaceId ? { workspaceId } : {}) };
   }
   if (value.kind === "browser") {
     const browserId = trimNonEmpty(value.browserId);
-    return browserId ? { kind: "browser", browserId } : null;
+    if (!browserId) {
+      return null;
+    }
+    const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
+    return { kind: "browser", browserId, ...(workspaceId ? { workspaceId } : {}) };
   }
   if (value.kind === "file") {
     return normalizeFileTabTarget(value);
@@ -83,7 +101,7 @@ export function workspaceTabTargetsEqual(
     return left.browserId === right.browserId;
   }
   if (left.kind === "file" && right.kind === "file") {
-    return workspaceFileLocationsEqual(left, right);
+    return workspaceFileLocationsEqual(left, right) && targetWorkspaceIdsEqual(left, right);
   }
   if (left.kind === "setup" && right.kind === "setup") {
     return left.workspaceId === right.workspaceId;
@@ -140,7 +158,11 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   if (target.kind === "setup") {
     return `setup_${target.workspaceId}`;
   }
-  return `file_${target.path}`;
+  if (target.kind === "file") {
+    const workspaceId = normalizeTargetWorkspaceId(target.workspaceId);
+    return workspaceId ? `file_${workspaceId}_${target.path}` : `file_${target.path}`;
+  }
+  return "tab_unknown";
 }
 
 function trimNonEmpty(value: string | null | undefined): string | null {
@@ -155,7 +177,24 @@ function normalizeFileTabTarget(
   value: Extract<WorkspaceTabTarget, { kind: "file" }>,
 ): WorkspaceTabTarget | null {
   const location = normalizeWorkspaceFileLocation(value);
-  return location ? { kind: "file", ...location } : null;
+  if (!location) {
+    return null;
+  }
+  const workspaceId = normalizeTargetWorkspaceId(value.workspaceId);
+  return { kind: "file", ...(workspaceId ? { workspaceId } : {}), ...location };
+}
+
+function normalizeTargetWorkspaceId(value: string | null | undefined): string | null {
+  return trimNonEmpty(value);
+}
+
+function targetWorkspaceIdsEqual(
+  left: { workspaceId?: string },
+  right: { workspaceId?: string },
+): boolean {
+  return (
+    normalizeTargetWorkspaceId(left.workspaceId) === normalizeTargetWorkspaceId(right.workspaceId)
+  );
 }
 
 function trimOptionalString(value: string | null | undefined): string | null {

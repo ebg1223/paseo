@@ -19,7 +19,7 @@ import {
   type WorkspaceTabTarget,
 } from "./state";
 
-export { buildWorkspaceTabPersistenceKey } from "./state";
+export { buildWorkspaceProjectTabScopeKey, buildWorkspaceTabPersistenceKey } from "./state";
 export type { WorkspaceDraftTabSetup, WorkspaceTab, WorkspaceTabTarget } from "./state";
 
 interface WorkspaceTabsState extends WorkspaceTabsCoreState {

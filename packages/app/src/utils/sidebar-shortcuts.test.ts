@@ -22,6 +22,7 @@ function workspace(input: {
     projectKind: "git",
     workspaceKind: "checkout",
     name: input.name,
+    branchName: null,
     statusBucket: "done",
     archivingAt: null,
     diffStat: null,
@@ -40,6 +41,7 @@ function project(projectKey: string, workspaces: SidebarWorkspaceEntry[]): Sideb
     projectKind: "git",
     iconWorkingDir: workspaces[0]?.workspaceDirectory ?? "",
     workspaces,
+    agents: [],
   };
 }
 
@@ -129,6 +131,28 @@ describe("buildSidebarShortcutModel", () => {
     });
 
     expect(model.shortcutTargets).toEqual([]);
+  });
+
+  it("does not create hidden workspace shortcuts in thread-first organization", () => {
+    const projects = [
+      project("p1", [
+        workspace({
+          serverId: "s1",
+          workspaceId: "ws-main",
+          workspaceDirectory: "/repo/main",
+          name: "main",
+        }),
+      ]),
+    ];
+
+    const model = buildSidebarShortcutModel({
+      projects,
+      collapsedProjectKeys: new Set<string>(),
+      organizationMode: "thread-first",
+    });
+
+    expect(model.shortcutTargets).toEqual([]);
+    expect(model.shortcutIndexByWorkspaceKey.size).toBe(0);
   });
 });
 

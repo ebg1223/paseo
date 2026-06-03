@@ -6,15 +6,19 @@ import {
   type WorkspaceDescriptor,
 } from "@/stores/session-store";
 import { selectPrHintFromStatus } from "@/git/use-pr-status-query";
-import { useWorkspaceStructure } from "@/stores/session-store-hooks";
+import { useSidebarAgentWorkspaces, useWorkspaceStructure } from "@/stores/session-store-hooks";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { useSidebarOrderStore } from "@/stores/sidebar-order-store";
 import { shouldSuppressWorkspaceForLocalArchive } from "@/contexts/session-workspace-upserts";
 import {
   buildSidebarProjectsFromStructure,
+  buildSidebarProjectsWithAgents,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
+  normalizeSidebarBranchName,
   type SidebarProjectEntry,
+  type SidebarAgentProjectionSource,
+  type SidebarAgentWorkspaceSource,
   type SidebarWorkspaceEntry,
 } from "./sidebar-workspaces-view-model";
 
@@ -22,10 +26,14 @@ export {
   appendMissingOrderKeys,
   applyStoredOrdering,
   buildSidebarProjectsFromStructure,
+  buildSidebarProjectsWithAgents,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
   type SidebarLoadingState,
   type SidebarOrderUpdates,
+  type SidebarAgentEntry,
+  type SidebarAgentProjectionSource,
+  type SidebarAgentWorkspaceSource,
   type SidebarProjectEntry,
   type SidebarStateBucket,
   type SidebarWorkspaceEntry,
@@ -45,6 +53,7 @@ export function createSidebarWorkspaceEntry(input: {
     projectKind: input.workspace.projectKind,
     workspaceKind: input.workspace.workspaceKind,
     name: input.workspace.name,
+    branchName: normalizeSidebarBranchName(input.workspace.gitRuntime?.currentBranch),
     statusBucket: input.workspace.status,
     archivingAt: input.workspace.archivingAt,
     diffStat: input.workspace.diffStat,
@@ -88,7 +97,11 @@ export function useSidebarWorkspacesList(options?: {
   const hasHydratedWorkspaces = useSessionStore((state) =>
     isActive && serverId ? (state.sessions[serverId]?.hasHydratedWorkspaces ?? false) : false,
   );
+  const sessionAgents = useSessionStore((state) =>
+    isActive && serverId ? state.sessions[serverId]?.agents : undefined,
+  );
   const workspaceStructure = useWorkspaceStructure(isActive ? serverId : null);
+  const sidebarWorkspaces = useSidebarAgentWorkspaces(isActive ? serverId : null);
 
   const connectionStatus = useSyncExternalStore(
     (onStoreChange) =>
@@ -109,7 +122,7 @@ export function useSidebarWorkspacesList(options?: {
     },
   );
 
-  const projects = useMemo(() => {
+  const baseProjects = useMemo(() => {
     if (!serverId || workspaceStructure.projects.length === 0) {
       return EMPTY_PROJECTS;
     }
@@ -118,6 +131,34 @@ export function useSidebarWorkspacesList(options?: {
       projects: workspaceStructure.projects,
     });
   }, [serverId, workspaceStructure]);
+
+  const sidebarAgents = useMemo<SidebarAgentProjectionSource[]>(
+    () =>
+      Array.from(sessionAgents?.values() ?? []).map((agent) => ({
+        id: agent.id,
+        serverId: agent.serverId,
+        title: agent.title,
+        status: agent.status,
+        cwd: agent.cwd,
+        provider: agent.provider,
+        lastActivityAt: agent.lastActivityAt,
+        pendingPermissionCount: agent.pendingPermissions.length,
+        requiresAttention: agent.requiresAttention,
+        archivedAt: agent.archivedAt,
+        projectPlacement: agent.projectPlacement,
+      })),
+    [sessionAgents],
+  );
+
+  const projects = useMemo(
+    () =>
+      buildSidebarProjectsWithAgents({
+        projects: baseProjects,
+        agents: sidebarAgents,
+        workspaces: sidebarWorkspaces,
+      }),
+    [baseProjects, sidebarAgents, sidebarWorkspaces],
+  );
 
   useEffect(() => {
     if (!serverId) {
@@ -153,6 +194,7 @@ export function useSidebarWorkspacesList(options?: {
     if (!client) {
       return;
     }
+    void runtime.refreshAgentDirectory({ serverId }).catch(() => undefined);
     void (async () => {
       const next = new Map<string, WorkspaceDescriptor>();
       let cursor: string | null = null;

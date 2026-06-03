@@ -15,6 +15,7 @@ interface CloseWorkspaceTabWithCleanupInput {
 interface CloseBulkWorkspaceTabsInput {
   client: Pick<DaemonClient, "closeItems"> | null;
   groups: BulkClosableTabGroups;
+  archiveAgentTabs: boolean;
   closeTab: (tabId: string, action: () => Promise<void>) => Promise<void>;
   closeWorkspaceTabWithCleanup: (input: CloseWorkspaceTabWithCleanupInput) => void;
   logLabel: string;
@@ -43,19 +44,24 @@ export function classifyBulkClosableTabs(tabs: WorkspaceTabDescriptor[]): BulkCl
   return groups;
 }
 
-export function buildBulkCloseConfirmationMessage(input: BulkClosableTabGroups): string {
+export function buildBulkCloseConfirmationMessage(
+  input: BulkClosableTabGroups,
+  options: { archiveAgentTabs?: boolean } = {},
+): string {
   const { agentTabs, terminalTabs, otherTabs } = input;
+  const agentAction = options.archiveAgentTabs ? "archive" : "close";
+  const agentLabel = options.archiveAgentTabs ? "agent(s)" : "thread tab(s)";
   if (agentTabs.length > 0 && terminalTabs.length > 0 && otherTabs.length > 0) {
-    return `This will archive ${agentTabs.length} agent(s), close ${terminalTabs.length} terminal(s), and close ${otherTabs.length} tab(s). Any running process in a closed terminal will be stopped immediately.`;
+    return `This will ${agentAction} ${agentTabs.length} ${agentLabel}, close ${terminalTabs.length} terminal(s), and close ${otherTabs.length} tab(s). Any running process in a closed terminal will be stopped immediately.`;
   }
   if (agentTabs.length > 0 && terminalTabs.length > 0) {
-    return `This will archive ${agentTabs.length} agent(s) and close ${terminalTabs.length} terminal(s). Any running process in a closed terminal will be stopped immediately.`;
+    return `This will ${agentAction} ${agentTabs.length} ${agentLabel} and close ${terminalTabs.length} terminal(s). Any running process in a closed terminal will be stopped immediately.`;
   }
   if (terminalTabs.length > 0 && otherTabs.length > 0) {
     return `This will close ${terminalTabs.length} terminal(s) and close ${otherTabs.length} tab(s). Any running process in a closed terminal will be stopped immediately.`;
   }
   if (agentTabs.length > 0 && otherTabs.length > 0) {
-    return `This will archive ${agentTabs.length} agent(s) and close ${otherTabs.length} tab(s).`;
+    return `This will ${agentAction} ${agentTabs.length} ${agentLabel} and close ${otherTabs.length} tab(s).`;
   }
   if (terminalTabs.length > 0) {
     return `This will close ${terminalTabs.length} terminal(s). Any running process in a closed terminal will be stopped immediately.`;
@@ -63,17 +69,26 @@ export function buildBulkCloseConfirmationMessage(input: BulkClosableTabGroups):
   if (otherTabs.length > 0) {
     return `This will close ${otherTabs.length} tab(s).`;
   }
-  return `This will archive ${agentTabs.length} agent(s).`;
+  return `This will ${agentAction} ${agentTabs.length} ${agentLabel}.`;
 }
 
 export async function closeBulkWorkspaceTabs(input: CloseBulkWorkspaceTabsInput): Promise<void> {
-  const { client, groups, closeTab, closeWorkspaceTabWithCleanup, logLabel, warn } = input;
-  const hasDestructiveTabs = groups.agentTabs.length > 0 || groups.terminalTabs.length > 0;
+  const {
+    client,
+    groups,
+    archiveAgentTabs,
+    closeTab,
+    closeWorkspaceTabWithCleanup,
+    logLabel,
+    warn,
+  } = input;
+  const hasDestructiveTabs =
+    (archiveAgentTabs && groups.agentTabs.length > 0) || groups.terminalTabs.length > 0;
 
   if (hasDestructiveTabs && client) {
     void client
       .closeItems({
-        agentIds: groups.agentTabs.map((tab) => tab.agentId),
+        agentIds: archiveAgentTabs ? groups.agentTabs.map((tab) => tab.agentId) : [],
         terminalIds: groups.terminalTabs.map((tab) => tab.terminalId),
       })
       .catch((error) => {

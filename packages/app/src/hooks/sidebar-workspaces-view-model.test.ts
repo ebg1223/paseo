@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceStructureProject } from "@/stores/session-store-hooks";
+import type { WorkspaceDescriptor } from "@/stores/session-store";
 import {
   appendMissingOrderKeys,
   applyStoredOrdering,
   buildSidebarProjectsFromStructure,
+  buildSidebarProjectsWithAgents,
   computeSidebarOrderUpdates,
   deriveSidebarLoadingState,
+  type SidebarAgentProjectionSource,
   type SidebarProjectEntry,
 } from "./sidebar-workspaces-view-model";
 
@@ -23,6 +26,7 @@ function project(input: {
   projectKind?: WorkspaceStructureProject["projectKind"];
   iconWorkingDir?: string;
   workspaceKeys: string[];
+  workspaceDetailsById?: WorkspaceStructureProject["workspaceDetailsById"];
 }): WorkspaceStructureProject {
   return {
     projectKey: input.projectKey,
@@ -30,6 +34,7 @@ function project(input: {
     projectKind: input.projectKind ?? "git",
     iconWorkingDir: input.iconWorkingDir ?? input.projectKey,
     workspaceKeys: input.workspaceKeys,
+    workspaceDetailsById: input.workspaceDetailsById,
   };
 }
 
@@ -47,6 +52,69 @@ function sidebarProject(input: {
     throw new Error("expected a project entry");
   }
   return result;
+}
+
+function workspaceDescriptor(overrides: Partial<WorkspaceDescriptor> = {}): WorkspaceDescriptor {
+  return {
+    id: "ws-main",
+    projectId: "project-1",
+    projectDisplayName: "Project 1",
+    projectCustomName: null,
+    projectRootPath: "/repo",
+    workspaceDirectory: "/repo",
+    projectKind: "git",
+    workspaceKind: "checkout",
+    name: "main",
+    status: "done",
+    archivingAt: null,
+    diffStat: null,
+    scripts: [],
+    project: {
+      projectKey: "project-1",
+      projectName: "Project 1",
+      checkout: {
+        cwd: "/repo",
+        isGit: true,
+        currentBranch: "main",
+        remoteUrl: null,
+        worktreeRoot: "/repo",
+        isPaseoOwnedWorktree: false,
+        mainRepoRoot: null,
+      },
+    },
+    ...overrides,
+  };
+}
+
+function agent(
+  overrides: Partial<SidebarAgentProjectionSource> = {},
+): SidebarAgentProjectionSource {
+  return {
+    id: "agent-1",
+    serverId: "srv",
+    title: "Trial sidebar",
+    status: "idle",
+    cwd: "/repo",
+    provider: "codex",
+    lastActivityAt: new Date("2026-06-02T12:00:00.000Z"),
+    pendingPermissionCount: 0,
+    requiresAttention: false,
+    archivedAt: null,
+    projectPlacement: {
+      projectKey: "project-1",
+      projectName: "Project 1",
+      checkout: {
+        cwd: "/repo",
+        isGit: true,
+        currentBranch: "main",
+        remoteUrl: null,
+        worktreeRoot: "/repo",
+        isPaseoOwnedWorktree: false,
+        mainRepoRoot: null,
+      },
+    },
+    ...overrides,
+  };
 }
 
 describe("applyStoredOrdering", () => {
@@ -129,6 +197,35 @@ describe("buildSidebarProjectsFromStructure", () => {
     });
   });
 
+  it("preserves branch metadata for structural workspace rows", () => {
+    const projects = buildSidebarProjectsFromStructure({
+      serverId: "srv",
+      projects: [
+        project({
+          projectKey: "project-1",
+          projectName: "Project 1",
+          iconWorkingDir: "/repo",
+          workspaceKeys: ["/Users/ethan/paseo"],
+          workspaceDetailsById: {
+            "/Users/ethan/paseo": {
+              workspaceId: "/Users/ethan/paseo",
+              workspaceName: "/Users/ethan/paseo",
+              workspaceDirectory: "/Users/ethan/paseo",
+              workspaceKind: "local_checkout",
+              currentBranch: "feature/sidebar",
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(projects[0]?.workspaces[0]).toMatchObject({
+      workspaceId: "/Users/ethan/paseo",
+      name: "/Users/ethan/paseo",
+      branchName: "feature/sidebar",
+    });
+  });
+
   it("preserves the structure hook project order", () => {
     const projects = buildSidebarProjectsFromStructure({
       serverId: "srv",
@@ -150,6 +247,83 @@ describe("buildSidebarProjectsFromStructure", () => {
     expect(projects[0]?.workspaces.map((workspace) => workspace.workspaceId)).toEqual([
       "feature",
       "main",
+    ]);
+  });
+});
+
+describe("buildSidebarProjectsWithAgents", () => {
+  it("groups active agents under an existing project by workspace cwd", () => {
+    const baseProjects = buildSidebarProjectsFromStructure({
+      serverId: "srv",
+      projects: [
+        project({
+          projectKey: "project-1",
+          projectName: "Project 1",
+          iconWorkingDir: "/repo",
+          workspaceKeys: ["ws-main"],
+        }),
+      ],
+    });
+
+    const projects = buildSidebarProjectsWithAgents({
+      projects: baseProjects,
+      agents: [agent({ status: "running", pendingPermissionCount: 2 })],
+      workspaces: [workspaceDescriptor()],
+    });
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0]?.agents).toEqual([
+      expect.objectContaining({
+        rowKey: "srv:agent:agent-1",
+        agentId: "agent-1",
+        projectKey: "project-1",
+        workspaceId: "ws-main",
+        title: "Trial sidebar",
+        statusBucket: "needs_input",
+        branchName: "main",
+      }),
+    ]);
+  });
+
+  it("creates a synthetic project for active agents without a workspace descriptor", () => {
+    const projects = buildSidebarProjectsWithAgents({
+      projects: [],
+      agents: [
+        agent({
+          id: "agent-orphan",
+          cwd: "/repo/worktree-a",
+          projectPlacement: {
+            projectKey: "project-1",
+            projectName: "Project 1",
+            checkout: {
+              cwd: "/repo/worktree-a",
+              isGit: true,
+              currentBranch: "trial",
+              remoteUrl: null,
+              worktreeRoot: "/repo/worktree-a",
+              isPaseoOwnedWorktree: false,
+              mainRepoRoot: null,
+            },
+          },
+        }),
+      ],
+      workspaces: [],
+    });
+
+    expect(projects).toEqual([
+      expect.objectContaining({
+        projectKey: "project-1",
+        projectName: "Project 1",
+        projectKind: "git",
+        workspaces: [],
+        agents: [
+          expect.objectContaining({
+            agentId: "agent-orphan",
+            workspaceId: null,
+            branchName: "trial",
+          }),
+        ],
+      }),
     ]);
   });
 });
