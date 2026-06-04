@@ -1,5 +1,9 @@
 import equal from "fast-deep-equal";
-import { projectDisplayNameFromProjectId } from "@/utils/project-display-name";
+import {
+  buildWorkspaceStructureProjects,
+  type WorkspaceStructure,
+  type WorkspaceStructureProject,
+} from "@/projects/workspace-structure";
 import type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
 import type { SidebarAgentWorkspaceSource } from "@/hooks/sidebar-workspaces-view-model";
 import {
@@ -12,27 +16,7 @@ import type { WorkspaceDescriptor } from "../session-store";
 
 export type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
 export type { SidebarAgentWorkspaceSource } from "@/hooks/sidebar-workspaces-view-model";
-
-export interface WorkspaceStructureProject {
-  projectKey: string;
-  projectName: string;
-  projectKind: WorkspaceDescriptor["projectKind"];
-  iconWorkingDir: string;
-  workspaceKeys: string[];
-  workspaceDetailsById?: Record<string, WorkspaceStructureWorkspaceDetails>;
-}
-
-export interface WorkspaceStructure {
-  projects: WorkspaceStructureProject[];
-}
-
-export interface WorkspaceStructureWorkspaceDetails {
-  workspaceId: string;
-  workspaceName: string;
-  workspaceDirectory: string;
-  workspaceKind: WorkspaceDescriptor["workspaceKind"];
-  currentBranch: string | null;
-}
+export type { WorkspaceStructure, WorkspaceStructureProject } from "@/projects/workspace-structure";
 
 export interface SessionsSnapshot {
   sessions: Record<string, { workspaces: Map<string, WorkspaceDescriptor> }>;
@@ -54,33 +38,6 @@ export const workspaceEqualityFns = {
 
 function getWorkspaceOrderScopeKey(serverId: string, projectKey: string): string {
   return `${serverId.trim()}::${projectKey.trim()}`;
-}
-
-function compareWorkspaceStructureItems(
-  left: { workspaceId: string; workspaceName: string },
-  right: { workspaceId: string; workspaceName: string },
-): number {
-  const nameDelta = left.workspaceName.localeCompare(right.workspaceName, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-  if (nameDelta !== 0) {
-    return nameDelta;
-  }
-
-  return left.workspaceId.localeCompare(right.workspaceId, undefined, {
-    sensitivity: "base",
-  });
-}
-
-function compareWorkspaceStructureProjects(
-  left: WorkspaceStructureProject,
-  right: WorkspaceStructureProject,
-): number {
-  return left.projectName.localeCompare(right.projectName, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
 }
 
 function applyStoredOrdering<T>(input: {
@@ -183,58 +140,7 @@ export function selectWorkspaceStructureProjects(
     return EMPTY_WORKSPACE_STRUCTURE.projects;
   }
 
-  const byProject = new Map<
-    string,
-    WorkspaceStructureProject & {
-      workspaces: Array<WorkspaceStructureWorkspaceDetails & { workspaceKey: string }>;
-      workspaceDetailsById: Record<string, WorkspaceStructureWorkspaceDetails>;
-    }
-  >();
-
-  for (const workspace of workspaces.values()) {
-    const project =
-      byProject.get(workspace.projectId) ??
-      ({
-        projectKey: workspace.projectId,
-        projectName:
-          workspace.projectDisplayName || projectDisplayNameFromProjectId(workspace.projectId),
-        projectKind: workspace.projectKind,
-        iconWorkingDir: workspace.projectRootPath,
-        workspaceKeys: [],
-        workspaceDetailsById: {},
-        workspaces: [],
-      } satisfies WorkspaceStructureProject & {
-        workspaces: Array<WorkspaceStructureWorkspaceDetails & { workspaceKey: string }>;
-        workspaceDetailsById: Record<string, WorkspaceStructureWorkspaceDetails>;
-      });
-
-    const workspaceDetails = {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      workspaceDirectory: workspace.workspaceDirectory,
-      workspaceKind: workspace.workspaceKind,
-      currentBranch: workspace.gitRuntime?.currentBranch ?? null,
-    };
-    project.workspaces.push({
-      ...workspaceDetails,
-      workspaceKey: `${serverId}:${workspace.id}`,
-    });
-    project.workspaceDetailsById[workspace.id] = workspaceDetails;
-    byProject.set(workspace.projectId, project);
-  }
-
-  const projects = Array.from(byProject.values()).map(
-    ({ workspaces: projectWorkspaces, ...project }) => {
-      const sortedWorkspaces = [...projectWorkspaces].sort(compareWorkspaceStructureItems);
-
-      return Object.assign({}, project, {
-        workspaceKeys: sortedWorkspaces.map((workspace) => workspace.workspaceId),
-      });
-    },
-  );
-
-  projects.sort(compareWorkspaceStructureProjects);
-  return projects;
+  return buildWorkspaceStructureProjects({ serverId, workspaces: workspaces.values() });
 }
 
 export function selectSidebarAgentWorkspaces(

@@ -34,11 +34,13 @@ function workspace(overrides: Partial<SidebarWorkspaceEntry> = {}): SidebarWorks
 }
 
 function project(overrides: Partial<SidebarProjectEntry> = {}): SidebarProjectEntry {
+  const projectKind = overrides.projectKind ?? "git";
   return {
     projectKey: "project-1",
     projectName: "paseo",
-    projectKind: "git",
+    projectKind,
     iconWorkingDir: "/repo",
+    canCreateWorktree: overrides.canCreateWorktree ?? projectKind === "git",
     workspaces: [workspace()],
     agents: [],
     ...overrides,
