@@ -1137,12 +1137,7 @@ export default function SettingsScreen({ view }: SettingsScreenProps) {
     [updateSettings],
   );
 
-  const handleWorkspaceOrganizationModeChange = useCallback(
-    (mode: WorkspaceOrganizationMode) => {
-      setWorkspaceOrganizationMode(mode);
-    },
-    [setWorkspaceOrganizationMode],
-  );
+  const handleWorkspaceOrganizationModeChange = setWorkspaceOrganizationMode;
 
   const handleServiceUrlBehaviorChange = useCallback(
     (behavior: ServiceUrlBehavior) => {

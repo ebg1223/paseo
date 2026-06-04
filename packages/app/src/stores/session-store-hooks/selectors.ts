@@ -1,6 +1,7 @@
 import equal from "fast-deep-equal";
 import { projectDisplayNameFromProjectId } from "@/utils/project-display-name";
 import type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
+import type { SidebarAgentWorkspaceSource } from "@/hooks/sidebar-workspaces-view-model";
 import {
   getWorkspaceExecutionAuthority,
   resolveWorkspaceIdByExecutionDirectory,
@@ -10,6 +11,7 @@ import {
 import type { WorkspaceDescriptor } from "../session-store";
 
 export type { DesktopBadgeWorkspaceStatus } from "@/utils/desktop-badge-state";
+export type { SidebarAgentWorkspaceSource } from "@/hooks/sidebar-workspaces-view-model";
 
 export interface WorkspaceStructureProject {
   projectKey: string;
@@ -30,18 +32,6 @@ export interface WorkspaceStructureWorkspaceDetails {
   workspaceDirectory: string;
   workspaceKind: WorkspaceDescriptor["workspaceKind"];
   currentBranch: string | null;
-}
-
-export interface SidebarAgentWorkspaceSource {
-  id: string;
-  projectId: string;
-  projectRootPath: string;
-  workspaceDirectory: string;
-  projectKind: WorkspaceDescriptor["projectKind"];
-  workspaceKind: WorkspaceDescriptor["workspaceKind"];
-  name: string;
-  gitRuntime?: { currentBranch?: string | null } | null;
-  project?: WorkspaceDescriptor["project"];
 }
 
 export interface SessionsSnapshot {
