@@ -1,0 +1,67 @@
+name: Sync fork with upstream
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_branch:
+        description: "Upstream branch to merge"
+        required: true
+        default: "main"
+      feature_branch:
+        description: "Fork feature branch to update from upstream"
+        required: true
+        default: "fix/pi-custom-message-line-items"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-fork-with-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'ebg1223/paseo'
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: getpaseo/paseo
+      UPSTREAM_BRANCH: ${{ github.event.inputs.upstream_branch || 'main' }}
+      FEATURE_BRANCH: ${{ github.event.inputs.feature_branch || 'fix/pi-custom-message-line-items' }}
+    steps:
+      - name: Checkout fork main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream and fork branches
+        run: |
+          git check-ref-format --branch "${UPSTREAM_BRANCH}"
+          git check-ref-format --branch "${FEATURE_BRANCH}"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "${UPSTREAM_BRANCH}:refs/remotes/upstream/${UPSTREAM_BRANCH}"
+          git fetch --no-tags origin "main:refs/remotes/origin/main"
+          if ! git ls-remote --exit-code --heads origin "${FEATURE_BRANCH}" >/dev/null; then
+            echo "::error ::Feature branch ${FEATURE_BRANCH} does not exist on ${GITHUB_REPOSITORY}"
+            exit 1
+          fi
+          git fetch --no-tags origin "${FEATURE_BRANCH}:refs/remotes/origin/${FEATURE_BRANCH}"
+
+      - name: Merge upstream into fork main
+        run: |
+          git checkout -B main origin/main
+          git merge --no-edit "upstream/${UPSTREAM_BRANCH}"
+          git push origin HEAD:main
+
+      - name: Merge upstream into feature branch
+        run: |
+          git checkout -B "${FEATURE_BRANCH}" "origin/${FEATURE_BRANCH}"
+          git merge --no-edit "upstream/${UPSTREAM_BRANCH}"
+          git push origin HEAD:"${FEATURE_BRANCH}"
