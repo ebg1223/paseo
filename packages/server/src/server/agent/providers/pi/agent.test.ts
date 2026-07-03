@@ -259,6 +259,25 @@ describe("PiRpcAgentSession", () => {
     await expect(events.nextTurnCompletion()).resolves.toMatchObject({ turnId });
   });
 
+  test("fails slash prompts when the no-turn state barrier fails", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    fakeSession.getStateError = new Error("get_state timed out");
+
+    const { turnId } = await session.startTurn("/local-command on");
+
+    await expect(events.nextTurnFailure()).resolves.toMatchObject({
+      turnId,
+      error: "get_state timed out",
+    });
+
+    fakeSession.getStateError = null;
+    const nextTurn = await session.startTurn("hello after barrier failure");
+    fakeSession.finishTurn({ role: "assistant", content: [] });
+
+    await expect(events.nextTurnCompletion()).resolves.toMatchObject({ turnId: nextTurn.turnId });
+  });
+
   test("bridges Pi RPC select extension UI requests through question permissions", async () => {
     const { pi, session, events } = await createSession();
     const fakeSession = pi.latestSession();

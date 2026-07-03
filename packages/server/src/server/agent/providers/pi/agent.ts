@@ -1317,7 +1317,10 @@ export class PiRpcAgentSession implements AgentSession {
     let runtimeState: PiSessionState;
     try {
       runtimeState = await this.runtimeSession.getState();
-    } catch {
+    } catch (error) {
+      if (this.activeTurnId === turnId && !this.activeTurnStarted) {
+        throw error;
+      }
       return;
     }
     this.state = runtimeState;
