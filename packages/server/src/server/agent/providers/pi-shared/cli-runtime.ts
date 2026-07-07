@@ -10,11 +10,9 @@ import {
   type PiRuntimeLaunch,
   type PiRuntimeSession,
   type PiStartSessionInput,
-  type PiSubagentMessagesSelector,
 } from "./runtime.js";
 import type {
   PiAgentMessage,
-  PiCommandsRpcType,
   PiModel,
   PiRpcCommand,
   PiRpcResponse,
@@ -22,16 +20,13 @@ import type {
   PiRuntimeEvent,
   PiSessionState,
   PiSessionStats,
-  PiSubagentMessagesResult,
-  PiSubagentSnapshot,
-  PiSubagentSubscriptionLevel,
 } from "./rpc-types.js";
 
 const DEFAULT_PI_COMMAND: [string, ...string[]] = [
   process.env.PI_COMMAND ?? process.env.PI_ACP_PI_COMMAND ?? "pi",
 ];
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_COMMANDS_RPC_TYPE: PiCommandsRpcType = "get_commands";
+const DEFAULT_COMMANDS_RPC_NAME = "get_commands";
 const STDERR_BUFFER_LIMIT = 8192;
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 2_000;
 const FORCE_SHUTDOWN_TIMEOUT_MS = 1_000;
@@ -54,18 +49,18 @@ export interface PiCliRuntimeOptions {
   logger: Logger;
   runtimeSettings?: ProviderRuntimeSettings;
   command?: [string, ...string[]];
-  commandsRpcType?: PiCommandsRpcType;
+  commandsRpcName?: string;
   spawnProcess?: (launch: PiRuntimeLaunch) => ChildProcessWithoutNullStreams;
 }
 
 export class PiCliRuntime implements PiRuntime {
   private readonly command: [string, ...string[]];
-  private readonly commandsRpcType: PiCommandsRpcType;
+  private readonly commandsRpcName: string;
   private readonly spawnProcess: (launch: PiRuntimeLaunch) => ChildProcessWithoutNullStreams;
 
   constructor(private readonly options: PiCliRuntimeOptions) {
     this.command = options.command ?? DEFAULT_PI_COMMAND;
-    this.commandsRpcType = options.commandsRpcType ?? DEFAULT_COMMANDS_RPC_TYPE;
+    this.commandsRpcName = options.commandsRpcName ?? DEFAULT_COMMANDS_RPC_NAME;
     this.spawnProcess =
       options.spawnProcess ??
       ((launch) => {
@@ -90,7 +85,7 @@ export class PiCliRuntime implements PiRuntime {
       launch,
       this.spawnProcess(launch),
       this.options.logger,
-      this.commandsRpcType,
+      this.commandsRpcName,
     );
   }
 }
@@ -107,7 +102,7 @@ class PiCliRuntimeSession implements PiRuntimeSession {
     _launch: PiRuntimeLaunch,
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly logger: Logger,
-    private readonly commandsRpcType: PiCommandsRpcType,
+    private readonly commandsRpcName: string,
   ) {
     child.stdout.on("data", (chunk) => {
       this.handleStdoutChunk(chunk.toString());
@@ -187,28 +182,8 @@ class PiCliRuntimeSession implements PiRuntimeSession {
     return (await this.request({ type: "get_session_stats" })) as PiSessionStats;
   }
 
-  async setSubagentSubscription(level: PiSubagentSubscriptionLevel): Promise<void> {
-    await this.request({ type: "set_subagent_subscription", level });
-  }
-
-  async getSubagents(): Promise<PiSubagentSnapshot[]> {
-    const data = (await this.request({ type: "get_subagents" })) as {
-      subagents?: PiSubagentSnapshot[];
-    };
-    return data.subagents ?? [];
-  }
-
-  async getSubagentMessages(
-    selector: PiSubagentMessagesSelector,
-  ): Promise<PiSubagentMessagesResult> {
-    return (await this.request({
-      type: "get_subagent_messages",
-      ...selector,
-    })) as PiSubagentMessagesResult;
-  }
-
   async getCommands(): Promise<PiRpcSlashCommand[]> {
-    const data = (await this.request({ type: this.commandsRpcType })) as {
+    const data = (await this.request({ type: this.commandsRpcName })) as {
       commands?: PiRpcSlashCommand[];
     };
     return data.commands ?? [];
@@ -251,7 +226,7 @@ class PiCliRuntimeSession implements PiRuntimeSession {
     }
   }
 
-  private request(command: PiRpcCommand, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<unknown> {
+  request(command: PiRpcCommand, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<unknown> {
     if (this.disposed) {
       return Promise.reject(new Error("Pi RPC session is closed"));
     }

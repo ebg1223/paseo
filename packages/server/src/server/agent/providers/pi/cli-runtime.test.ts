@@ -4,9 +4,8 @@ import { PassThrough } from "node:stream";
 import pino from "pino";
 import { describe, expect, test } from "vitest";
 
-import { PiCliRuntime } from "./cli-runtime.js";
-import type { PiCommandsRpcType } from "./rpc-types.js";
-import type { PiRuntimeLaunch } from "./runtime.js";
+import { PiCliRuntime } from "../pi-shared/cli-runtime.js";
+import type { PiRuntimeLaunch } from "../pi-shared/runtime.js";
 
 type PiChild = ChildProcessWithoutNullStreams & {
   stdin: PassThrough;
@@ -35,12 +34,12 @@ function createPiChild(): PiChild {
 function createRuntime(
   child: PiChild,
   launches: PiRuntimeLaunch[] = [],
-  options?: { commandsRpcType?: PiCommandsRpcType },
+  options?: { commandsRpcName?: string },
 ): PiCliRuntime {
   return new PiCliRuntime({
     logger: pino({ level: "silent" }),
     command: ["pi"],
-    commandsRpcType: options?.commandsRpcType,
+    commandsRpcName: options?.commandsRpcName,
     spawnProcess: (launch) => {
       launches.push(launch);
       return child;
@@ -73,12 +72,6 @@ function replyToCommands(
       );
     }
   });
-}
-
-function withoutRequestId(command: Record<string, unknown>): Record<string, unknown> {
-  const copy = { ...command };
-  delete copy.id;
-  return copy;
 }
 
 describe("PiCliRuntime", () => {
@@ -211,83 +204,6 @@ describe("PiCliRuntime", () => {
       { name: "review", description: "Review changes", source: "extension" },
     ]);
     expect(commandTypes).toEqual(["get_commands"]);
-  });
-
-  test("lists commands through the OMP-compatible get_available_commands RPC", async () => {
-    const child = createPiChild();
-    const commandTypes: string[] = [];
-    replyToCommands(child, (command) => {
-      commandTypes.push(String(command.type));
-      return {
-        commands: [{ name: "skill:ctx-stats", description: "Show context stats", source: "skill" }],
-      };
-    });
-    const session = await createRuntime(child, [], {
-      commandsRpcType: "get_available_commands",
-    }).startSession({ cwd: "/workspace/project" });
-
-    await expect(session.getCommands()).resolves.toEqual([
-      { name: "skill:ctx-stats", description: "Show context stats", source: "skill" },
-    ]);
-    expect(commandTypes).toEqual(["get_available_commands"]);
-  });
-
-  test("wraps OMP subagent RPC commands", async () => {
-    const child = createPiChild();
-    const commands: Record<string, unknown>[] = [];
-    replyToCommands(child, (command) => {
-      commands.push(command);
-      if (command.type === "get_subagents") {
-        return {
-          subagents: [
-            {
-              id: "subagent-1",
-              index: 0,
-              agent: "explore",
-              status: "running",
-              sessionFile: "/tmp/subagent.jsonl",
-            },
-          ],
-        };
-      }
-      if (command.type === "get_subagent_messages") {
-        return {
-          sessionFile: "/tmp/subagent.jsonl",
-          fromByte: 12,
-          nextByte: 34,
-          reset: false,
-          messages: [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
-        };
-      }
-      return { level: command.level };
-    });
-    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
-
-    await session.setSubagentSubscription("progress");
-    await expect(session.getSubagents()).resolves.toEqual([
-      {
-        id: "subagent-1",
-        index: 0,
-        agent: "explore",
-        status: "running",
-        sessionFile: "/tmp/subagent.jsonl",
-      },
-    ]);
-    await expect(
-      session.getSubagentMessages({ sessionFile: "/tmp/subagent.jsonl", fromByte: 12 }),
-    ).resolves.toEqual({
-      sessionFile: "/tmp/subagent.jsonl",
-      fromByte: 12,
-      nextByte: 34,
-      reset: false,
-      messages: [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
-    });
-
-    expect(commands.map(withoutRequestId)).toEqual([
-      { type: "set_subagent_subscription", level: "progress" },
-      { type: "get_subagents" },
-      { type: "get_subagent_messages", sessionFile: "/tmp/subagent.jsonl", fromByte: 12 },
-    ]);
   });
 
   test("keeps unicode line separators inside one JSONL record", async () => {

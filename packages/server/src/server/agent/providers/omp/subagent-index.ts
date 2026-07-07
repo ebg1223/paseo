@@ -1,39 +1,39 @@
-import type { PiRuntimeSession } from "./runtime.js";
-import type { PiSubagentStatus } from "./rpc-types.js";
+import type { PiRuntimeSession } from "../pi-shared/runtime.js";
+import type { OmpSubagentStatus } from "./rpc-types.js";
 
-export type PiTerminalSubagentStatus = "completed" | "failed" | "aborted";
+export type OmpTerminalSubagentStatus = "completed" | "failed" | "aborted";
 
-export interface PiLiveSubagentEntry {
+export interface OmpLiveSubagentEntry {
   subagentId: string;
-  status: PiSubagentStatus;
+  status: OmpSubagentStatus;
   parentRuntime: PiRuntimeSession;
   title?: string;
 }
 
-export type PiSubagentIndexEvent =
-  | { type: "progress"; entry: PiLiveSubagentEntry }
-  | { type: "terminal"; status: PiTerminalSubagentStatus };
+export type OmpSubagentIndexEvent =
+  | { type: "progress"; entry: OmpLiveSubagentEntry }
+  | { type: "terminal"; status: OmpTerminalSubagentStatus };
 
-type PiSubagentIndexSubscriber = (event: PiSubagentIndexEvent) => void;
+type OmpSubagentIndexSubscriber = (event: OmpSubagentIndexEvent) => void;
 
-export class PiSubagentIndex {
-  private readonly liveBySessionFile = new Map<string, PiLiveSubagentEntry>();
-  private readonly subscribersBySessionFile = new Map<string, Set<PiSubagentIndexSubscriber>>();
+export class OmpSubagentIndex {
+  private readonly liveBySessionFile = new Map<string, OmpLiveSubagentEntry>();
+  private readonly subscribersBySessionFile = new Map<string, Set<OmpSubagentIndexSubscriber>>();
 
-  get(sessionFile: string): PiLiveSubagentEntry | null {
+  get(sessionFile: string): OmpLiveSubagentEntry | null {
     return this.liveBySessionFile.get(sessionFile) ?? null;
   }
 
   upsert(input: {
     sessionFile: string;
     subagentId: string;
-    status: PiSubagentStatus;
+    status: OmpSubagentStatus;
     parentRuntime: PiRuntimeSession;
     title?: string;
   }): void {
     const existing = this.liveBySessionFile.get(input.sessionFile);
     const title = input.title ?? existing?.title;
-    const entry: PiLiveSubagentEntry = {
+    const entry: OmpLiveSubagentEntry = {
       subagentId: input.subagentId,
       status: input.status,
       parentRuntime: input.parentRuntime,
@@ -45,7 +45,7 @@ export class PiSubagentIndex {
   updateProgress(input: {
     sessionFile: string;
     subagentId: string;
-    status: PiSubagentStatus;
+    status: OmpSubagentStatus;
     parentRuntime: PiRuntimeSession;
     title?: string;
   }): void {
@@ -56,7 +56,7 @@ export class PiSubagentIndex {
     }
   }
 
-  terminal(sessionFile: string, status: PiTerminalSubagentStatus): void {
+  terminal(sessionFile: string, status: OmpTerminalSubagentStatus): void {
     if (!this.liveBySessionFile.has(sessionFile)) {
       return;
     }
@@ -76,7 +76,7 @@ export class PiSubagentIndex {
     }
   }
 
-  subscribe(sessionFile: string, subscriber: PiSubagentIndexSubscriber): () => void {
+  subscribe(sessionFile: string, subscriber: OmpSubagentIndexSubscriber): () => void {
     const subscribers = this.subscribersBySessionFile.get(sessionFile) ?? new Set();
     subscribers.add(subscriber);
     this.subscribersBySessionFile.set(sessionFile, subscribers);
@@ -88,7 +88,7 @@ export class PiSubagentIndex {
     };
   }
 
-  private notify(sessionFile: string, event: PiSubagentIndexEvent): void {
+  private notify(sessionFile: string, event: OmpSubagentIndexEvent): void {
     const subscribers = this.subscribersBySessionFile.get(sessionFile);
     if (!subscribers) {
       return;
@@ -99,8 +99,8 @@ export class PiSubagentIndex {
   }
 }
 
-export function isTerminalPiSubagentStatus(
-  status: PiSubagentStatus,
-): status is PiTerminalSubagentStatus {
+export function isTerminalOmpSubagentStatus(
+  status: OmpSubagentStatus,
+): status is OmpTerminalSubagentStatus {
   return status === "completed" || status === "failed" || status === "aborted";
 }

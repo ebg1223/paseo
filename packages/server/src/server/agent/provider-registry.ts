@@ -35,6 +35,7 @@ import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
 import { GenericACPAgentClient } from "./providers/generic-acp-agent.js";
 import { KiroACPAgentClient } from "./providers/kiro-acp-agent.js";
 import { OpenCodeAgentClient } from "./providers/opencode-agent.js";
+import { OmpRpcAgentClient } from "./providers/omp/agent.js";
 import { PiRpcAgentClient } from "./providers/pi/agent.js";
 import { TraeACPAgentClient } from "./providers/trae-acp-agent.js";
 import { MockLoadTestAgentClient } from "./providers/mock-load-test-agent.js";
@@ -144,21 +145,10 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
       providerParams: options?.providerParams,
     }),
   omp: (logger, runtimeSettings, options) =>
-    new PiRpcAgentClient({
+    new OmpRpcAgentClient({
       logger,
-      runtimeSettings: mergeRuntimeSettings(
-        {
-          command: {
-            mode: "replace",
-            argv: ["omp"],
-          },
-        },
-        runtimeSettings,
-      ),
-      providerParams: options?.providerParams ?? {
-        sessionDir: "~/.omp/agent/sessions",
-      },
-      commandsRpcType: "get_available_commands",
+      runtimeSettings,
+      providerParams: options?.providerParams,
     }),
   mock: (logger) => new MockLoadTestAgentClient(logger),
   "mock-slow": () => new MockSlowProviderClient(),

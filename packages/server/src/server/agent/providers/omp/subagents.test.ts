@@ -5,21 +5,21 @@ import pino from "pino";
 import { describe, expect, test } from "vitest";
 
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
-import { PiRpcAgentClient } from "./agent.js";
-import { FakePi, type FakePiSession } from "./test-utils/fake-pi.js";
+import { FakePi, type FakePiSession } from "../pi-shared/test-utils/fake-pi.js";
+import { OmpRpcAgentClient } from "./agent.js";
 
 const TEST_CWD = "/tmp/paseo-pi-subagent-test";
 
 function createConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSessionConfig {
   return {
-    provider: "pi",
+    provider: "omp",
     cwd: TEST_CWD,
     ...overrides,
   };
 }
 
-function createClient(pi = new FakePi()): PiRpcAgentClient {
-  return new PiRpcAgentClient({
+function createClient(pi = new FakePi()): OmpRpcAgentClient {
+  return new OmpRpcAgentClient({
     logger: pino({ level: "silent" }),
     runtime: pi,
   });
@@ -27,7 +27,7 @@ function createClient(pi = new FakePi()): PiRpcAgentClient {
 
 async function createParentSession(pi = new FakePi()): Promise<{
   pi: FakePi;
-  client: PiRpcAgentClient;
+  client: OmpRpcAgentClient;
   session: AgentSession;
   events: SessionEvents;
 }> {
@@ -125,6 +125,80 @@ async function waitForSubagentMessageRequestCount(
   );
 }
 
+async function collectStreamHistory(session: AgentSession): Promise<AgentStreamEvent[]> {
+  const events: AgentStreamEvent[] = [];
+  for await (const event of session.streamHistory()) {
+    events.push(event);
+  }
+  return events;
+}
+
+function ompNotice(taskId: string): string {
+  return [
+    "<system-notice>",
+    `Background job ${taskId} has completed. Resume your work using the result below.`,
+    `<task-result id="${taskId}" agent="explore" status="completed" duration="3.2s">`,
+    "<output>done</output>",
+    "</task-result>",
+    "</system-notice>",
+  ].join("\n");
+}
+
+function ompHookTranscript(taskId: string) {
+  return [
+    {
+      role: "assistant" as const,
+      content: [
+        {
+          type: "toolCall" as const,
+          id: `${taskId}-poll-1`,
+          name: "subagent",
+          arguments: { poll: ["job-b", "job-a"] },
+        },
+      ],
+    },
+    {
+      role: "toolResult" as const,
+      toolCallId: `${taskId}-poll-1`,
+      toolName: "subagent",
+      content: [{ type: "text" as const, text: "first poll" }],
+    },
+    {
+      role: "assistant" as const,
+      content: [
+        {
+          type: "toolCall" as const,
+          id: `${taskId}-poll-2`,
+          name: "subagent",
+          arguments: { poll: ["job-a", "job-b"] },
+        },
+      ],
+    },
+    {
+      role: "custom" as const,
+      content: ompNotice(taskId),
+    },
+  ];
+}
+
+function expectOmpHookedTranscript(
+  items: Array<Extract<AgentStreamEvent, { type: "timeline" }>["item"]>,
+  taskId: string,
+): void {
+  expect(items.map((item) => (item.type === "tool_call" ? item.callId : null))).toContain(
+    "omp-poll:job-a,job-b",
+  );
+  expect(items).toContainEqual(
+    expect.objectContaining({
+      type: "tool_call",
+      callId: `omp-notice:${taskId}`,
+      name: "task_notification",
+      status: "completed",
+    }),
+  );
+  expect(items).not.toContainEqual({ type: "assistant_message", text: ompNotice(taskId) });
+}
+
 function writeImportableSessionFile(): string {
   const root = mkdtempSync(path.join(tmpdir(), "paseo-pi-subagent-import-"));
   const cwd = path.join(root, "workspace");
@@ -170,14 +244,14 @@ describe("Pi native subagents", () => {
     expect(events.childSessionEvents()).toEqual([
       {
         type: "child_session",
-        provider: "pi",
+        provider: "omp",
         childSessionId: sessionFile,
         status: "running",
         title: "Explore implementation",
       },
       {
         type: "child_session",
-        provider: "pi",
+        provider: "omp",
         childSessionId: sessionFile,
         status: "completed",
         title: "Explore implementation",
@@ -211,7 +285,7 @@ describe("Pi native subagents", () => {
 
     expect(events.childSessionEvents().at(-1)).toEqual({
       type: "child_session",
-      provider: "pi",
+      provider: "omp",
       childSessionId: sessionFile,
       status: "completed",
     });
@@ -249,7 +323,7 @@ describe("Pi native subagents", () => {
     });
     const { session } = await createParentSession(pi);
 
-    await expect(session.getRuntimeInfo()).resolves.toMatchObject({ provider: "pi" });
+    await expect(session.getRuntimeInfo()).resolves.toMatchObject({ provider: "omp" });
     expect(pi.latestSession().subagentSubscriptionRequests).toEqual(["progress"]);
   });
 
@@ -287,7 +361,7 @@ describe("Pi native subagents", () => {
     );
     const virtualEvents = new SessionEvents(imported.session);
 
-    expect(virtualEvents.turnEvents()).toEqual([{ type: "turn_started", provider: "pi" }]);
+    expect(virtualEvents.turnEvents()).toEqual([{ type: "turn_started", provider: "omp" }]);
     expect(pi.recordedLaunches).toHaveLength(1);
     expect(imported.timeline).toEqual([
       {
@@ -378,16 +452,98 @@ describe("Pi native subagents", () => {
         (item) => item.type === "assistant_message" && item.text === "done",
       ),
     ).resolves.toEqual({ type: "assistant_message", text: "done" });
-    await expect(imported.session.getRuntimeInfo()).resolves.toMatchObject({ provider: "pi" });
+    await expect(imported.session.getRuntimeInfo()).resolves.toMatchObject({ provider: "omp" });
     expect(pi.recordedLaunches).toHaveLength(2);
     expect(pi.recordedLaunches[1]).toMatchObject({ session: sessionFile });
     expect(virtualEvents.turnEvents()).toEqual([
-      { type: "turn_started", provider: "pi" },
-      { type: "turn_completed", provider: "pi" },
+      { type: "turn_started", provider: "omp" },
+      { type: "turn_completed", provider: "omp" },
     ]);
 
     await imported.session.startTurn("after promotion");
     expect(pi.latestSession().prompts).toEqual([{ message: "after promotion", imageCount: 0 }]);
+  });
+
+  test("maps virtual child transcripts with OMP history hooks", async () => {
+    const { pi, client } = await createParentSession();
+    const parentRuntime = pi.latestSession();
+    const sessionFile = "/tmp/pi-hooked-subagent.jsonl";
+    const initialMessages = ompHookTranscript("DocsSmokeInitial");
+    const resetMessages = [...initialMessages, ...ompHookTranscript("DocsSmokeReset")];
+    parentRuntime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "subagent-hooked",
+        agent: "task-implementer",
+        description: "Hooked subagent",
+        status: "started",
+        sessionFile,
+        index: 0,
+      },
+    });
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 10,
+      reset: false,
+      messages: initialMessages,
+    });
+
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd: TEST_CWD },
+      { config: createConfig(), storedConfig: createConfig() },
+    );
+    const virtualEvents = new SessionEvents(imported.session);
+
+    expectOmpHookedTranscript(
+      imported.timeline.map((entry) => entry.item),
+      "DocsSmokeInitial",
+    );
+
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 10,
+      reset: false,
+      messages: initialMessages,
+    });
+    const historyEvents = await collectStreamHistory(imported.session);
+    expectOmpHookedTranscript(
+      historyEvents.flatMap((event) => (event.type === "timeline" ? [event.item] : [])),
+      "DocsSmokeInitial",
+    );
+
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 10,
+      nextByte: 20,
+      reset: true,
+      messages: resetMessages,
+    });
+    parentRuntime.emit({
+      type: "subagent_progress",
+      payload: {
+        index: 0,
+        agent: "task-implementer",
+        task: "implement",
+        progress: { id: "subagent-hooked", status: "running" },
+        sessionFile,
+      },
+    });
+
+    await expect(
+      virtualEvents.nextTimelineItem(
+        (item) => item.type === "tool_call" && item.callId === "omp-notice:DocsSmokeReset",
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        type: "tool_call",
+        callId: "omp-notice:DocsSmokeReset",
+        name: "task_notification",
+        status: "completed",
+      }),
+    );
+    expectOmpHookedTranscript(virtualEvents.timelineItems(), "DocsSmokeReset");
   });
 
   test("fails the virtual child turn when the subagent lifecycle reports failure", async () => {
@@ -418,7 +574,7 @@ describe("Pi native subagents", () => {
       { config: createConfig(), storedConfig: createConfig() },
     );
     const virtualEvents = new SessionEvents(imported.session);
-    expect(virtualEvents.turnEvents()).toEqual([{ type: "turn_started", provider: "pi" }]);
+    expect(virtualEvents.turnEvents()).toEqual([{ type: "turn_started", provider: "omp" }]);
 
     parentRuntime.queueSubagentMessages({
       sessionFile,
@@ -433,7 +589,7 @@ describe("Pi native subagents", () => {
     });
 
     await expect(virtualEvents.nextEvent((event) => event.type === "turn_failed")).resolves.toEqual(
-      { type: "turn_failed", provider: "pi", error: "Pi subagent failed" },
+      { type: "turn_failed", provider: "omp", error: "Pi subagent failed" },
     );
   });
 

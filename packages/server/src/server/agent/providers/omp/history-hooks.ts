@@ -1,0 +1,11 @@
+import type { PiHistoryMapperHooks } from "../pi-shared/history-mapper.js";
+import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
+import { resolveOmpEmittedToolCallId } from "./tool-call-id.js";
+
+export const OMP_HISTORY_MAPPER_HOOKS: PiHistoryMapperHooks = {
+  mapCustomMessage: (text, provider) => {
+    const noticeItem = mapOmpSystemNoticeToToolCall(text);
+    return noticeItem ? { type: "timeline", provider, item: noticeItem } : null;
+  },
+  resolveToolCallId: resolveOmpEmittedToolCallId,
+};

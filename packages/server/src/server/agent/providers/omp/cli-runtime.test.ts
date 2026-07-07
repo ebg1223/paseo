@@ -1,0 +1,156 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import pino from "pino";
+import { describe, expect, test } from "vitest";
+
+import { PiCliRuntime } from "../pi-shared/cli-runtime.js";
+import type { PiRuntimeLaunch } from "../pi-shared/runtime.js";
+import { asOmpRuntimeSession } from "./runtime.js";
+
+type PiChild = ChildProcessWithoutNullStreams & {
+  stdin: PassThrough;
+  stdout: PassThrough;
+  stderr: PassThrough;
+  killedSignals: Array<NodeJS.Signals | number | undefined>;
+};
+
+function createPiChild(): PiChild {
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    exitCode: null,
+    signalCode: null,
+    killedSignals: [],
+  }) as PiChild;
+  child.kill = ((signal?: NodeJS.Signals | number) => {
+    child.killedSignals.push(signal);
+    queueMicrotask(() => child.emit("exit", null, signal ?? null));
+    return true;
+  }) as ChildProcessWithoutNullStreams["kill"];
+  return child;
+}
+
+function createRuntime(child: PiChild, launches: PiRuntimeLaunch[] = []): PiCliRuntime {
+  return new PiCliRuntime({
+    logger: pino({ level: "silent" }),
+    command: ["omp"],
+    commandsRpcName: "get_available_commands",
+    spawnProcess: (launch) => {
+      launches.push(launch);
+      return child;
+    },
+  });
+}
+
+function replyToCommands(
+  child: PiChild,
+  handler: (command: Record<string, unknown>) => unknown,
+): void {
+  let buffer = "";
+  child.stdin.on("data", (chunk) => {
+    buffer += chunk.toString();
+    for (;;) {
+      const newlineIndex = buffer.indexOf("\n");
+      if (newlineIndex === -1) break;
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      const command = JSON.parse(line) as Record<string, unknown>;
+      const result = handler(command);
+      child.stdout.write(
+        `${JSON.stringify({
+          id: command.id,
+          type: "response",
+          command: command.type,
+          success: true,
+          data: result,
+        })}\n`,
+      );
+    }
+  });
+}
+
+function withoutRequestId(command: Record<string, unknown>): Record<string, unknown> {
+  const { id: _id, ...rest } = command;
+  return rest;
+}
+
+describe("OMP CLI runtime", () => {
+  test("lists commands through get_available_commands", async () => {
+    const child = createPiChild();
+    const commandTypes: string[] = [];
+    replyToCommands(child, (command) => {
+      commandTypes.push(String(command.type));
+      return {
+        commands: [{ name: "skill:ctx-stats", description: "Show context stats", source: "skill" }],
+      };
+    });
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    await expect(session.getCommands()).resolves.toEqual([
+      { name: "skill:ctx-stats", description: "Show context stats", source: "skill" },
+    ]);
+    expect(commandTypes).toEqual(["get_available_commands"]);
+  });
+
+  test("wraps OMP subagent RPC commands", async () => {
+    const child = createPiChild();
+    const commands: Record<string, unknown>[] = [];
+    replyToCommands(child, (command) => {
+      commands.push(command);
+      if (command.type === "get_subagents") {
+        return {
+          subagents: [
+            {
+              id: "subagent-1",
+              index: 0,
+              agent: "explore",
+              status: "running",
+              sessionFile: "/tmp/subagent.jsonl",
+            },
+          ],
+        };
+      }
+      if (command.type === "get_subagent_messages") {
+        return {
+          sessionFile: "/tmp/subagent.jsonl",
+          fromByte: 12,
+          nextByte: 34,
+          reset: false,
+          messages: [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
+        };
+      }
+      return { level: command.level };
+    });
+    const session = asOmpRuntimeSession(
+      await createRuntime(child).startSession({ cwd: "/workspace/project" }),
+    );
+
+    await session.setSubagentSubscription("progress");
+    await expect(session.getSubagents()).resolves.toEqual([
+      {
+        id: "subagent-1",
+        index: 0,
+        agent: "explore",
+        status: "running",
+        sessionFile: "/tmp/subagent.jsonl",
+      },
+    ]);
+    await expect(
+      session.getSubagentMessages({ sessionFile: "/tmp/subagent.jsonl", fromByte: 12 }),
+    ).resolves.toEqual({
+      sessionFile: "/tmp/subagent.jsonl",
+      fromByte: 12,
+      nextByte: 34,
+      reset: false,
+      messages: [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
+    });
+
+    expect(commands.map(withoutRequestId)).toEqual([
+      { type: "set_subagent_subscription", level: "progress" },
+      { type: "get_subagents" },
+      { type: "get_subagent_messages", sessionFile: "/tmp/subagent.jsonl", fromByte: 12 },
+    ]);
+  });
+});

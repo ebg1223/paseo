@@ -12,7 +12,6 @@ const mockState = vi.hoisted(() => {
   interface ConstructorEntry {
     runtimeSettings?: unknown;
     providerParams?: unknown;
-    commandsRpcType?: unknown;
   }
 
   return {
@@ -31,6 +30,7 @@ const mockState = vi.hoisted(() => {
         providerParams?: unknown;
       }>,
       pi: [] as ConstructorEntry[],
+      omp: [] as ConstructorEntry[],
       genericAcp: [] as Array<{
         command: string[];
         env?: Record<string, string>;
@@ -221,20 +221,12 @@ vi.mock("./providers/pi/agent.js", () => ({
     readonly provider = "pi";
     readonly runtimeSettings?: unknown;
 
-    constructor(options: {
-      runtimeSettings?: unknown;
-      providerParams?: unknown;
-      commandsRpcType?: unknown;
-    }) {
+    constructor(options: { runtimeSettings?: unknown; providerParams?: unknown }) {
       this.runtimeSettings = options.runtimeSettings;
-      const entry: ConstructorEntry = {
+      mockState.constructorArgs.pi.push({
         runtimeSettings: options.runtimeSettings,
         providerParams: options.providerParams,
-      };
-      if (options.commandsRpcType !== undefined) {
-        entry.commandsRpcType = options.commandsRpcType;
-      }
-      mockState.constructorArgs.pi.push(entry);
+      });
     }
 
     async createSession(): Promise<never> {
@@ -250,6 +242,45 @@ vi.mock("./providers/pi/agent.js", () => ({
         models: mockState.runtimeModels.get(this.provider) ?? [],
         modes: [],
       };
+    }
+
+    async isAvailable(): Promise<boolean> {
+      return true;
+    }
+  },
+}));
+
+vi.mock("./providers/omp/agent.js", () => ({
+  OmpRpcAgentClient: class OmpRpcAgentClient {
+    readonly capabilities = {
+      supportsStreaming: true,
+      supportsSessionPersistence: true,
+      supportsDynamicModes: true,
+      supportsMcpServers: true,
+      supportsReasoningStream: true,
+      supportsToolInvocations: true,
+    };
+    readonly provider = "omp";
+    readonly runtimeSettings?: unknown;
+
+    constructor(options: { runtimeSettings?: unknown; providerParams?: unknown }) {
+      this.runtimeSettings = options.runtimeSettings;
+      mockState.constructorArgs.omp.push({
+        runtimeSettings: options.runtimeSettings,
+        providerParams: options.providerParams,
+      });
+    }
+
+    async createSession(): Promise<never> {
+      throw new Error("not implemented");
+    }
+
+    async resumeSession(): Promise<never> {
+      throw new Error("not implemented");
+    }
+
+    async fetchCatalog(): Promise<ProviderCatalog> {
+      return { models: [], modes: [] };
     }
 
     async isAvailable(): Promise<boolean> {
@@ -506,7 +537,7 @@ test("built-in override applies env", () => {
   });
 });
 
-test("OMP is a disabled built-in backed by the Pi adapter", () => {
+test("OMP is a disabled built-in backed by the OMP adapter", () => {
   const registry = buildProviderRegistry(logger);
 
   expect(registry.omp).toMatchObject({
@@ -516,17 +547,9 @@ test("OMP is a disabled built-in backed by the Pi adapter", () => {
     derivedFromProviderId: null,
   });
   expect(registry.omp.createClient(logger).provider).toBe("omp");
-  expect(mockState.constructorArgs.pi.at(-1)).toEqual({
-    runtimeSettings: {
-      command: {
-        mode: "replace",
-        argv: ["omp"],
-      },
-    },
-    providerParams: {
-      sessionDir: "~/.omp/agent/sessions",
-    },
-    commandsRpcType: "get_available_commands",
+  expect(mockState.constructorArgs.omp.at(-1)).toEqual({
+    runtimeSettings: undefined,
+    providerParams: undefined,
   });
 });
 
@@ -557,7 +580,7 @@ test("new provider extending claude appears in registry", () => {
   expect(registry.zai.createClient(logger).provider).toBe("zai");
 });
 
-test("built-in OMP override passes params to the Pi adapter constructor", () => {
+test("built-in OMP override passes params to the OMP adapter constructor", () => {
   const registry = buildProviderRegistry(logger, {
     providerOverrides: {
       omp: {
@@ -571,7 +594,7 @@ test("built-in OMP override passes params to the Pi adapter constructor", () => 
   });
 
   expect(registry.omp.createClient(logger).provider).toBe("omp");
-  expect(mockState.constructorArgs.pi.at(-1)).toEqual({
+  expect(mockState.constructorArgs.omp.at(-1)).toEqual({
     runtimeSettings: {
       command: {
         mode: "replace",
@@ -583,7 +606,6 @@ test("built-in OMP override passes params to the Pi adapter constructor", () => 
     providerParams: {
       sessionDir: "~/.omp/agent/sessions",
     },
-    commandsRpcType: "get_available_commands",
   });
 });
 

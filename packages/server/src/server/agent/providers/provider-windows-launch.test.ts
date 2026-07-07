@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { findExecutable } from "../../../executable-resolution/executable-resolution.js";
 import { spawnProcess } from "../../../utils/spawn.js";
-import { PiCliRuntime } from "./pi/cli-runtime.js";
+import { PiCliRuntime } from "./pi-shared/cli-runtime.js";
 
 interface SpawnResult {
   code: number | null;

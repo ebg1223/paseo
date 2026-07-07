@@ -21,21 +21,23 @@ import type {
   AgentStreamEvent,
   ImportedTimelineEntry,
 } from "../../agent-sdk-types.js";
-import { PiHistoryMapper, streamPiHistory } from "./history-mapper.js";
-import type { PiRuntimeSession } from "./runtime.js";
-import type { PiSubagentMessagesResult } from "./rpc-types.js";
+import { PiHistoryMapper, streamPiHistory } from "../pi-shared/history-mapper.js";
+import type { PiRuntimeSession } from "../pi-shared/runtime.js";
+import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import type { OmpSubagentMessagesResult } from "./rpc-types.js";
+import { asOmpRuntimeSession } from "./runtime.js";
 import type {
-  PiSubagentIndex,
-  PiSubagentIndexEvent,
-  PiTerminalSubagentStatus,
+  OmpSubagentIndex,
+  OmpSubagentIndexEvent,
+  OmpTerminalSubagentStatus,
 } from "./subagent-index.js";
 
-interface PiVirtualChildSessionOptions {
+interface OmpVirtualChildSessionOptions {
   provider: AgentProvider;
   sessionFile: string;
-  index: PiSubagentIndex;
+  index: OmpSubagentIndex;
   parentRuntime: PiRuntimeSession;
-  initialMessages: PiSubagentMessagesResult;
+  initialMessages: OmpSubagentMessagesResult;
   persistence: AgentPersistenceHandle;
   config: AgentSessionConfig;
   capabilities: AgentCapabilityFlags;
@@ -48,7 +50,7 @@ interface PiVirtualChildSessionOptions {
   logger: Logger;
 }
 
-export class PiVirtualChildSession implements AgentSession {
+export class OmpVirtualChildSession implements AgentSession {
   readonly provider: AgentProvider;
   readonly capabilities: AgentCapabilityFlags;
 
@@ -60,7 +62,7 @@ export class PiVirtualChildSession implements AgentSession {
   private readonly parentRuntime: PiRuntimeSession;
   private readonly persistence: AgentPersistenceHandle;
   private readonly config: AgentSessionConfig;
-  private readonly resumeSession: PiVirtualChildSessionOptions["resumeSession"];
+  private readonly resumeSession: OmpVirtualChildSessionOptions["resumeSession"];
   private readonly launchContext?: AgentLaunchContext;
   private readonly logger: Logger;
   private delegate: AgentSession | null = null;
@@ -74,7 +76,7 @@ export class PiVirtualChildSession implements AgentSession {
   private promotionError: Error | null = null;
   private hasAttachedSubscriber = false;
 
-  constructor(options: PiVirtualChildSessionOptions) {
+  constructor(options: OmpVirtualChildSessionOptions) {
     this.provider = options.provider;
     this.capabilities = options.capabilities;
     this.sessionFile = options.sessionFile;
@@ -84,7 +86,7 @@ export class PiVirtualChildSession implements AgentSession {
     this.resumeSession = options.resumeSession;
     this.launchContext = options.launchContext;
     this.logger = options.logger;
-    this.mapper = new PiHistoryMapper(options.provider);
+    this.mapper = new PiHistoryMapper(options.provider, [], OMP_HISTORY_MAPPER_HOOKS);
     this.fromByte = options.initialMessages.nextByte;
 
     const initialEvents = this.mapNewEvents(options.initialMessages.messages, { reset: false });
@@ -153,11 +155,11 @@ export class PiVirtualChildSession implements AgentSession {
       yield* delegate.streamHistory();
       return;
     }
-    const result = await this.parentRuntime.getSubagentMessages({
+    const result = await asOmpRuntimeSession(this.parentRuntime).getSubagentMessages({
       sessionFile: this.sessionFile,
       fromByte: 0,
     });
-    yield* streamPiHistory(this.provider, result.messages);
+    yield* streamPiHistory(this.provider, result.messages, [], OMP_HISTORY_MAPPER_HOOKS);
   }
 
   async getRuntimeInfo(): Promise<AgentRuntimeInfo> {
@@ -300,7 +302,7 @@ export class PiVirtualChildSession implements AgentSession {
     return this.delegate?.tryHandleOutOfBand?.(prompt) ?? null;
   }
 
-  private handleIndexEvent(event: PiSubagentIndexEvent): void {
+  private handleIndexEvent(event: OmpSubagentIndexEvent): void {
     if (event.type === "progress") {
       void this.queueFetch();
       return;
@@ -311,7 +313,7 @@ export class PiVirtualChildSession implements AgentSession {
     void this.promoteAfterTerminal();
   }
 
-  private emitTurnEnd(status: PiTerminalSubagentStatus): void {
+  private emitTurnEnd(status: OmpTerminalSubagentStatus): void {
     if (status === "failed") {
       this.emit({ type: "turn_failed", provider: this.provider, error: "Pi subagent failed" });
       return;
@@ -338,7 +340,7 @@ export class PiVirtualChildSession implements AgentSession {
     if (this.closed || this.delegate) {
       return;
     }
-    const result = await this.parentRuntime.getSubagentMessages({
+    const result = await asOmpRuntimeSession(this.parentRuntime).getSubagentMessages({
       sessionFile: this.sessionFile,
       fromByte: this.fromByte,
     });
@@ -348,7 +350,7 @@ export class PiVirtualChildSession implements AgentSession {
       // was already emitted. Resets are rare; if the old prefix changed, the
       // virtual session keeps the existing UI rows until promotion hydrates the
       // final standalone session.
-      this.mapper = new PiHistoryMapper(this.provider);
+      this.mapper = new PiHistoryMapper(this.provider, [], OMP_HISTORY_MAPPER_HOOKS);
       this.fromByte = 0;
     }
     this.fromByte = result.nextByte;
@@ -396,7 +398,7 @@ export class PiVirtualChildSession implements AgentSession {
   }
 
   private mapNewEvents(
-    messages: PiSubagentMessagesResult["messages"],
+    messages: OmpSubagentMessagesResult["messages"],
     options: { reset: boolean },
   ): AgentStreamEvent[] {
     const events = this.mapper.mapMessages(messages);

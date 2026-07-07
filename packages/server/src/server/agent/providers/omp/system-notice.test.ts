@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { isOmpSystemNotice, mapOmpSystemNoticeToToolCall } from "./omp-system-notice.js";
+import { isOmpSystemNotice, mapOmpSystemNoticeToToolCall } from "./system-notice.js";
 
 const COMPLETED_NOTICE = [
   "<system-notice>",
