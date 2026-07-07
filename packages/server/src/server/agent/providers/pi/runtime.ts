@@ -5,6 +5,9 @@ import type {
   PiRuntimeEvent,
   PiSessionState,
   PiSessionStats,
+  PiSubagentMessagesResult,
+  PiSubagentSnapshot,
+  PiSubagentSubscriptionLevel,
 } from "./rpc-types.js";
 import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
 
@@ -46,6 +49,9 @@ export interface PiRuntimeSession {
   setModel(provider: string, modelId: string): Promise<PiModel>;
   setThinkingLevel(level: string): Promise<void>;
   getSessionStats(): Promise<PiSessionStats>;
+  setSubagentSubscription(level: PiSubagentSubscriptionLevel): Promise<void>;
+  getSubagents(): Promise<PiSubagentSnapshot[]>;
+  getSubagentMessages(selector: PiSubagentMessagesSelector): Promise<PiSubagentMessagesResult>;
   getCommands(): Promise<PiRpcSlashCommand[]>;
   respondToExtensionUiRequest(
     id: string,
@@ -53,6 +59,12 @@ export interface PiRuntimeSession {
   ): void;
   cancelExtensionUiRequest(id: string): void;
   close(): Promise<void>;
+}
+
+export interface PiSubagentMessagesSelector {
+  subagentId?: string;
+  sessionFile?: string;
+  fromByte?: number;
 }
 
 export interface PiRuntime {

@@ -10,6 +10,7 @@ import {
   type PiRuntimeLaunch,
   type PiRuntimeSession,
   type PiStartSessionInput,
+  type PiSubagentMessagesSelector,
 } from "./runtime.js";
 import type {
   PiAgentMessage,
@@ -21,6 +22,9 @@ import type {
   PiRuntimeEvent,
   PiSessionState,
   PiSessionStats,
+  PiSubagentMessagesResult,
+  PiSubagentSnapshot,
+  PiSubagentSubscriptionLevel,
 } from "./rpc-types.js";
 
 const DEFAULT_PI_COMMAND: [string, ...string[]] = [
@@ -181,6 +185,26 @@ class PiCliRuntimeSession implements PiRuntimeSession {
 
   async getSessionStats(): Promise<PiSessionStats> {
     return (await this.request({ type: "get_session_stats" })) as PiSessionStats;
+  }
+
+  async setSubagentSubscription(level: PiSubagentSubscriptionLevel): Promise<void> {
+    await this.request({ type: "set_subagent_subscription", level });
+  }
+
+  async getSubagents(): Promise<PiSubagentSnapshot[]> {
+    const data = (await this.request({ type: "get_subagents" })) as {
+      subagents?: PiSubagentSnapshot[];
+    };
+    return data.subagents ?? [];
+  }
+
+  async getSubagentMessages(
+    selector: PiSubagentMessagesSelector,
+  ): Promise<PiSubagentMessagesResult> {
+    return (await this.request({
+      type: "get_subagent_messages",
+      ...selector,
+    })) as PiSubagentMessagesResult;
   }
 
   async getCommands(): Promise<PiRpcSlashCommand[]> {

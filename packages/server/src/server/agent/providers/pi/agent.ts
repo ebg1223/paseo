@@ -59,6 +59,7 @@ import {
 import { PiCliRuntime } from "./cli-runtime.js";
 import { revertPiConversation } from "./rewind.js";
 import { listPiImportableSessions, readPiImportSessionConfig } from "./session-descriptor.js";
+import { isTerminalPiSubagentStatus, PiSubagentIndex } from "./subagent-index.js";
 import type { PiRuntime, PiRuntimeSession } from "./runtime.js";
 import type {
   PiAgentSessionEvent,
@@ -70,6 +71,7 @@ import type {
   PiRuntimeEvent,
   PiSessionStats,
   PiSessionState,
+  PiSubagentStatus,
   PiThinkingLevel,
 } from "./rpc-types.js";
 import {
@@ -80,6 +82,7 @@ import {
   type PiToolResult,
   type PiTrackedToolCall,
 } from "./tool-call-mapper.js";
+import { PiVirtualChildSession } from "./virtual-child-session.js";
 
 const PI_PROVIDER = "pi";
 const DEFAULT_PI_THINKING_LEVEL: PiThinkingLevel = "medium";
@@ -187,6 +190,8 @@ interface PiRpcAgentSessionOptions {
   config: AgentSessionConfig;
   initialState: PiSessionState;
   capabilities: AgentCapabilityFlags;
+  subagentIndex: PiSubagentIndex;
+  logger: Logger;
   cleanup?: () => void;
   extensionTimeoutMs?: number;
 }
@@ -980,6 +985,12 @@ function createRuntime(
   return new PiCliRuntime({ logger, runtimeSettings, commandsRpcType });
 }
 
+function mapPiSubagentLifecycleStatus(
+  status: Extract<PiRuntimeEvent, { type: "subagent_lifecycle" }>["payload"]["status"],
+): Exclude<PiSubagentStatus, "pending"> {
+  return status === "started" ? "running" : status;
+}
+
 export class PiRpcAgentSession implements AgentSession {
   readonly provider = PI_PROVIDER;
   readonly capabilities: AgentCapabilityFlags;
@@ -997,6 +1008,7 @@ export class PiRpcAgentSession implements AgentSession {
   private readonly seenUserEntryIds = new Set<string>();
   private readonly pendingUserMessages: PendingPiUserMessage[] = [];
   private readonly pendingExtensionResults = new Map<string, PendingExtensionResult>();
+  private readonly subagentSessionFilesById = new Map<string, string>();
   private outOfBandCompactionEmit: ((event: AgentStreamEvent) => void) | null = null;
   private outOfBandCompactionStarted = false;
   private outOfBandCompactionCompleted = false;
@@ -1008,6 +1020,8 @@ export class PiRpcAgentSession implements AgentSession {
     this.config = options.config;
     this.state = options.initialState;
     this.capabilities = options.capabilities;
+    this.subagentIndex = options.subagentIndex;
+    this.logger = options.logger;
     this.cleanup = options.cleanup;
     this.lastKnownThinkingOptionId =
       normalizePiThinkingOption(options.config.thinkingOptionId) ??
@@ -1018,10 +1032,15 @@ export class PiRpcAgentSession implements AgentSession {
     this.runtimeSession.onEvent((event) => {
       this.handleRuntimeEvent(event);
     });
+    void this.runtimeSession.setSubagentSubscription("progress").catch((error: unknown) => {
+      this.logger.debug({ err: error }, "Pi subagent subscription unavailable");
+    });
   }
 
   private readonly runtimeSession: PiRuntimeSession;
   private readonly config: AgentSessionConfig;
+  private readonly subagentIndex: PiSubagentIndex;
+  private readonly logger: Logger;
   private readonly cleanup?: () => void;
   private readonly extensionTimeoutMs: number;
 
@@ -1200,6 +1219,7 @@ export class PiRpcAgentSession implements AgentSession {
     try {
       await this.runtimeSession.close();
     } finally {
+      this.subagentIndex.clearParent(this.runtimeSession);
       this.rejectAllExtensionResults(new Error("Pi session closed"));
       this.cleanup?.();
     }
@@ -1593,13 +1613,75 @@ export class PiRpcAgentSession implements AgentSession {
       this.handleProcessExit(event.error);
       return;
     }
-    if (event.type === "subagent_lifecycle" || event.type === "subagent_progress") {
+    if (event.type === "subagent_lifecycle") {
+      this.handleSubagentLifecycle(event.payload);
+      return;
+    }
+    if (event.type === "subagent_progress") {
+      this.handleSubagentProgress(event.payload);
       return;
     }
     this.handleSessionEvent(event);
   }
 
+  private handleSubagentLifecycle(
+    payload: Extract<PiRuntimeEvent, { type: "subagent_lifecycle" }>["payload"],
+  ): void {
+    const sessionFile = this.resolveSubagentSessionFile(payload.id, payload.sessionFile);
+    if (!sessionFile) {
+      return;
+    }
+
+    const status = mapPiSubagentLifecycleStatus(payload.status);
+    if (isTerminalPiSubagentStatus(status)) {
+      this.subagentIndex.terminal(sessionFile, status);
+    } else {
+      this.subagentIndex.upsert({
+        sessionFile,
+        subagentId: payload.id,
+        status,
+        parentRuntime: this.runtimeSession,
+        ...(payload.description ? { title: payload.description } : {}),
+      });
+    }
+    this.emit({
+      type: "child_session",
+      provider: PI_PROVIDER,
+      childSessionId: sessionFile,
+      status,
+      ...(payload.description ? { title: payload.description } : {}),
+    });
+  }
+
+  private handleSubagentProgress(
+    payload: Extract<PiRuntimeEvent, { type: "subagent_progress" }>["payload"],
+  ): void {
+    const sessionFile = this.resolveSubagentSessionFile(payload.progress.id, payload.sessionFile);
+    if (!sessionFile) {
+      return;
+    }
+    this.subagentIndex.updateProgress({
+      sessionFile,
+      subagentId: payload.progress.id,
+      status: payload.progress.status,
+      parentRuntime: this.runtimeSession,
+      ...(payload.progress.description ? { title: payload.progress.description } : {}),
+    });
+  }
+
+  private resolveSubagentSessionFile(
+    subagentId: string,
+    sessionFile: string | undefined,
+  ): string | null {
+    if (sessionFile) {
+      this.subagentSessionFilesById.set(subagentId, sessionFile);
+      return sessionFile;
+    }
+    return this.subagentSessionFilesById.get(subagentId) ?? null;
+  }
+
   private handleProcessExit(error: string): void {
+    this.subagentIndex.clearParent(this.runtimeSession);
     this.rejectAllExtensionResults(new Error(error));
     if (!this.activeTurnId) {
       return;
@@ -1875,6 +1957,7 @@ export class PiRpcAgentClient implements AgentClient {
   private readonly runtimeSettings?: ProviderRuntimeSettings;
   private readonly providerParams: PiProviderParams;
   private readonly runtime: PiRuntime;
+  private readonly subagentIndex = new PiSubagentIndex();
 
   constructor(options: PiRpcAgentClientOptions) {
     this.logger = options.logger;
@@ -1917,6 +2000,8 @@ export class PiRpcAgentClient implements AgentClient {
         config,
         initialState: await runtimeSession.getState(),
         capabilities: withPiMcpCapability(mcpConfig !== null),
+        subagentIndex: this.subagentIndex,
+        logger: this.logger,
         cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
       });
@@ -1968,6 +2053,8 @@ export class PiRpcAgentClient implements AgentClient {
         config: resumeConfig.config,
         initialState: await runtimeSession.getState(),
         capabilities: withPiMcpCapability(mcpConfig !== null),
+        subagentIndex: this.subagentIndex,
+        logger: this.logger,
         cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
       });
@@ -2008,6 +2095,53 @@ export class PiRpcAgentClient implements AgentClient {
   }
 
   async importSession(input: ImportProviderSessionInput, context: ImportProviderSessionContext) {
+    const liveSubagent = this.subagentIndex.get(input.providerHandleId);
+    if (liveSubagent && !isTerminalPiSubagentStatus(liveSubagent.status)) {
+      const storedConfig: AgentSessionConfig = {
+        ...context.storedConfig,
+        provider: PI_PROVIDER,
+        cwd: input.cwd,
+      };
+      const config: AgentSessionConfig = {
+        ...context.config,
+        provider: PI_PROVIDER,
+        cwd: input.cwd,
+      };
+      const persistence: AgentPersistenceHandle = {
+        provider: PI_PROVIDER,
+        sessionId: input.providerHandleId,
+        nativeHandle: input.providerHandleId,
+        metadata: {
+          ...storedConfig,
+          provider: PI_PROVIDER,
+          cwd: input.cwd,
+        },
+      };
+      const initialMessages = await liveSubagent.parentRuntime.getSubagentMessages({
+        sessionFile: input.providerHandleId,
+        fromByte: 0,
+      });
+      const session = new PiVirtualChildSession({
+        provider: PI_PROVIDER,
+        sessionFile: input.providerHandleId,
+        index: this.subagentIndex,
+        parentRuntime: liveSubagent.parentRuntime,
+        initialMessages,
+        persistence,
+        config,
+        capabilities: this.capabilities,
+        resumeSession: this.resumeSession.bind(this),
+        launchContext: context.launchContext,
+        logger: this.logger,
+      });
+      return {
+        session,
+        config: storedConfig,
+        persistence,
+        timeline: session.getInitialTimeline(),
+      };
+    }
+
     const importConfig = await readPiImportSessionConfig(input.providerHandleId);
     return importSessionFromPersistence({
       provider: PI_PROVIDER,

@@ -75,6 +75,12 @@ function replyToCommands(
   });
 }
 
+function withoutRequestId(command: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...command };
+  delete copy.id;
+  return copy;
+}
+
 describe("PiCliRuntime", () => {
   test("starts pi in rpc mode and resolves command responses", async () => {
     const child = createPiChild();
@@ -224,6 +230,64 @@ describe("PiCliRuntime", () => {
       { name: "skill:ctx-stats", description: "Show context stats", source: "skill" },
     ]);
     expect(commandTypes).toEqual(["get_available_commands"]);
+  });
+
+  test("wraps OMP subagent RPC commands", async () => {
+    const child = createPiChild();
+    const commands: Record<string, unknown>[] = [];
+    replyToCommands(child, (command) => {
+      commands.push(command);
+      if (command.type === "get_subagents") {
+        return {
+          subagents: [
+            {
+              id: "subagent-1",
+              index: 0,
+              agent: "explore",
+              status: "running",
+              sessionFile: "/tmp/subagent.jsonl",
+            },
+          ],
+        };
+      }
+      if (command.type === "get_subagent_messages") {
+        return {
+          sessionFile: "/tmp/subagent.jsonl",
+          fromByte: 12,
+          nextByte: 34,
+          reset: false,
+          messages: [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
+        };
+      }
+      return { level: command.level };
+    });
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    await session.setSubagentSubscription("progress");
+    await expect(session.getSubagents()).resolves.toEqual([
+      {
+        id: "subagent-1",
+        index: 0,
+        agent: "explore",
+        status: "running",
+        sessionFile: "/tmp/subagent.jsonl",
+      },
+    ]);
+    await expect(
+      session.getSubagentMessages({ sessionFile: "/tmp/subagent.jsonl", fromByte: 12 }),
+    ).resolves.toEqual({
+      sessionFile: "/tmp/subagent.jsonl",
+      fromByte: 12,
+      nextByte: 34,
+      reset: false,
+      messages: [{ role: "assistant", content: [{ type: "text", text: "hello" }] }],
+    });
+
+    expect(commands.map(withoutRequestId)).toEqual([
+      { type: "set_subagent_subscription", level: "progress" },
+      { type: "get_subagents" },
+      { type: "get_subagent_messages", sessionFile: "/tmp/subagent.jsonl", fromByte: 12 },
+    ]);
   });
 
   test("keeps unicode line separators inside one JSONL record", async () => {

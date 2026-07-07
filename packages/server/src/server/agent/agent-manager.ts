@@ -525,6 +525,7 @@ export class AgentManager {
   private readonly durableTimelineStore?: AgentTimelineStore;
   private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
   private readonly backgroundTasks = new Set<Promise<void>>();
+  private readonly childSessionImportsInFlight = new Set<string>();
   private readonly agentStreamCoalescer: AgentStreamCoalescer;
   private mcpBaseUrl: string | null;
   private readonly mcpAuthToken: string | null;
@@ -997,6 +998,7 @@ export class AgentManager {
     cwd: string;
     workspaceId: string;
     labels?: Record<string, string>;
+    title?: string;
   }): Promise<ManagedAgent> {
     const resolvedAgentId = validateAgentId(this.idFactory(), "importProviderSession");
     this.requireEnabledProvider(input.provider);
@@ -1024,7 +1026,7 @@ export class AgentManager {
     );
     const importedConfig = await this.normalizeConfig(stripInternalPaseoMcpServer(imported.config));
     const timelineRows = buildImportedTimelineRows(imported.timeline);
-    const initialTitle = resolveImportedAgentTitle(importedConfig, timelineRows);
+    const initialTitle = input.title ?? resolveImportedAgentTitle(importedConfig, timelineRows);
 
     return this.registerSession(imported.session, importedConfig, resolvedAgentId, {
       labels: input.labels,
@@ -3096,6 +3098,10 @@ export class AgentManager {
         flags.shouldDispatchEvent = false;
         this.emitState(agent);
         return undefined;
+      case "child_session":
+        flags.shouldDispatchEvent = false;
+        this.onStreamChildSession({ agent, event, options });
+        return undefined;
       case "timeline":
         return this.onStreamTimelineEvent({ agent, event, options, isForegroundEvent, flags });
       case "turn_completed":
@@ -3136,6 +3142,121 @@ export class AgentManager {
       }
     }
     void this.refreshRuntimeInfo(agent);
+  }
+
+  private onStreamChildSession(params: {
+    agent: ActiveManagedAgent;
+    event: Extract<AgentStreamEvent, { type: "child_session" }>;
+    options: HandleStreamEventOptions | undefined;
+  }): void {
+    const { agent, event, options } = params;
+    if (options?.fromHistory) {
+      return;
+    }
+
+    const importKey = this.toProviderSessionHandleKey(event.provider, event.childSessionId);
+    if (this.childSessionImportsInFlight.has(importKey)) {
+      return;
+    }
+    this.childSessionImportsInFlight.add(importKey);
+
+    const task = this.importChildProviderSession(agent, event, importKey);
+    this.trackBackgroundTask(task);
+  }
+
+  private async importChildProviderSession(
+    agent: ActiveManagedAgent,
+    event: Extract<AgentStreamEvent, { type: "child_session" }>,
+    importKey: string,
+  ): Promise<void> {
+    try {
+      if (!agent.workspaceId) {
+        this.logger.warn(
+          {
+            agentId: agent.id,
+            provider: event.provider,
+            childSessionId: event.childSessionId,
+          },
+          "Skipping child session import because parent agent has no workspaceId",
+        );
+        return;
+      }
+
+      if (await this.hasImportedProviderSessionHandle(event.provider, event.childSessionId)) {
+        return;
+      }
+
+      await this.importProviderSession({
+        provider: event.provider,
+        providerHandleId: event.childSessionId,
+        cwd: agent.cwd,
+        workspaceId: agent.workspaceId,
+        labels: { [PARENT_AGENT_ID_LABEL]: agent.id },
+        title: event.title,
+      });
+    } catch (error) {
+      this.logger.warn(
+        {
+          err: error,
+          agentId: agent.id,
+          provider: event.provider,
+          childSessionId: event.childSessionId,
+        },
+        "Failed to import child provider session",
+      );
+    } finally {
+      this.childSessionImportsInFlight.delete(importKey);
+    }
+  }
+
+  private async hasImportedProviderSessionHandle(
+    provider: AgentProvider,
+    providerHandleId: string,
+  ): Promise<boolean> {
+    for (const agent of this.agents.values()) {
+      if (
+        this.matchesProviderSessionHandle(
+          agent.provider,
+          agent.persistence,
+          provider,
+          providerHandleId,
+        )
+      ) {
+        return true;
+      }
+    }
+
+    for (const record of (await this.registry?.list()) ?? []) {
+      if (
+        this.matchesProviderSessionHandle(
+          record.provider,
+          record.persistence,
+          provider,
+          providerHandleId,
+        )
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private matchesProviderSessionHandle(
+    recordProvider: string,
+    persistence: AgentPersistenceHandle | null | undefined,
+    provider: AgentProvider,
+    providerHandleId: string,
+  ): boolean {
+    return (
+      recordProvider === provider &&
+      persistence != null &&
+      (persistence.sessionId === providerHandleId || persistence.nativeHandle === providerHandleId)
+    );
+  }
+
+  private toProviderSessionHandleKey(provider: AgentProvider, providerHandleId: string): string {
+    return `${provider}\0${providerHandleId}`;
   }
 
   private async onStreamTimelineEvent(params: {

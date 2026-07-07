@@ -3,6 +3,7 @@ import type {
   PiRuntimeLaunch,
   PiRuntimeSession,
   PiStartSessionInput,
+  PiSubagentMessagesSelector,
 } from "../runtime.js";
 import type {
   PiAgentMessage,
@@ -11,6 +12,9 @@ import type {
   PiRuntimeEvent,
   PiSessionState,
   PiSessionStats,
+  PiSubagentMessagesResult,
+  PiSubagentSnapshot,
+  PiSubagentSubscriptionLevel,
 } from "../rpc-types.js";
 import { buildPiLaunch } from "../runtime.js";
 
@@ -19,6 +23,7 @@ export class FakePi implements PiRuntime {
   private readonly sessions: FakePiSession[] = [];
   private readonly command: [string, ...string[]];
   private readonly queuedCommands: PiRpcSlashCommand[][] = [];
+  private readonly queuedSessionSetups: Array<(session: FakePiSession) => void> = [];
 
   constructor(command: [string, ...string[]] = ["pi"]) {
     this.command = command;
@@ -32,12 +37,17 @@ export class FakePi implements PiRuntime {
     this.recordedLaunches.push(launch);
     const session = new FakePiSession(launch);
     session.commands = this.queuedCommands.shift() ?? [];
+    this.queuedSessionSetups.shift()?.(session);
     this.sessions.push(session);
     return session;
   }
 
   queueCommands(commands: PiRpcSlashCommand[]): void {
     this.queuedCommands.push(commands);
+  }
+
+  queueSessionSetup(setup: (session: FakePiSession) => void): void {
+    this.queuedSessionSetups.push(setup);
   }
 
   latestSession(): FakePiSession {
@@ -53,6 +63,8 @@ export class FakePiSession implements PiRuntimeSession {
   readonly prompts: Array<{ message: string; imageCount: number }> = [];
   readonly compactRequests: Array<{ customInstructions?: string }> = [];
   readonly setAutoCompactionRequests: boolean[] = [];
+  readonly subagentSubscriptionRequests: PiSubagentSubscriptionLevel[] = [];
+  readonly subagentMessageRequests: PiSubagentMessagesSelector[] = [];
   readonly setModelRequests: Array<{ provider: string; modelId: string }> = [];
   readonly setThinkingLevelRequests: string[] = [];
   readonly treeNavigationRequests: string[] = [];
@@ -71,11 +83,14 @@ export class FakePiSession implements PiRuntimeSession {
     cost: 0,
   };
   commands: PiRpcSlashCommand[] = [];
+  subagents: PiSubagentSnapshot[] = [];
+  subagentSubscriptionError: Error | null = null;
   compactError: Error | null = null;
   emitCompactEnd = true;
   state: PiSessionState;
 
   private readonly subscribers = new Set<(event: PiRuntimeEvent) => void>();
+  private readonly subagentMessageResults = new Map<string, PiSubagentMessagesResult[]>();
 
   constructor(launch: PiRuntimeLaunch) {
     this.state = {
@@ -156,6 +171,39 @@ export class FakePiSession implements PiRuntimeSession {
 
   async getSessionStats(): Promise<PiSessionStats> {
     return this.stats;
+  }
+
+  async setSubagentSubscription(level: PiSubagentSubscriptionLevel): Promise<void> {
+    this.subagentSubscriptionRequests.push(level);
+    if (this.subagentSubscriptionError) {
+      throw this.subagentSubscriptionError;
+    }
+  }
+
+  async getSubagents(): Promise<PiSubagentSnapshot[]> {
+    return this.subagents;
+  }
+
+  async getSubagentMessages(
+    selector: PiSubagentMessagesSelector,
+  ): Promise<PiSubagentMessagesResult> {
+    this.subagentMessageRequests.push(selector);
+    const key = selector.sessionFile ?? selector.subagentId;
+    if (!key) {
+      throw new Error("FakePi getSubagentMessages requires a selector");
+    }
+    const results = this.subagentMessageResults.get(key);
+    const result = results?.shift();
+    if (!result) {
+      throw new Error(`FakePi has no subagent messages queued for ${key}`);
+    }
+    return result;
+  }
+
+  queueSubagentMessages(result: PiSubagentMessagesResult): void {
+    const results = this.subagentMessageResults.get(result.sessionFile) ?? [];
+    results.push(result);
+    this.subagentMessageResults.set(result.sessionFile, results);
   }
 
   async getCommands(): Promise<PiRpcSlashCommand[]> {

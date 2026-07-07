@@ -37,114 +37,132 @@ export function getUserMessageText(content: string | (PiTextContent | PiImageCon
   return textParts.join("\n\n");
 }
 
+export class PiHistoryMapper {
+  private readonly pendingToolCalls = new Map<string, PiTrackedToolCall>();
+  private userIndex = 0;
+
+  constructor(
+    private readonly provider: string,
+    private readonly userEntries: readonly PiCapturedUserMessageEntry[] = [],
+  ) {}
+
+  mapMessages(messages: readonly PiAgentMessage[]): AgentStreamEvent[] {
+    const events: AgentStreamEvent[] = [];
+
+    for (const message of messages) {
+      if (message.role === "user") {
+        const text = getUserMessageText(message.content);
+        if (text) {
+          const userEntry = this.userEntries[this.userIndex];
+          events.push({
+            type: "timeline",
+            provider: this.provider,
+            item: {
+              type: "user_message",
+              text,
+              ...(userEntry ? { messageId: userEntry.id } : {}),
+            },
+          });
+        }
+        this.userIndex += 1;
+        continue;
+      }
+
+      if (message.role === "assistant") {
+        for (const content of message.content) {
+          if (content.type === "text" && content.text) {
+            events.push({
+              type: "timeline",
+              provider: this.provider,
+              item: { type: "assistant_message", text: content.text },
+            });
+            continue;
+          }
+
+          if (content.type === "thinking" && content.thinking) {
+            events.push({
+              type: "timeline",
+              provider: this.provider,
+              item: { type: "reasoning", text: content.thinking },
+            });
+            continue;
+          }
+
+          if (content.type === "toolCall") {
+            const tracked = parseToolArgs(content.name, content.arguments);
+            this.pendingToolCalls.set(content.id, tracked);
+            events.push({
+              type: "timeline",
+              provider: this.provider,
+              item: {
+                type: "tool_call",
+                callId: content.id,
+                name: tracked.toolName,
+                status: "running",
+                detail: mapToolDetail(tracked, null),
+                error: null,
+              },
+            });
+          }
+        }
+        continue;
+      }
+
+      if (message.role === "toolResult") {
+        const tracked =
+          this.pendingToolCalls.get(message.toolCallId) ?? parseToolArgs(message.toolName, null);
+        this.pendingToolCalls.delete(message.toolCallId);
+        const result = parseToolResult({ content: message.content });
+        const detail = mapToolDetail(tracked, result);
+        events.push({
+          type: "timeline",
+          provider: this.provider,
+          item: toToolResultTimelineItem({
+            callId: message.toolCallId,
+            name: tracked.toolName,
+            isError: Boolean(message.isError),
+            detail,
+            errorText: extractTextFromToolResult(result) ?? "Tool call failed",
+          }),
+        });
+        continue;
+      }
+
+      if (message.role === "bashExecution") {
+        const callId = `pi-bash-${message.timestamp}`;
+        const detail: ToolCallDetail = {
+          type: "shell",
+          command: message.command,
+          output: message.output,
+          exitCode: message.exitCode ?? null,
+        };
+        events.push({
+          type: "timeline",
+          provider: this.provider,
+          item: {
+            type: "tool_call",
+            callId,
+            name: "bash",
+            status: message.cancelled ? "canceled" : "completed",
+            detail,
+            error: null,
+          },
+        });
+      }
+    }
+
+    return events;
+  }
+}
+
 export async function* streamPiHistory(
   provider: string,
   messages: PiAgentMessage[],
   userEntries: readonly PiCapturedUserMessageEntry[] = [],
 ): AsyncGenerator<AgentStreamEvent> {
-  const pendingToolCalls = new Map<string, PiTrackedToolCall>();
-  let userIndex = 0;
-
-  for (const message of messages) {
-    if (message.role === "user") {
-      const text = getUserMessageText(message.content);
-      if (text) {
-        const userEntry = userEntries[userIndex];
-        yield {
-          type: "timeline",
-          provider,
-          item: {
-            type: "user_message",
-            text,
-            ...(userEntry ? { messageId: userEntry.id } : {}),
-          },
-        };
-      }
-      userIndex += 1;
-      continue;
-    }
-
-    if (message.role === "assistant") {
-      for (const content of message.content) {
-        if (content.type === "text" && content.text) {
-          yield {
-            type: "timeline",
-            provider,
-            item: { type: "assistant_message", text: content.text },
-          };
-          continue;
-        }
-
-        if (content.type === "thinking" && content.thinking) {
-          yield {
-            type: "timeline",
-            provider,
-            item: { type: "reasoning", text: content.thinking },
-          };
-          continue;
-        }
-
-        if (content.type === "toolCall") {
-          const tracked = parseToolArgs(content.name, content.arguments);
-          pendingToolCalls.set(content.id, tracked);
-          yield {
-            type: "timeline",
-            provider,
-            item: {
-              type: "tool_call",
-              callId: content.id,
-              name: tracked.toolName,
-              status: "running",
-              detail: mapToolDetail(tracked, null),
-              error: null,
-            },
-          };
-        }
-      }
-      continue;
-    }
-
-    if (message.role === "toolResult") {
-      const tracked =
-        pendingToolCalls.get(message.toolCallId) ?? parseToolArgs(message.toolName, null);
-      pendingToolCalls.delete(message.toolCallId);
-      const result = parseToolResult({ content: message.content });
-      const detail = mapToolDetail(tracked, result);
-      yield {
-        type: "timeline",
-        provider,
-        item: toToolResultTimelineItem({
-          callId: message.toolCallId,
-          name: tracked.toolName,
-          isError: Boolean(message.isError),
-          detail,
-          errorText: extractTextFromToolResult(result) ?? "Tool call failed",
-        }),
-      };
-      continue;
-    }
-
-    if (message.role === "bashExecution") {
-      const callId = `pi-bash-${message.timestamp}`;
-      const detail: ToolCallDetail = {
-        type: "shell",
-        command: message.command,
-        output: message.output,
-        exitCode: message.exitCode ?? null,
-      };
-      yield {
-        type: "timeline",
-        provider,
-        item: {
-          type: "tool_call",
-          callId,
-          name: "bash",
-          status: message.cancelled ? "canceled" : "completed",
-          detail,
-          error: null,
-        },
-      };
-    }
+  const mapper = new PiHistoryMapper(provider, userEntries);
+  for (const event of mapper.mapMessages(messages)) {
+    yield event;
   }
 }
 
