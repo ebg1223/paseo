@@ -44,8 +44,15 @@ export function resolveAndValidateCreateAgentMode(
 ): string | undefined {
   const { requestedMode, targetProvider, parent, availableModes } = input;
 
+  // A target provider with a known, empty mode list has nothing to select or
+  // validate against (e.g. an ACP provider whose underlying agent never
+  // reports session modes). Treat it like "modes unknown": pass explicit
+  // modes through unvalidated, and don't refuse cross-provider inheritance
+  // for lack of a mode to inherit into.
+  const hasNoModes = availableModes !== undefined && availableModes.length === 0;
+
   if (requestedMode !== undefined) {
-    if (availableModes !== undefined && !availableModes.includes(requestedMode)) {
+    if (availableModes !== undefined && !hasNoModes && !availableModes.includes(requestedMode)) {
       throw new Error(
         `Invalid mode '${requestedMode}' for provider '${targetProvider}'. Available modes: ${listModes(availableModes)}`,
       );
@@ -69,6 +76,10 @@ export function resolveAndValidateCreateAgentMode(
     input.targetUnattendedMode !== undefined
   ) {
     return input.targetUnattendedMode;
+  }
+
+  if (hasNoModes) {
+    return undefined;
   }
 
   throw new Error(
