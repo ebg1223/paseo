@@ -112,6 +112,57 @@ export interface PiRpcSlashCommand {
 
 export type PiCommandsRpcType = "get_commands" | "get_available_commands";
 
+export type PiSubagentSubscriptionLevel = "off" | "progress" | "events";
+
+export type PiSubagentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
+
+export interface PiSubagentSnapshot {
+  id: string;
+  index: number;
+  agent: string;
+  description?: string;
+  status: PiSubagentStatus;
+  task?: string;
+  assignment?: string;
+  sessionFile?: string;
+  parentToolCallId?: string;
+  lastUpdate?: number;
+}
+
+export interface PiSubagentLifecyclePayload {
+  id: string;
+  agent: string;
+  description?: string;
+  status: "started" | "completed" | "failed" | "aborted";
+  sessionFile?: string;
+  parentToolCallId?: string;
+  index: number;
+  detached?: boolean;
+}
+
+export interface PiSubagentProgressPayload {
+  index: number;
+  agent: string;
+  task: string;
+  parentToolCallId?: string;
+  assignment?: string;
+  progress: {
+    id: string;
+    status: PiSubagentStatus;
+    description?: string;
+  };
+  sessionFile?: string;
+  detached?: boolean;
+}
+
+export interface PiSubagentMessagesResult {
+  sessionFile: string;
+  fromByte: number;
+  nextByte: number;
+  reset: boolean;
+  messages: PiAgentMessage[];
+}
+
 export type PiRpcCommand =
   | { id?: string; type: "prompt"; message: string; images?: PiImageContent[] }
   | { id?: string; type: "compact"; customInstructions?: string }
@@ -123,7 +174,16 @@ export type PiRpcCommand =
   | { id?: string; type: "set_model"; provider: string; modelId: string }
   | { id?: string; type: "set_thinking_level"; level: PiThinkingLevel }
   | { id?: string; type: "get_session_stats" }
-  | { id?: string; type: PiCommandsRpcType };
+  | { id?: string; type: PiCommandsRpcType }
+  | { id?: string; type: "set_subagent_subscription"; level: PiSubagentSubscriptionLevel }
+  | { id?: string; type: "get_subagents" }
+  | {
+      id?: string;
+      type: "get_subagent_messages";
+      subagentId?: string;
+      sessionFile?: string;
+      fromByte?: number;
+    };
 
 export interface PiRpcResponse {
   id?: string;
@@ -175,6 +235,8 @@ export type PiAgentSessionEvent =
 
 export type PiRuntimeEvent =
   | PiAgentSessionEvent
+  | { type: "subagent_lifecycle"; payload: PiSubagentLifecyclePayload }
+  | { type: "subagent_progress"; payload: PiSubagentProgressPayload }
   | {
       type: "extension_ui_request";
       id: string;

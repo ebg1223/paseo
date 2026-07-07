@@ -426,6 +426,17 @@ export type AgentStreamEvent =
       provider: AgentProvider;
       reason: "finished" | "error" | "permission";
       timestamp: string;
+    }
+  // Internal (never crosses the wire): a provider-native subagent surfaced by
+  // the parent session. The manager reacts by upserting a child agent record
+  // (labels[paseo.parent-agent-id]) keyed on childSessionId as the provider
+  // handle. Providers whose subagents write their own session files emit this.
+  | {
+      type: "child_session";
+      provider: AgentProvider;
+      childSessionId: string;
+      status: "running" | "completed" | "failed" | "aborted";
+      title?: string;
     };
 
 export function getAgentStreamEventTurnId(event: AgentStreamEvent): string | undefined {

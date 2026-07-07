@@ -1593,6 +1593,9 @@ export class PiRpcAgentSession implements AgentSession {
       this.handleProcessExit(event.error);
       return;
     }
+    if (event.type === "subagent_lifecycle" || event.type === "subagent_progress") {
+      return;
+    }
     this.handleSessionEvent(event);
   }
 
