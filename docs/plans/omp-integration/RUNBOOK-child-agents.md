@@ -44,6 +44,30 @@ workspaceId: parent.workspaceId, labels: {[PARENT_AGENT_ID_LABEL]: parentId}})`.
     (6/6 tests green; final integration typecheck pending Agent A).
 - Next: orchestrator review of both diffs, targeted vitest runs, typecheck/lint,
   format, commit. Full-suite verification via CI push, not locally.
+- Working tree (uncommitted): omp `<system-notice>` absorption
+  (`pi/omp-system-notice.ts`) — harness-injected background-job notices map to
+  synthetic `task_notification` tool calls (callId `omp-notice:<id>`, mirrors
+  the Claude `task-notification-tool-call.ts` precedent) instead of raw notice
+  text. **Notices arrive as `custom_message` records (`customType:
+"async-result"`), i.e. RPC role `"custom"` — NOT as user messages** (verified
+  against a real parent transcript in `~/.omp/agent/sessions`). Hooked in the
+  `role === "custom"` branches: `handleMessageEnd` (live) and `PiHistoryMapper`
+  (replay; also makes non-notice custom messages replay as assistant text to
+  match live — previously they were silently dropped on reload). Marker-gated
+  (message starts with `<system-notice>`), no provider flag: vanilla pi never
+  emits the marker. Also uncommitted: `omp-poll:<targets>` callId coalescing
+  for repeated subagent poll tool calls.
+- Working tree (uncommitted): virtual child sessions now emit turn lifecycle
+  events so omp child agents show running/idle/error like Paseo-native
+  subagents. `turn_started` at construction (subagent is guaranteed live at
+  import), `turn_completed`/`turn_failed`/`turn_canceled` from the index
+  terminal event (completed/failed/aborted), emitted before promotion so a
+  failed promotion can't leave a stale spinner. Constructor re-checks
+  `index.get()` after subscribing: if the subagent went terminal during the
+  import's async gap it promotes directly instead of emitting `turn_started` —
+  this also closes the pre-existing race where that window left the virtual
+  session frozen (never promoted). No manager/protocol/client changes; the
+  manager's out-of-band turn handlers do the rest.
 
 ## Gotchas (carry-over from design session)
 
@@ -60,8 +84,10 @@ workspaceId: parent.workspaceId, labels: {[PARENT_AGENT_ID_LABEL]: parentId}})`.
   final transcript fetch fails (parent RPC gone); promotion still resumes the
   full session file, but timeline rows fetched-but-not-yet-emitted stay missing
   until the user reloads the child agent (reload re-streams provider history).
-- Child records are created on the first lifecycle sighting; later status
-  changes don't sync back onto an already-imported record (dedupe no-op).
+- Child records are created on the first lifecycle sighting; later
+  `child_session` events for the same child are dedupe no-ops. Status now
+  flows through the virtual session's turn lifecycle events instead (see
+  State), so this only means titles don't update after import.
 - A subagent lifecycle frame arriving in the narrow window between parent
   session creation and manager subscription is dropped; the terminal lifecycle
   frame self-heals record creation (import then takes the resume path).

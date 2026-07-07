@@ -1,10 +1,12 @@
 import type { AgentStreamEvent, AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js";
+import { mapOmpSystemNoticeToToolCall } from "./omp-system-notice.js";
 import type { PiAgentMessage, PiImageContent, PiTextContent } from "./rpc-types.js";
 import {
   extractTextFromToolResult,
   mapToolDetail,
   parseToolArgs,
   parseToolResult,
+  resolveEmittedToolCallId,
   type PiTrackedToolCall,
 } from "./tool-call-mapper.js";
 
@@ -68,6 +70,14 @@ export class PiHistoryMapper {
         continue;
       }
 
+      if (message.role === "custom") {
+        const item = toCustomMessageTimelineItem(getUserMessageText(message.content));
+        if (item) {
+          events.push({ type: "timeline", provider: this.provider, item });
+        }
+        continue;
+      }
+
       if (message.role === "assistant") {
         for (const content of message.content) {
           if (content.type === "text" && content.text) {
@@ -91,12 +101,13 @@ export class PiHistoryMapper {
           if (content.type === "toolCall") {
             const tracked = parseToolArgs(content.name, content.arguments);
             this.pendingToolCalls.set(content.id, tracked);
+            const emittedCallId = resolveEmittedToolCallId(content.id, tracked);
             events.push({
               type: "timeline",
               provider: this.provider,
               item: {
                 type: "tool_call",
-                callId: content.id,
+                callId: emittedCallId,
                 name: tracked.toolName,
                 status: "running",
                 detail: mapToolDetail(tracked, null),
@@ -118,7 +129,7 @@ export class PiHistoryMapper {
           type: "timeline",
           provider: this.provider,
           item: toToolResultTimelineItem({
-            callId: message.toolCallId,
+            callId: resolveEmittedToolCallId(message.toolCallId, tracked),
             name: tracked.toolName,
             isError: Boolean(message.isError),
             detail,
@@ -164,6 +175,17 @@ export async function* streamPiHistory(
   for (const event of mapper.mapMessages(messages)) {
     yield event;
   }
+}
+
+// omp injects background-job results as custom messages; absorb them into
+// synthetic tool calls instead of replaying the raw notice text. Other custom
+// messages surface as assistant text, matching the live path.
+function toCustomMessageTimelineItem(text: string): AgentTimelineItem | null {
+  const noticeItem = mapOmpSystemNoticeToToolCall(text);
+  if (noticeItem) {
+    return noticeItem;
+  }
+  return text ? { type: "assistant_message", text } : null;
 }
 
 function toToolResultTimelineItem(input: {

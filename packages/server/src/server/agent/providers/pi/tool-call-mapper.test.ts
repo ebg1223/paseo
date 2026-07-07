@@ -4,6 +4,7 @@ import {
   mapToolDetail,
   parseToolArgs,
   parseToolResult,
+  resolveEmittedToolCallId,
   resolveToolCallName,
 } from "./tool-call-mapper.js";
 
@@ -72,5 +73,23 @@ describe("Pi tool call mapper", () => {
     });
 
     expect(resolveToolCallName(toolCall, result)).toBe("paseo.list_models");
+  });
+
+  test("uses stable synthetic ids only for subagent poll calls", () => {
+    expect(
+      resolveEmittedToolCallId("poll-1", parseToolArgs("subagent", { poll: ["job-b", "job-a"] })),
+    ).toBe("omp-poll:job-a,job-b");
+    expect(
+      resolveEmittedToolCallId("poll-2", parseToolArgs("subagent", { poll: ["job-a", "job-b"] })),
+    ).toBe("omp-poll:job-a,job-b");
+    expect(resolveEmittedToolCallId("poll-3", parseToolArgs("subagent", { poll: ["job-a"] }))).toBe(
+      "omp-poll:job-a",
+    );
+    expect(
+      resolveEmittedToolCallId("spawn-1", parseToolArgs("subagent", { spawn: [{ prompt: "go" }] })),
+    ).toBe("spawn-1");
+    expect(resolveEmittedToolCallId("bash-1", parseToolArgs("bash", { command: "echo hi" }))).toBe(
+      "bash-1",
+    );
   });
 });

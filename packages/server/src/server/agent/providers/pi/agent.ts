@@ -56,6 +56,7 @@ import {
   streamPiHistory,
   type PiCapturedUserMessageEntry,
 } from "./history-mapper.js";
+import { mapOmpSystemNoticeToToolCall } from "./omp-system-notice.js";
 import { PiCliRuntime } from "./cli-runtime.js";
 import { revertPiConversation } from "./rewind.js";
 import { listPiImportableSessions, readPiImportSessionConfig } from "./session-descriptor.js";
@@ -78,6 +79,7 @@ import {
   mapToolDetail,
   parseToolArgs,
   parseToolResult,
+  resolveEmittedToolCallId,
   resolveToolCallName,
   type PiToolResult,
   type PiTrackedToolCall,
@@ -1852,7 +1854,17 @@ export class PiRpcAgentSession implements AgentSession {
   ): void {
     if (event.message.role === "custom") {
       const text = getUserMessageText(event.message.content);
-      if (text) {
+      // omp injects background-job results as custom messages; absorb them
+      // into synthetic tool calls instead of surfacing the raw notice text.
+      const noticeItem = mapOmpSystemNoticeToToolCall(text);
+      if (noticeItem) {
+        this.emit({
+          type: "timeline",
+          provider: PI_PROVIDER,
+          turnId,
+          item: noticeItem,
+        });
+      } else if (text) {
         this.emit({
           type: "timeline",
           provider: PI_PROVIDER,
@@ -1892,9 +1904,10 @@ export class PiRpcAgentSession implements AgentSession {
   ): void {
     const turnId = this.currentTurnIdForEvent();
     const detail = mapToolDetail(toolCall, result);
+    const emittedCallId = resolveEmittedToolCallId(toolCallId, toolCall);
     const baseItem = {
       type: "tool_call" as const,
-      callId: toolCallId,
+      callId: emittedCallId,
       name: resolveToolCallName(toolCall, result),
       detail,
     };

@@ -87,6 +87,26 @@ class SessionEvents {
       });
     });
   }
+
+  turnEvents(): AgentStreamEvent[] {
+    return this.events.filter(
+      (event) =>
+        event.type === "turn_started" ||
+        event.type === "turn_completed" ||
+        event.type === "turn_failed" ||
+        event.type === "turn_canceled",
+    );
+  }
+
+  nextEvent(predicate: (event: AgentStreamEvent) => boolean): Promise<AgentStreamEvent> {
+    const existing = this.events.find(predicate);
+    if (existing) {
+      return Promise.resolve(existing);
+    }
+    return new Promise((resolve) => {
+      this.waiters.push({ predicate, resolve });
+    });
+  }
 }
 
 async function waitForSubagentMessageRequestCount(
@@ -267,6 +287,7 @@ describe("Pi native subagents", () => {
     );
     const virtualEvents = new SessionEvents(imported.session);
 
+    expect(virtualEvents.turnEvents()).toEqual([{ type: "turn_started", provider: "pi" }]);
     expect(pi.recordedLaunches).toHaveLength(1);
     expect(imported.timeline).toEqual([
       {
@@ -360,9 +381,60 @@ describe("Pi native subagents", () => {
     await expect(imported.session.getRuntimeInfo()).resolves.toMatchObject({ provider: "pi" });
     expect(pi.recordedLaunches).toHaveLength(2);
     expect(pi.recordedLaunches[1]).toMatchObject({ session: sessionFile });
+    expect(virtualEvents.turnEvents()).toEqual([
+      { type: "turn_started", provider: "pi" },
+      { type: "turn_completed", provider: "pi" },
+    ]);
 
     await imported.session.startTurn("after promotion");
     expect(pi.latestSession().prompts).toEqual([{ message: "after promotion", imageCount: 0 }]);
+  });
+
+  test("fails the virtual child turn when the subagent lifecycle reports failure", async () => {
+    const { pi, client } = await createParentSession();
+    const parentRuntime = pi.latestSession();
+    const sessionFile = "/tmp/pi-failed-subagent.jsonl";
+    parentRuntime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "subagent-fail",
+        agent: "explore",
+        description: "Doomed task",
+        status: "started",
+        sessionFile,
+        index: 0,
+      },
+    });
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 5,
+      reset: false,
+      messages: [],
+    });
+
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd: TEST_CWD },
+      { config: createConfig(), storedConfig: createConfig() },
+    );
+    const virtualEvents = new SessionEvents(imported.session);
+    expect(virtualEvents.turnEvents()).toEqual([{ type: "turn_started", provider: "pi" }]);
+
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 5,
+      nextByte: 5,
+      reset: false,
+      messages: [],
+    });
+    parentRuntime.emit({
+      type: "subagent_lifecycle",
+      payload: { id: "subagent-fail", agent: "explore", status: "failed", sessionFile, index: 0 },
+    });
+
+    await expect(virtualEvents.nextEvent((event) => event.type === "turn_failed")).resolves.toEqual(
+      { type: "turn_failed", provider: "pi", error: "Pi subagent failed" },
+    );
   });
 
   test("buffers virtual timeline events emitted before the manager subscribes", async () => {

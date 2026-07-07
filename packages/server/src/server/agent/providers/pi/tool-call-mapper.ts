@@ -184,6 +184,25 @@ function readNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function readPollTargets(args: unknown): string[] | null {
+  if (!isRecord(args) || !Array.isArray(args.poll)) {
+    return null;
+  }
+
+  const targets: string[] = [];
+  for (const target of args.poll) {
+    const value = readNonEmptyString(target);
+    if (!value) {
+      return null;
+    }
+    targets.push(value);
+  }
+  if (targets.length === 0) {
+    return null;
+  }
+  return targets.toSorted();
+}
+
 const BashToolInputSchema: z.ZodType<BashToolInput> = z.object({
   command: z.string(),
   timeout: z.number().optional(),
@@ -285,6 +304,18 @@ export function parseToolArgs(toolName: string, rawArgs: unknown): PiTrackedTool
     }
   }
   return { kind: "unknown", toolName, args: rawArgs ?? null };
+}
+
+export function resolveEmittedToolCallId(toolCallId: string, toolCall: PiTrackedToolCall): string {
+  if (toolCall.toolName !== "subagent") {
+    return toolCallId;
+  }
+
+  const targets = readPollTargets(toolCall.args);
+  if (!targets) {
+    return toolCallId;
+  }
+  return `omp-poll:${targets.join(",")}`;
 }
 
 function stripMcpProxyPrefix(toolName: string, serverName: string): string {

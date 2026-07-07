@@ -24,7 +24,11 @@ import type {
 import { PiHistoryMapper, streamPiHistory } from "./history-mapper.js";
 import type { PiRuntimeSession } from "./runtime.js";
 import type { PiSubagentMessagesResult } from "./rpc-types.js";
-import type { PiSubagentIndex, PiSubagentIndexEvent } from "./subagent-index.js";
+import type {
+  PiSubagentIndex,
+  PiSubagentIndexEvent,
+  PiTerminalSubagentStatus,
+} from "./subagent-index.js";
 
 interface PiVirtualChildSessionOptions {
   provider: AgentProvider;
@@ -88,6 +92,13 @@ export class PiVirtualChildSession implements AgentSession {
     this.unsubscribeIndex = options.index.subscribe(options.sessionFile, (event) => {
       this.handleIndexEvent(event);
     });
+    if (options.index.get(options.sessionFile)) {
+      this.emit({ type: "turn_started", provider: this.provider });
+    } else {
+      // The subagent went terminal between the import-time liveness check and
+      // this subscription; no index event will arrive, so promote directly.
+      void this.promoteAfterTerminal();
+    }
   }
 
   get id(): string | null {
@@ -294,7 +305,22 @@ export class PiVirtualChildSession implements AgentSession {
       void this.queueFetch();
       return;
     }
+    // Close the turn before promotion so the child never keeps a stale
+    // spinner if resuming the standalone session fails.
+    this.emitTurnEnd(event.status);
     void this.promoteAfterTerminal();
+  }
+
+  private emitTurnEnd(status: PiTerminalSubagentStatus): void {
+    if (status === "failed") {
+      this.emit({ type: "turn_failed", provider: this.provider, error: "Pi subagent failed" });
+      return;
+    }
+    if (status === "aborted") {
+      this.emit({ type: "turn_canceled", provider: this.provider, reason: "Pi subagent aborted" });
+      return;
+    }
+    this.emit({ type: "turn_completed", provider: this.provider });
   }
 
   private queueFetch(): Promise<void> {
