@@ -252,11 +252,9 @@ async function createParent(input: {
   workdir: string;
   workspaceId?: string;
 }) {
-  return await input.manager.createAgent(
-    { provider: "codex", cwd: input.workdir },
-    undefined,
-    input.workspaceId ? { workspaceId: input.workspaceId } : undefined,
-  );
+  return await input.manager.createAgent({ provider: "codex", cwd: input.workdir }, undefined, {
+    workspaceId: input.workspaceId,
+  });
 }
 
 test("child_session imports a provider-native child agent with parent label and title", async () => {
