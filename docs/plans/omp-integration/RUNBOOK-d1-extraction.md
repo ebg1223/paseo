@@ -61,7 +61,15 @@ thinkingOptionId? }`; registry `wrapSessionProvider` rewrites the outward handle
       #1 (virtual-child transcript lost omp hooks) fixed with coverage; #2 (imported child
       records persist `metadata.provider: "omp"`, was `"pi"`) accepted — verified inert, no
       reader consumes it; #3 (`as OmpRuntimeEvent` casts, pre-split-equivalent) deferred.
-- [ ] Commit + push; full suite and pi real e2e run in CI (the pi regression gate).
+- [x] Committed (`e5ac3c1b` extraction, `ac2662ae` merge of main, `5a95840f` merge-skew test
+      fix) and pushed; draft PR #1. CI, Docker, and Nix workflows green on `5a95840f`.
+      Note: the PR gate excludes `*.e2e.test.ts`, so `pi.real.e2e.test.ts` /
+      `pi-rewind.real.e2e.test.ts` (the real-binary pi regression gate) have NOT run.
+- [x] Live omp child-agent smoke done (manual, by user). pi real-e2e gate SKIPPED by
+      decision: tests require `OPENROUTER_API_KEY`, not available on this machine (attempted
+      2026-07-07: 14+2 tests skipped). Run `pi.real.e2e.test.ts` + `pi-rewind.real.e2e.test.ts`
+      wherever the key lives before any release that touches the pi surface.
+- [x] PR #1 marked ready for review (CI/Docker/Nix green on `5a95840f`).
 
 ## Plan (extraction spec)
 
