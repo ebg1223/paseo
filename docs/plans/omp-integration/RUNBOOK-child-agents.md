@@ -1,6 +1,9 @@
 # Runbook — omp native subagents as Paseo child agents (current design)
 
-Status: **in progress** on branch `feat/pi-native-subagents` (2026-07-07).
+Status: **implemented** on branch `feat/pi-native-subagents` (2026-07-07);
+commits `1e1a9877` (types groundwork) + `27808d0e` (feature). 61 targeted tests
+green, workspace typecheck/lint/format green. Full-suite verification belongs
+in CI after push.
 
 This supersedes the child-agent approach in [03-child-agents.md](03-child-agents.md)
 (relay protocol / composer lock / app changes). The settled design needs **zero
