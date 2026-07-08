@@ -128,7 +128,8 @@ Executes [02-v1-parity.md](02-v1-parity.md) on top of the landed D1 extraction
 gemini-2.5-flash-lite`) on the assumption omp shares pi's model plumbing — UNVERIFIED
       without a live OPENROUTER_API_KEY + omp binary; tests skip (canRunRealProvider=false)
       until both present. Confirm the model/provider string on first real omp e2e run.
-- [ ] CI push (unit/integration full suite; real e2e skips without key).
+- [x] CI green on `f5ee73a6` 2026-07-08: CI (full unit/integration matrix), Docker, and
+      Nix all passed. Real omp e2e skipped (no key). PR #1.
 - [ ] Manual verify on web + iOS per 02-v1-parity.md Testing section. Live-run checklist:
       subagent card populates on a real task run; no full-mode turn hangs on an rpc-ui
       dialog; detached subagents outliving their task produce no orphan cards;
