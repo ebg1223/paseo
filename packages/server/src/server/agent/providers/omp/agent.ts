@@ -26,6 +26,11 @@ import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
 import { filterOmpImportableSessionFiles } from "./session-import-filter.js";
 import { asOmpRuntimeSession } from "./runtime.js";
+import {
+  clearOmpHostToolState,
+  handleOmpHostToolRuntimeEvent,
+  setOmpHostTools,
+} from "./host-tools.js";
 import type {
   OmpRuntimeEvent,
   OmpSubagentLifecyclePayload,
@@ -46,7 +51,7 @@ const OMP_SESSION_DIR = "~/.omp/agent/sessions";
 export const MIN_SUPPORTED_OMP_VERSION = "16.3.9";
 const DEFAULT_OMP_MODE_ID = "full";
 export const OMP_PASEO_MCP_SYSTEM_PROMPT =
-  "OMP task tool = fast in-process helpers. Paseo create_agent = independent, user-visible agents.";
+  "OMP task tool = fast in-process helpers inside this OMP session. Paseo create_agent, send_agent_prompt, and wait_for_agent are host tools for independent, user-visible Paseo agents that can run separately from this session.";
 export { OMP_MODES };
 
 export function resolveOmpLaunchMode(modeId: string | undefined): {
@@ -124,6 +129,7 @@ function createOmpDialect(
     commandsRpcName: "get_available_commands",
     protocolMode: "rpc-ui",
     supportsMcpServers: true,
+    supportsNativePaseoTools: true,
     appendSystemPrompt: OMP_PASEO_MCP_SYSTEM_PROMPT,
     modes: OMP_MODES,
     defaultModeId: DEFAULT_OMP_MODE_ID,
@@ -157,17 +163,25 @@ function createOmpDialect(
           sessionLogger.debug({ err: error }, "OMP subagent subscription unavailable");
         });
     },
+    configureNativePaseoTools: async ({ runtimeSession, catalog }) => {
+      await setOmpHostTools(runtimeSession, catalog);
+    },
     notifyTitleChanged: async ({ runtimeSession, title }) => {
       await asOmpRuntimeSession(runtimeSession).setSessionName(title);
     },
     onSessionClose: (runtimeSession) => {
       subagentIndex.clearParent(runtimeSession);
+      clearOmpHostToolState(runtimeSession);
       clearSubagentCardTracker(runtimeSession);
     },
     onSessionInterrupt: (runtimeSession) => {
+      clearOmpHostToolState(runtimeSession);
       clearSubagentCardTracker(runtimeSession);
     },
     handleExtraRuntimeEvent: (event, context) => {
+      if (handleOmpHostToolRuntimeEvent(event, context)) {
+        return true;
+      }
       if (event.type === "subagent_lifecycle") {
         const ompEvent = event as Extract<OmpRuntimeEvent, { type: "subagent_lifecycle" }>;
         const payload = ompEvent.payload;

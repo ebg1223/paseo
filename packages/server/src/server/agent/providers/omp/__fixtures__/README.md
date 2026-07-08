@@ -23,6 +23,9 @@ daemon:
   - `title_emission_probe.json`
 - `omp --mode rpc --no-skills --no-rules --approval-mode yolo --provider openai-codex --model gpt-5.5 --thinking low`
   - `subagent_session_file_paths.json`
+- `omp --mode rpc --no-session --no-skills --no-rules --approval-mode yolo --provider openai-codex --model gpt-5.5 --thinking low`
+  - `host_tool_call_update.json`
+  - `host_tool_cancel.json`
 
 Notes:
 
@@ -33,3 +36,10 @@ Notes:
   approval surface for tools is a generic `select` frame with `Approve`/`Deny`.
 - `PI_RPC_EMIT_TITLE=1` did not produce `session_info_update` or `setTitle` for
   auto-titling in RPC mode.
+- Host-tool dispatch is concurrent with the RPC event loop. During
+  `host_tool_call_update.json`, a deliberately delayed host result left the
+  stream active and a concurrent `get_state` request completed in 16 ms with
+  `isStreaming: true`; a sent `host_tool_update` re-emitted as
+  `tool_execution_update`. During `host_tool_cancel.json`, sending `abort`
+  while the host tool was pending emitted `host_tool_cancel` targeting the
+  pending call and a failed `tool_execution_end`.

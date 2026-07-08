@@ -189,6 +189,10 @@ class PiCliRuntimeSession implements PiRuntimeSession {
     return data.commands ?? [];
   }
 
+  sendRawFrame(frame: object & { type: string }): void {
+    this.writeJsonLine(frame);
+  }
+
   respondToExtensionUiRequest(
     id: string,
     response: { value?: string; confirmed?: boolean; cancelled?: boolean },

@@ -1,5 +1,8 @@
 import type { PiRuntimeSession } from "../pi-shared/runtime.js";
 import type {
+  OmpRpcHostToolDefinition,
+  OmpRpcHostToolResult,
+  OmpRpcHostToolUpdate,
   OmpSubagentMessagesResult,
   OmpSubagentMessagesSelector,
   OmpSubagentSnapshot,
@@ -11,12 +14,23 @@ export interface OmpRuntimeSession extends PiRuntimeSession {
   getSubagents(): Promise<OmpSubagentSnapshot[]>;
   getSubagentMessages(selector: OmpSubagentMessagesSelector): Promise<OmpSubagentMessagesResult>;
   setSessionName(name: string): Promise<void>;
+  setHostTools(tools: OmpRpcHostToolDefinition[]): Promise<string[]>;
+  sendHostToolResult(result: OmpRpcHostToolResult): void;
+  sendHostToolUpdate(update: OmpRpcHostToolUpdate): void;
 }
 
 export function asOmpRuntimeSession(session: PiRuntimeSession): OmpRuntimeSession {
   const existing = session as PiRuntimeSession & Partial<OmpRuntimeSession>;
   if (existing.setSubagentSubscription && existing.getSubagents && existing.getSubagentMessages) {
     existing.setSessionName ??= async (name: string) => setOmpSessionName(session, name);
+    existing.setHostTools ??= async (tools: OmpRpcHostToolDefinition[]) =>
+      setOmpHostTools(session, tools);
+    existing.sendHostToolResult ??= (result: OmpRpcHostToolResult) => {
+      session.sendRawFrame(result);
+    };
+    existing.sendHostToolUpdate ??= (update: OmpRpcHostToolUpdate) => {
+      session.sendRawFrame(update);
+    };
     return existing as OmpRuntimeSession;
   }
   return Object.assign(session, {
@@ -35,6 +49,13 @@ export function asOmpRuntimeSession(session: PiRuntimeSession): OmpRuntimeSessio
         ...selector,
       })) as OmpSubagentMessagesResult,
     setSessionName: async (name: string) => setOmpSessionName(session, name),
+    setHostTools: async (tools: OmpRpcHostToolDefinition[]) => setOmpHostTools(session, tools),
+    sendHostToolResult: (result: OmpRpcHostToolResult) => {
+      session.sendRawFrame(result);
+    },
+    sendHostToolUpdate: (update: OmpRpcHostToolUpdate) => {
+      session.sendRawFrame(update);
+    },
   });
 }
 
@@ -44,4 +65,14 @@ async function setOmpSessionName(session: PiRuntimeSession, name: string): Promi
     return;
   }
   await session.request({ type: "set_session_name", name: trimmedName });
+}
+
+async function setOmpHostTools(
+  session: PiRuntimeSession,
+  tools: OmpRpcHostToolDefinition[],
+): Promise<string[]> {
+  const data = (await session.request({ type: "set_host_tools", tools })) as {
+    toolNames?: string[];
+  };
+  return data.toolNames ?? [];
 }

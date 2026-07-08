@@ -54,6 +54,7 @@ export interface PiRuntimeSession {
   getSessionStats(): Promise<PiSessionStats>;
   getCommands(): Promise<PiRpcSlashCommand[]>;
   request(command: { type: string; [key: string]: unknown }, timeoutMs?: number): Promise<unknown>;
+  sendRawFrame(frame: object & { type: string }): void;
   respondToExtensionUiRequest(
     id: string,
     response: { value?: string; confirmed?: boolean; cancelled?: boolean },

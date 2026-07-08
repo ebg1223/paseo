@@ -4,6 +4,47 @@ import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
 
 export type OmpSubagentSubscriptionLevel = "off" | "progress" | "events";
 
+export interface OmpAgentToolResult {
+  content: Array<{ type: string; text?: string; [key: string]: unknown }>;
+  details?: unknown;
+  isError?: boolean;
+}
+
+export interface OmpRpcHostToolDefinition {
+  name: string;
+  label?: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  hidden?: boolean;
+}
+
+export interface OmpRpcHostToolCallRequest {
+  type: "host_tool_call";
+  id: string;
+  toolCallId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface OmpRpcHostToolCancelRequest {
+  type: "host_tool_cancel";
+  id: string;
+  targetId: string;
+}
+
+export interface OmpRpcHostToolUpdate {
+  type: "host_tool_update";
+  id: string;
+  partialResult: OmpAgentToolResult;
+}
+
+export interface OmpRpcHostToolResult {
+  type: "host_tool_result";
+  id: string;
+  result: OmpAgentToolResult;
+  isError?: boolean;
+}
+
 export type OmpSubagentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
 export interface OmpSubagentSnapshot {
@@ -67,6 +108,9 @@ export interface OmpSubagentMessagesSelector {
 export type OmpRuntimeEvent =
   | { type: "subagent_lifecycle"; payload: OmpSubagentLifecyclePayload }
   | { type: "subagent_progress"; payload: OmpSubagentProgressPayload }
+  | OmpRpcHostToolCallRequest
+  | OmpRpcHostToolCancelRequest
+  | OmpRpcHostToolUpdate
   | OmpTodoReminderEvent
   | OmpAvailableCommandsUpdateEvent;
 
@@ -121,3 +165,44 @@ export const OmpAvailableCommandsUpdateEventSchema = z
 
 export type OmpAvailableCommand = z.infer<typeof OmpAvailableCommandSchema>;
 export type OmpAvailableCommandsUpdateEvent = z.infer<typeof OmpAvailableCommandsUpdateEventSchema>;
+
+export const OmpAgentToolResultSchema = z
+  .object({
+    content: z.array(
+      z
+        .object({
+          type: z.string(),
+          text: z.string().optional(),
+        })
+        .passthrough(),
+    ),
+    details: z.unknown().optional(),
+    isError: z.boolean().optional(),
+  })
+  .passthrough();
+
+export const OmpRpcHostToolCallRequestSchema = z
+  .object({
+    type: z.literal("host_tool_call"),
+    id: z.string(),
+    toolCallId: z.string(),
+    toolName: z.string(),
+    arguments: z.record(z.string(), z.unknown()),
+  })
+  .passthrough();
+
+export const OmpRpcHostToolCancelRequestSchema = z
+  .object({
+    type: z.literal("host_tool_cancel"),
+    id: z.string(),
+    targetId: z.string(),
+  })
+  .passthrough();
+
+export const OmpRpcHostToolUpdateSchema = z
+  .object({
+    type: z.literal("host_tool_update"),
+    id: z.string(),
+    partialResult: OmpAgentToolResultSchema,
+  })
+  .passthrough();

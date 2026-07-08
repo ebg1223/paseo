@@ -1,8 +1,12 @@
+import pino from "pino";
 import { describe, expect, test } from "vitest";
 
+import { createPaseoToolCatalog } from "../../tools/paseo-tools.js";
 import toolExecutionFrames from "./__fixtures__/tool_execution_bash_read_edit_write.json" with { type: "json" };
 import { parseToolArgs, parseToolResult } from "../pi-shared/tool-call-mapper.js";
-import { mapOmpToolDetail } from "./tool-call-mapper.js";
+import { PASEO_HOST_TOOL_NAMES, mapOmpToolDetail } from "./tool-call-mapper.js";
+
+type CatalogOptions = Parameters<typeof createPaseoToolCatalog>[0];
 
 describe("OMP tool call mapper", () => {
   test("maps bash, read, hashline edit, and write frames from OMP 16.3.9 fixtures", () => {
@@ -96,6 +100,66 @@ describe("OMP tool call mapper", () => {
       input: { op: "hover" },
       output: null,
     });
+  });
+
+  test("maps native Paseo host tools to visible details instead of unknown", () => {
+    expect(
+      mapOmpToolDetail(
+        parseToolArgs("create_agent", {
+          provider: "codex",
+          initialPrompt: "Inspect the regression",
+        }),
+        parseToolResult({
+          content: [{ type: "text", text: "created" }],
+          details: { agentId: "agent-child-1", type: "codex" },
+        }),
+      ),
+    ).toEqual({
+      type: "sub_agent",
+      subAgentType: "codex",
+      description: "Inspect the regression",
+      childSessionId: "agent-child-1",
+      log: "created",
+    });
+
+    expect(
+      mapOmpToolDetail(
+        parseToolArgs("send_agent_prompt", {
+          agentId: "agent-child-1",
+          prompt: "Continue",
+        }),
+        parseToolResult({ content: [{ type: "text", text: "queued" }] }),
+      ),
+    ).toEqual({
+      type: "plain_text",
+      label: "Paseo send agent prompt",
+      text: "agentId=agent-child-1\nContinue\n\nqueued",
+      icon: "bot",
+    });
+  });
+
+  test("covers every tool exposed by the real Paseo catalog", () => {
+    const catalog = createPaseoToolCatalog({
+      agentManager: {} as CatalogOptions["agentManager"],
+      agentStorage: {} as CatalogOptions["agentStorage"],
+      terminalManager: {} as CatalogOptions["terminalManager"],
+      providerSnapshotManager: {} as CatalogOptions["providerSnapshotManager"],
+      callerAgentId: "agent-omp-host-tools",
+      browserToolsEnabled: true,
+      browserToolsBroker: {
+        async execute() {
+          return { ok: true, result: null };
+        },
+      } as NonNullable<CatalogOptions["browserToolsBroker"]>,
+      enableVoiceTools: true,
+      logger: pino({ level: "silent" }),
+    } satisfies CatalogOptions);
+
+    const missing = [...catalog.tools.keys()]
+      .filter((toolName) => !PASEO_HOST_TOOL_NAMES.has(toolName))
+      .sort();
+
+    expect(missing).toEqual([]);
   });
 });
 

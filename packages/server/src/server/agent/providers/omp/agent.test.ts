@@ -7,7 +7,13 @@ import modelsFixture from "./__fixtures__/get_available_models_reasoning.json" w
 import commandUpdateFixture from "./__fixtures__/available_commands_update.json" with { type: "json" };
 import subagentFramesFixture from "./__fixtures__/subagent_lifecycle_progress.json" with { type: "json" };
 import todoFixture from "./__fixtures__/todo_tool_reminder_state.json" with { type: "json" };
-import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
+import type {
+  AgentLaunchContext,
+  AgentSession,
+  AgentSessionConfig,
+  AgentStreamEvent,
+} from "../../agent-sdk-types.js";
+import type { PaseoToolCatalog, PaseoToolDefinition, PaseoToolResult } from "../../tools/types.js";
 import { withRuntimePaseoMcpServer } from "../../runtime-mcp-config.js";
 import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 import type { PiModel } from "../pi-shared/rpc-types.js";
@@ -78,15 +84,31 @@ async function createSession(
   pi = new FakePi(),
   options: { subagentCardScheduler?: OmpSubagentCardScheduler } = {},
   configOverrides: Partial<AgentSessionConfig> = {},
+  launchContext?: AgentLaunchContext,
 ): Promise<{
   pi: FakePi;
   session: AgentSession;
   events: SessionEvents;
 }> {
   const client = createClient(pi, options);
-  const session = await client.createSession(createConfig(configOverrides));
+  const session = await client.createSession(createConfig(configOverrides), launchContext);
   const events = new SessionEvents(session);
   return { pi, session, events };
+}
+
+function createFakePaseoToolCatalog(tools: PaseoToolDefinition[]): PaseoToolCatalog {
+  const toolMap = new Map(tools.map((tool) => [tool.name, tool]));
+  return {
+    tools: toolMap,
+    getTool: (name) => toolMap.get(name),
+    executeTool: async (name, input, context = {}) => {
+      const tool = toolMap.get(name);
+      if (!tool) {
+        throw new Error(`Missing fake Paseo tool ${name}`);
+      }
+      return await tool.handler(input, context);
+    },
+  };
 }
 
 class SessionEvents {
@@ -342,6 +364,20 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   throw new Error("Timed out waiting for condition");
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: Error) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -384,10 +420,12 @@ describe("OMP RPC agent", () => {
     const pi = new FakePi(["omp"]);
     const client = createClient(pi);
     expect(client.capabilities.supportsMcpServers).toBe(true);
+    expect(client.capabilities.supportsNativePaseoTools).toBe(true);
     const session = await client.createSession(createConfig({ modeId: "ask" }));
     const launch = pi.recordedLaunches[0];
 
     expect(session.capabilities.supportsMcpServers).toBe(true);
+    expect(session.capabilities.supportsNativePaseoTools).toBe(true);
     expect(launch?.systemPrompt).toBe(OMP_PASEO_MCP_SYSTEM_PROMPT);
     expect(launch?.argv).toEqual([
       "omp",
@@ -494,6 +532,243 @@ describe("OMP RPC agent", () => {
 
     await session.close();
     expect(existsSync(launch!.mcpConfigPath!)).toBe(false);
+  });
+
+  test("registers launch-context Paseo tools through native OMP host tools", async () => {
+    const catalog = createFakePaseoToolCatalog([
+      {
+        name: "create_agent",
+        title: "Create agent",
+        description: "Create a child agent.",
+        inputSchema: {},
+        handler: async () => ({ content: [] }),
+      },
+    ]);
+    const pi = new FakePi(["omp"]);
+    const client = createClient(pi);
+
+    const session = await client.createSession(createConfig(), {
+      agentId: "agent-omp-parent",
+      paseoTools: catalog,
+    });
+    const fakeSession = pi.latestSession();
+
+    expect(fakeSession.hostToolSetRequests).toEqual([
+      {
+        tools: [
+          {
+            name: "create_agent",
+            label: "Create agent",
+            description: "Create a child agent.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+      },
+    ]);
+    expect(pi.recordedLaunches[0]?.mcpConfigPath).toBeUndefined();
+    expect(session.capabilities.supportsNativePaseoTools).toBe(true);
+  });
+
+  test("routes OMP host_tool_call through the caller-scoped Paseo catalog", async () => {
+    const calls: Array<{ input: unknown; signal: AbortSignal | undefined }> = [];
+    const catalog = createFakePaseoToolCatalog([
+      {
+        name: "create_agent",
+        description: "Create a child agent.",
+        inputSchema: {},
+        handler: async (input, context) => {
+          calls.push({ input, signal: context.signal });
+          context.sendUpdate?.({
+            content: [{ type: "text", text: "creating child" }],
+            structuredContent: { phase: "creating" },
+          });
+          return {
+            content: [],
+            structuredContent: {
+              agentId: "agent-child-1",
+              status: "running",
+            },
+          };
+        },
+      },
+    ]);
+    const { pi } = await createSession(new FakePi(["omp"]), {}, {}, { paseoTools: catalog });
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "host_tool_call",
+      id: "host-call-1",
+      toolCallId: "provider-tool-call-1",
+      toolName: "create_agent",
+      arguments: { initialPrompt: "Inspect the bug" },
+    });
+
+    await waitFor(() => fakeSession.rawFrames.length === 2);
+    expect(calls).toEqual([
+      {
+        input: { initialPrompt: "Inspect the bug" },
+        signal: expect.any(AbortSignal),
+      },
+    ]);
+    expect(fakeSession.rawFrames).toEqual([
+      {
+        type: "host_tool_update",
+        id: "host-call-1",
+        partialResult: {
+          content: [{ type: "text", text: "creating child" }],
+          details: { phase: "creating" },
+        },
+      },
+      {
+        type: "host_tool_result",
+        id: "host-call-1",
+        result: {
+          content: [
+            {
+              type: "text",
+              text: '{\n  "agentId": "agent-child-1",\n  "status": "running"\n}',
+            },
+          ],
+          details: {
+            agentId: "agent-child-1",
+            status: "running",
+          },
+        },
+      },
+    ]);
+  });
+
+  test("maps Paseo tool isError results to OMP host_tool_result errors", async () => {
+    const catalog = createFakePaseoToolCatalog([
+      {
+        name: "wait_for_agent",
+        description: "Wait for a child agent.",
+        inputSchema: {},
+        handler: async (): Promise<PaseoToolResult> => ({
+          content: [{ type: "text", text: "agent failed" }],
+          structuredContent: { agentId: "agent-child-1" },
+          isError: true,
+        }),
+      },
+    ]);
+    const { pi } = await createSession(new FakePi(["omp"]), {}, {}, { paseoTools: catalog });
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "host_tool_call",
+      id: "host-call-error",
+      toolCallId: "provider-tool-call-error",
+      toolName: "wait_for_agent",
+      arguments: { agentId: "agent-child-1" },
+    });
+
+    await waitFor(() => fakeSession.rawFrames.length === 1);
+    expect(fakeSession.rawFrames).toEqual([
+      {
+        type: "host_tool_result",
+        id: "host-call-error",
+        result: {
+          content: [{ type: "text", text: "agent failed" }],
+          details: { agentId: "agent-child-1" },
+          isError: true,
+        },
+        isError: true,
+      },
+    ]);
+  });
+
+  test("aborts and drops canceled OMP host tool results", async () => {
+    const deferred = createDeferred<PaseoToolResult>();
+    let signal: AbortSignal | undefined;
+    const catalog = createFakePaseoToolCatalog([
+      {
+        name: "wait_for_agent",
+        description: "Wait for a child agent.",
+        inputSchema: {},
+        handler: async (_input, context) => {
+          signal = context.signal;
+          return await deferred.promise;
+        },
+      },
+    ]);
+    const { pi } = await createSession(new FakePi(["omp"]), {}, {}, { paseoTools: catalog });
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "host_tool_call",
+      id: "host-call-cancel",
+      toolCallId: "provider-tool-call-cancel",
+      toolName: "wait_for_agent",
+      arguments: { agentId: "agent-child-1" },
+    });
+    await waitFor(() => signal !== undefined);
+    fakeSession.emit({
+      type: "host_tool_cancel",
+      id: "cancel-1",
+      targetId: "host-call-cancel",
+    });
+
+    expect(signal?.aborted).toBe(true);
+    deferred.resolve({ content: [{ type: "text", text: "late result" }] });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fakeSession.rawFrames).toEqual([]);
+  });
+
+  test("does not block a second OMP host tool frame behind a slow handler", async () => {
+    const slow = createDeferred<PaseoToolResult>();
+    const catalog = createFakePaseoToolCatalog([
+      {
+        name: "wait_for_agent",
+        description: "Slow wait.",
+        inputSchema: {},
+        handler: async () => await slow.promise,
+      },
+      {
+        name: "get_agent_status",
+        description: "Fast status.",
+        inputSchema: {},
+        handler: async () => ({
+          content: [{ type: "text", text: "fast status" }],
+        }),
+      },
+    ]);
+    const { pi } = await createSession(new FakePi(["omp"]), {}, {}, { paseoTools: catalog });
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "host_tool_call",
+      id: "host-call-slow",
+      toolCallId: "provider-tool-call-slow",
+      toolName: "wait_for_agent",
+      arguments: { agentId: "agent-child-1" },
+    });
+    fakeSession.emit({
+      type: "host_tool_call",
+      id: "host-call-fast",
+      toolCallId: "provider-tool-call-fast",
+      toolName: "get_agent_status",
+      arguments: { agentId: "agent-child-2" },
+    });
+
+    await waitFor(() => fakeSession.rawFrames.length === 1);
+    expect(fakeSession.rawFrames[0]).toEqual({
+      type: "host_tool_result",
+      id: "host-call-fast",
+      result: {
+        content: [{ type: "text", text: "fast status" }],
+      },
+    });
+
+    slow.resolve({ content: [{ type: "text", text: "slow done" }] });
+    await waitFor(() => fakeSession.rawFrames.length === 2);
+    expect(fakeSession.rawFrames[1]).toEqual({
+      type: "host_tool_result",
+      id: "host-call-slow",
+      result: {
+        content: [{ type: "text", text: "slow done" }],
+      },
+    });
   });
 
   test("bridges OMP rpc-ui tool approval selects through tool permissions", async () => {

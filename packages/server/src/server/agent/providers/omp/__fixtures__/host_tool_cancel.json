@@ -1,0 +1,55 @@
+[
+  {
+    "direction": "stdout",
+    "frame": {
+      "type": "host_tool_call",
+      "id": "15274bdb035f3041",
+      "toolCallId": "call_k765lj7VCa3X8bcbkfhReVjQ|fc_0950556603abe63f016a4dd16f2f488198b30f17d7e930e03b",
+      "toolName": "paseo_probe",
+      "arguments": {
+        "message": "cancel-me"
+      }
+    }
+  },
+  {
+    "direction": "stdin",
+    "frame": {
+      "type": "abort"
+    }
+  },
+  {
+    "direction": "stdout",
+    "frame": {
+      "id": "cancel_4",
+      "type": "response",
+      "command": "abort",
+      "success": true
+    }
+  },
+  {
+    "direction": "stdout",
+    "frame": {
+      "type": "host_tool_cancel",
+      "id": "15274bdb055f3042",
+      "targetId": "15274bdb035f3041"
+    }
+  },
+  {
+    "direction": "stdout",
+    "frame": {
+      "type": "tool_execution_end",
+      "toolCallId": "call_k765lj7VCa3X8bcbkfhReVjQ|fc_0950556603abe63f016a4dd16f2f488198b30f17d7e930e03b",
+      "toolName": "paseo_probe",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Host tool \"paseo_probe\" was aborted"
+          }
+        ],
+        "details": {}
+      },
+      "isError": true
+    }
+  }
+]

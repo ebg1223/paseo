@@ -91,7 +91,19 @@ Confirm `host_tool_call` handling is concurrent with the streaming turn and that
 host tools (foreground `create_agent`, `wait_for_agent`) don't deadlock the turn loop. Also
 confirm `host_tool_update` semantics for progressive results (do we get re-renders?).
 
-**Answer:** _pending_
+**Answer:** Yes, host-tool handling is concurrent with the RPC event loop on
+`omp/16.3.9`. Evidence: a live throwaway run registered `paseo_probe` with
+`set_host_tools`, prompted OMP to call it, delayed the host result for ~2 seconds,
+and issued `get_state` while the tool was pending. `get_state` returned in 16 ms
+with `isStreaming: true`, so a long host handler does not block command/frame
+dispatch. OMP emitted `host_tool_call {id, toolCallId, toolName, arguments}` and
+normal `tool_execution_start/update/end` frames for the host tool
+(`providers/omp/__fixtures__/host_tool_call_update.json`). `host_tool_update` is
+host-to-OMP; when the host sent one, OMP re-emitted it as `tool_execution_update`
+with the partial result, so Paseo gets normal timeline re-render events. A second
+live run sent `abort` while the host call was pending; OMP emitted
+`host_tool_cancel {targetId}` and then a failed `tool_execution_end`
+(`providers/omp/__fixtures__/host_tool_cancel.json`).
 
 ## 7. Title emission in RPC mode — gates Phase 2 §8
 
