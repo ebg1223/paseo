@@ -487,13 +487,43 @@ function handleSubagentProgress(
   if (!sessionFile) {
     return;
   }
+  const model = normalizeOmpResolvedModelId(payload.progress.resolvedModel);
   subagentIndex.updateProgress({
     sessionFile,
     subagentId: payload.progress.id,
     status: payload.progress.status,
     parentRuntime: runtimeSession,
     ...(payload.progress.description ? { title: payload.progress.description } : {}),
+    ...(model ? { model } : {}),
   });
+}
+
+const OMP_RESOLVED_MODEL_THINKING_SUFFIXES = new Set([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "auto",
+  "max",
+]);
+
+function normalizeOmpResolvedModelId(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const suffixStart = trimmed.lastIndexOf(":");
+  if (suffixStart <= 0) {
+    return trimmed;
+  }
+  const suffix = trimmed.slice(suffixStart + 1).toLowerCase();
+  if (!OMP_RESOLVED_MODEL_THINKING_SUFFIXES.has(suffix)) {
+    return trimmed;
+  }
+  const modelId = trimmed.slice(0, suffixStart).trim();
+  return modelId.length > 0 ? modelId : undefined;
 }
 
 function resolveSubagentSessionFile(

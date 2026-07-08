@@ -47,6 +47,14 @@ export interface OmpRpcHostToolResult {
 
 export type OmpSubagentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
+export const OmpSubagentStatusSchema = z.enum([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "aborted",
+]);
+
 export interface OmpSubagentSnapshot {
   id: string;
   index: number;
@@ -86,10 +94,37 @@ export interface OmpSubagentProgressPayload {
     currentTool?: unknown;
     recentTools?: unknown[];
     recentOutput?: unknown[];
+    resolvedModel?: string;
   };
   sessionFile?: string;
   detached?: boolean;
 }
+
+export const OmpSubagentProgressSchema = z
+  .object({
+    id: z.string(),
+    status: OmpSubagentStatusSchema,
+    description: z.string().optional(),
+    currentTool: z.unknown().optional(),
+    recentTools: z.array(z.unknown()).optional(),
+    recentOutput: z.array(z.unknown()).optional(),
+    resolvedModel: z.string().optional(),
+  })
+  .passthrough();
+
+export const OmpSubagentProgressPayloadSchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    agent: z.string(),
+    agentSource: z.string().optional(),
+    task: z.string(),
+    parentToolCallId: z.string().optional(),
+    assignment: z.string().optional(),
+    progress: OmpSubagentProgressSchema,
+    sessionFile: z.string().optional(),
+    detached: z.boolean().optional(),
+  })
+  .passthrough();
 
 export interface OmpSubagentMessagesResult {
   sessionFile: string;

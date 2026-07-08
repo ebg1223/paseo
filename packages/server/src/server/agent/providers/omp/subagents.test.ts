@@ -489,6 +489,82 @@ describe("Pi native subagents", () => {
     expect(pi.latestSession().prompts).toEqual([{ message: "after promotion", imageCount: 0 }]);
   });
 
+  test("reports resolved model updates for live virtual subagents", async () => {
+    const { pi, client } = await createParentSession();
+    const parentRuntime = pi.latestSession();
+    const sessionFile = "/tmp/pi-live-subagent-model.jsonl";
+    parentRuntime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "subagent-live-model",
+        agent: "task-implementer",
+        description: "Implement model slice",
+        status: "started",
+        sessionFile,
+        index: 0,
+      },
+    });
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 0,
+      reset: false,
+      messages: [],
+    });
+
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd: TEST_CWD },
+      { config: createConfig(), storedConfig: createConfig() },
+    );
+    const virtualEvents = new SessionEvents(imported.session);
+
+    await expect(imported.session.getRuntimeInfo()).resolves.toMatchObject({
+      provider: "omp",
+      model: null,
+    });
+
+    parentRuntime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 0,
+      reset: false,
+      messages: [],
+    });
+    parentRuntime.emit({
+      type: "subagent_progress",
+      payload: {
+        index: 0,
+        agent: "task-implementer",
+        task: "implement",
+        progress: {
+          id: "subagent-live-model",
+          status: "running",
+          description: "Implement model slice",
+          resolvedModel: "openai-codex/gpt-5.5:high",
+        },
+        sessionFile,
+      },
+    });
+
+    await expect(
+      virtualEvents.nextEvent(
+        (event): event is Extract<AgentStreamEvent, { type: "model_changed" }> =>
+          event.type === "model_changed",
+      ),
+    ).resolves.toMatchObject({
+      type: "model_changed",
+      provider: "omp",
+      runtimeInfo: {
+        provider: "omp",
+        model: "openai-codex/gpt-5.5",
+      },
+    });
+    await expect(imported.session.getRuntimeInfo()).resolves.toMatchObject({
+      provider: "omp",
+      model: "openai-codex/gpt-5.5",
+    });
+  });
+
   test("maps virtual child transcripts with OMP history hooks", async () => {
     const { pi, client } = await createParentSession();
     const parentRuntime = pi.latestSession();

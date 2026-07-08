@@ -59,6 +59,7 @@ export class OmpVirtualChildSession implements AgentSession {
   private readonly initialTimeline: ImportedTimelineEntry[];
   private readonly unsubscribeIndex: () => void;
   private readonly sessionFile: string;
+  private readonly index: OmpSubagentIndex;
   private readonly parentRuntime: PiRuntimeSession;
   private readonly persistence: AgentPersistenceHandle;
   private readonly config: AgentSessionConfig;
@@ -75,11 +76,13 @@ export class OmpVirtualChildSession implements AgentSession {
   private promotionPromise: Promise<void> | null = null;
   private promotionError: Error | null = null;
   private hasAttachedSubscriber = false;
+  private lastReportedLiveModel: string | null = null;
 
   constructor(options: OmpVirtualChildSessionOptions) {
     this.provider = options.provider;
     this.capabilities = options.capabilities;
     this.sessionFile = options.sessionFile;
+    this.index = options.index;
     this.parentRuntime = options.parentRuntime;
     this.persistence = options.persistence;
     this.config = options.config;
@@ -167,13 +170,7 @@ export class OmpVirtualChildSession implements AgentSession {
     if (delegate) {
       return await delegate.getRuntimeInfo();
     }
-    return {
-      provider: this.provider,
-      sessionId: null,
-      model: null,
-      thinkingOptionId: null,
-      modeId: null,
-    };
+    return this.liveRuntimeInfo();
   }
 
   async getAvailableModes(): Promise<AgentMode[]> {
@@ -304,6 +301,7 @@ export class OmpVirtualChildSession implements AgentSession {
 
   private handleIndexEvent(event: OmpSubagentIndexEvent): void {
     if (event.type === "progress") {
+      this.reportLiveModelIfChanged(event.entry.model ?? null);
       void this.queueFetch();
       return;
     }
@@ -434,6 +432,36 @@ export class OmpVirtualChildSession implements AgentSession {
       );
     }
     return new Error("Pi subagent is driven by its parent session until it finishes");
+  }
+
+  private liveRuntimeInfo(): AgentRuntimeInfo {
+    const model = this.index.get(this.sessionFile)?.model ?? null;
+    this.lastReportedLiveModel = model;
+    return {
+      provider: this.provider,
+      sessionId: null,
+      model,
+      thinkingOptionId: null,
+      modeId: null,
+    };
+  }
+
+  private reportLiveModelIfChanged(model: string | null): void {
+    if (model === this.lastReportedLiveModel) {
+      return;
+    }
+    this.lastReportedLiveModel = model;
+    this.emit({
+      type: "model_changed",
+      provider: this.provider,
+      runtimeInfo: {
+        provider: this.provider,
+        sessionId: null,
+        model,
+        thinkingOptionId: null,
+        modeId: null,
+      },
+    });
   }
 }
 

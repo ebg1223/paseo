@@ -8,6 +8,7 @@ export interface OmpLiveSubagentEntry {
   status: OmpSubagentStatus;
   parentRuntime: PiRuntimeSession;
   title?: string;
+  model?: string;
 }
 
 export type OmpSubagentIndexEvent =
@@ -30,14 +31,17 @@ export class OmpSubagentIndex {
     status: OmpSubagentStatus;
     parentRuntime: PiRuntimeSession;
     title?: string;
+    model?: string;
   }): void {
     const existing = this.liveBySessionFile.get(input.sessionFile);
     const title = input.title ?? existing?.title;
+    const model = input.model ?? existing?.model;
     const entry: OmpLiveSubagentEntry = {
       subagentId: input.subagentId,
       status: input.status,
       parentRuntime: input.parentRuntime,
       ...(title ? { title } : {}),
+      ...(model ? { model } : {}),
     };
     this.liveBySessionFile.set(input.sessionFile, entry);
   }
@@ -48,6 +52,7 @@ export class OmpSubagentIndex {
     status: OmpSubagentStatus;
     parentRuntime: PiRuntimeSession;
     title?: string;
+    model?: string;
   }): void {
     this.upsert(input);
     const entry = this.liveBySessionFile.get(input.sessionFile);
