@@ -117,8 +117,23 @@ Executes [02-v1-parity.md](02-v1-parity.md) on top of the landed D1 extraction
       `npm run typecheck`, `npm run lint`, `npm run format`.
       Wave 4 review-fixes applied: title push-down now catches synchronous provider
       throws, and OMP skips whitespace-only `set_session_name` RPCs.
-- [ ] E2E config (`daemon-e2e/agent-configs.ts`: full=`yolo`, ask=`always-ask`) + CI.
-- [ ] Manual verify on web + iOS per 02-v1-parity.md Testing section.
+- [x] Waves 1–4 committed (`feat/pi-native-subagents`). omp default mode = `full`
+      (yolo), confirmed by maintainer as the intended out-of-box posture (provider is
+      disabled-by-default; pre-Wave-3 omp was yolo-or-crash).
+- [x] E2E config wired 2026-07-08: omp added to `daemon-e2e/agent-configs.ts`
+      (`allProviders`, modes full/ask) and the real-provider harness
+      (`real-provider-test-config.ts`: `realProviders`, config `modeId:"full"`, OpenRouter
+      env mirroring pi, client `OmpRpcAgentClient`, binary `OMP_COMMAND ?? "omp"`).
+      CAVEAT: omp real e2e uses pi's OpenRouter model string (`openrouter/google/
+gemini-2.5-flash-lite`) on the assumption omp shares pi's model plumbing — UNVERIFIED
+      without a live OPENROUTER_API_KEY + omp binary; tests skip (canRunRealProvider=false)
+      until both present. Confirm the model/provider string on first real omp e2e run.
+- [ ] CI push (unit/integration full suite; real e2e skips without key).
+- [ ] Manual verify on web + iOS per 02-v1-parity.md Testing section. Live-run checklist:
+      subagent card populates on a real task run; no full-mode turn hangs on an rpc-ui
+      dialog; detached subagents outliving their task produce no orphan cards;
+      `set_session_name` renames without disrupting an in-flight turn; `/mcp/agents`
+      endpoint reachable by omp's MCP client.
 
 ## Execution spec (rulings from Wave 0)
 

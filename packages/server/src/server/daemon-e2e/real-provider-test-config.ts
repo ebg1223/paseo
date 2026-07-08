@@ -9,10 +9,11 @@ import type { ProviderRuntimeSettings } from "../agent/provider-launch-config.js
 import { ClaudeAgentClient } from "../agent/providers/claude/agent.js";
 import { CodexAppServerAgentClient } from "../agent/providers/codex-app-server-agent.js";
 import { OpenCodeAgentClient } from "../agent/providers/opencode-agent.js";
+import { OmpRpcAgentClient } from "../agent/providers/omp/agent.js";
 import { PiRpcAgentClient } from "../agent/providers/pi/agent.js";
 import { isCommandAvailable } from "../../executable-resolution/executable-resolution.js";
 
-export const realProviders = ["claude", "codex", "opencode", "pi"] as const;
+export const realProviders = ["claude", "codex", "opencode", "pi", "omp"] as const;
 export type RealProvider = (typeof realProviders)[number];
 export type RealProviderConfig = Pick<
   AgentSessionConfig,
@@ -25,6 +26,9 @@ const CLAUDE_REAL_TEST_MODEL = "haiku";
 const CODEX_REAL_TEST_MODEL = "~openai/gpt-latest";
 const OPENCODE_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
 const PI_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
+// omp is a pi fork sharing pi's OpenRouter model plumbing (D1 kept the model
+// transform in pi-shared), so it uses the same real-test model.
+const OMP_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
 
 const availabilityCache = new Map<RealProvider, Promise<boolean>>();
 
@@ -54,6 +58,13 @@ export function getRealProviderConfig(provider: RealProvider): RealProviderConfi
         provider,
         model: PI_REAL_TEST_MODEL,
         thinkingOptionId: "medium",
+      };
+    case "omp":
+      return {
+        provider,
+        model: OMP_REAL_TEST_MODEL,
+        thinkingOptionId: "medium",
+        modeId: "full",
       };
   }
 }
@@ -95,6 +106,7 @@ export function getRealProviderRuntimeSettings(provider: RealProvider): Provider
       };
     }
     case "pi":
+    case "omp":
       return {
         env: {
           OPENROUTER_API_KEY: apiKey,
@@ -120,6 +132,8 @@ export function createRealProviderClient(provider: RealProvider, logger: Logger)
       return new OpenCodeAgentClient(logger, runtimeSettings);
     case "pi":
       return new PiRpcAgentClient({ logger, runtimeSettings });
+    case "omp":
+      return new OmpRpcAgentClient({ logger, runtimeSettings });
   }
 }
 
@@ -165,6 +179,9 @@ function getOpenRouterApiKeyOrNull(): string | null {
 function getProviderBinary(provider: RealProvider): string {
   if (provider === "pi") {
     return process.env.PI_COMMAND ?? process.env.PI_ACP_PI_COMMAND ?? "pi";
+  }
+  if (provider === "omp") {
+    return process.env.OMP_COMMAND ?? "omp";
   }
   return provider;
 }
