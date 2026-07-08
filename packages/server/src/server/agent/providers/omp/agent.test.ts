@@ -1,14 +1,22 @@
+import { existsSync, readFileSync } from "node:fs";
 import pino from "pino";
 import { describe, expect, test } from "vitest";
+import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 
 import modelsFixture from "./__fixtures__/get_available_models_reasoning.json" with { type: "json" };
 import commandUpdateFixture from "./__fixtures__/available_commands_update.json" with { type: "json" };
 import subagentFramesFixture from "./__fixtures__/subagent_lifecycle_progress.json" with { type: "json" };
 import todoFixture from "./__fixtures__/todo_tool_reminder_state.json" with { type: "json" };
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
+import { withRuntimePaseoMcpServer } from "../../runtime-mcp-config.js";
 import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 import type { PiModel } from "../pi-shared/rpc-types.js";
-import { OmpRpcAgentClient } from "./agent.js";
+import {
+  OMP_MODES,
+  OMP_PASEO_MCP_SYSTEM_PROMPT,
+  OmpRpcAgentClient,
+  resolveOmpLaunchMode,
+} from "./agent.js";
 import type { OmpSubagentCardScheduler } from "./subagent-card-tracker.js";
 import type { OmpSubagentLifecyclePayload, OmpSubagentProgressPayload } from "./rpc-types.js";
 
@@ -69,23 +77,36 @@ function createClient(
 async function createSession(
   pi = new FakePi(),
   options: { subagentCardScheduler?: OmpSubagentCardScheduler } = {},
+  configOverrides: Partial<AgentSessionConfig> = {},
 ): Promise<{
   pi: FakePi;
   session: AgentSession;
   events: SessionEvents;
 }> {
   const client = createClient(pi, options);
-  const session = await client.createSession(createConfig());
+  const session = await client.createSession(createConfig(configOverrides));
   const events = new SessionEvents(session);
   return { pi, session, events };
 }
 
 class SessionEvents {
   private readonly events: AgentStreamEvent[] = [];
+  private readonly waiters: Array<{
+    predicate: (event: AgentStreamEvent) => boolean;
+    resolve: (event: AgentStreamEvent) => void;
+  }> = [];
 
   constructor(session: AgentSession) {
     session.subscribe((event) => {
       this.events.push(event);
+      for (let index = 0; index < this.waiters.length; index += 1) {
+        const waiter = this.waiters[index];
+        if (waiter.predicate(event)) {
+          this.waiters.splice(index, 1);
+          index -= 1;
+          waiter.resolve(event);
+        }
+      }
     });
   }
 
@@ -122,6 +143,49 @@ class SessionEvents {
       (event): event is Extract<AgentStreamEvent, { type: "usage_updated" }> =>
         event.type === "usage_updated",
     );
+  }
+
+  permissionRequests() {
+    return this.events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "permission_requested" }> =>
+        event.type === "permission_requested",
+    );
+  }
+
+  permissionResolutions() {
+    return this.events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "permission_resolved" }> =>
+        event.type === "permission_resolved",
+    );
+  }
+
+  nextPermissionRequest(): Promise<Extract<AgentStreamEvent, { type: "permission_requested" }>> {
+    return this.nextEvent(
+      (event): event is Extract<AgentStreamEvent, { type: "permission_requested" }> =>
+        event.type === "permission_requested",
+    );
+  }
+
+  nextPermissionResolution(): Promise<Extract<AgentStreamEvent, { type: "permission_resolved" }>> {
+    return this.nextEvent(
+      (event): event is Extract<AgentStreamEvent, { type: "permission_resolved" }> =>
+        event.type === "permission_resolved",
+    );
+  }
+
+  private nextEvent<T extends AgentStreamEvent>(
+    predicate: (event: AgentStreamEvent) => event is T,
+  ): Promise<T> {
+    const existing = this.events.find(predicate);
+    if (existing) {
+      return Promise.resolve(existing);
+    }
+    return new Promise((resolve) => {
+      this.waiters.push({
+        predicate,
+        resolve: (event) => resolve(event as T),
+      });
+    });
   }
 }
 
@@ -283,6 +347,340 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 describe("OMP RPC agent", () => {
+  test("manifest and catalog expose only source-verified OMP launch-time modes", async () => {
+    const definition = getAgentProviderDefinition("omp");
+    expect(definition.defaultModeId).toBe("full");
+    expect(definition.modes).toEqual(OMP_MODES);
+    expect(definition.modes.map((mode) => mode.id)).toEqual(["full", "ask"]);
+
+    const pi = new FakePi(["omp"]);
+    const catalog = await createClient(pi).fetchCatalog({
+      scope: "workspace",
+      cwd: "/tmp/paseo-omp-modes-test",
+      force: false,
+    });
+
+    expect(catalog.modes).toEqual(OMP_MODES);
+    expect(pi.recordedLaunches[0]?.argv).toEqual([
+      "omp",
+      "--mode",
+      "rpc-ui",
+      "--approval-mode",
+      "yolo",
+    ]);
+  });
+
+  test("maps OMP modes to launch flags and reports the launch mode", async () => {
+    expect(resolveOmpLaunchMode(undefined)).toEqual({
+      modeId: "full",
+      extraArgs: ["--approval-mode", "yolo"],
+    });
+    expect(resolveOmpLaunchMode("ask")).toEqual({
+      modeId: "ask",
+      extraArgs: ["--approval-mode", "always-ask"],
+    });
+    expect(() => resolveOmpLaunchMode("plan")).toThrow("Unsupported OMP mode 'plan'");
+
+    const pi = new FakePi(["omp"]);
+    const client = createClient(pi);
+    expect(client.capabilities.supportsMcpServers).toBe(true);
+    const session = await client.createSession(createConfig({ modeId: "ask" }));
+    const launch = pi.recordedLaunches[0];
+
+    expect(session.capabilities.supportsMcpServers).toBe(true);
+    expect(launch?.systemPrompt).toBe(OMP_PASEO_MCP_SYSTEM_PROMPT);
+    expect(launch?.argv).toEqual([
+      "omp",
+      "--mode",
+      "rpc-ui",
+      "--approval-mode",
+      "always-ask",
+      "--thinking",
+      "medium",
+      "--append-system-prompt",
+      OMP_PASEO_MCP_SYSTEM_PROMPT,
+      "--extension",
+      launch?.extensionPaths?.[0],
+    ]);
+    await expect(session.getAvailableModes()).resolves.toEqual(OMP_MODES);
+    await expect(session.getCurrentMode()).resolves.toBe("ask");
+    await expect(session.getRuntimeInfo()).resolves.toMatchObject({
+      provider: "omp",
+      modeId: "ask",
+    });
+    await expect(session.setMode("full")).resolves.toEqual({
+      type: "info",
+      message:
+        "OMP approval mode is set when the agent launches. Start a new OMP session to use a different mode.",
+    });
+    await expect(session.getCurrentMode()).resolves.toBe("ask");
+  });
+
+  test("appends the OMP task-versus-Paseo-agent system prompt context", async () => {
+    const pi = new FakePi(["omp"]);
+    await createSession(
+      pi,
+      {},
+      {
+        systemPrompt: "User instructions.",
+        daemonAppendSystemPrompt: "Daemon context.",
+      },
+    );
+
+    expect(pi.recordedLaunches[0]?.systemPrompt).toBe(
+      ["User instructions.", "Daemon context.", OMP_PASEO_MCP_SYSTEM_PROMPT].join("\n\n"),
+    );
+  });
+
+  test("writes OMP MCP config without probing for pi-mcp-adapter", async () => {
+    const pi = new FakePi(["omp"]);
+    const client = createClient(pi);
+    const config = withRuntimePaseoMcpServer({
+      config: createConfig({
+        mcpServers: {
+          localSecret: {
+            type: "stdio",
+            command: "node",
+            args: ["secret-server.js"],
+            env: { SECRET_NUMBER: "314159" },
+          },
+        },
+      }),
+      agentId: "agent-omp-1",
+      mcpBaseUrl: "http://127.0.0.1:6767/mcp/agents",
+      mcpAuthToken: "secret-token",
+    });
+
+    const session = await client.createSession(config);
+
+    expect(pi.recordedLaunches).toHaveLength(1);
+    const launch = pi.recordedLaunches[0];
+    expect(launch?.mcpConfigPath).toEqual(expect.any(String));
+    expect(launch?.argv).toEqual([
+      "omp",
+      "--mode",
+      "rpc-ui",
+      "--approval-mode",
+      "yolo",
+      "--thinking",
+      "medium",
+      "--append-system-prompt",
+      OMP_PASEO_MCP_SYSTEM_PROMPT,
+      "--mcp-config",
+      launch?.mcpConfigPath,
+      "--extension",
+      launch?.extensionPaths?.[0],
+    ]);
+    expect(session.capabilities.supportsMcpServers).toBe(true);
+
+    const injectedConfig = JSON.parse(readFileSync(launch!.mcpConfigPath!, "utf8")) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(injectedConfig).toEqual({
+      mcpServers: {
+        paseo: {
+          url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-omp-1",
+          headers: { Authorization: "Bearer secret-token" },
+          auth: false,
+          oauth: false,
+        },
+        localSecret: {
+          command: "node",
+          args: ["secret-server.js"],
+          env: { SECRET_NUMBER: "314159" },
+        },
+      },
+    });
+
+    await session.close();
+    expect(existsSync(launch!.mcpConfigPath!)).toBe(false);
+  });
+
+  test("bridges OMP rpc-ui tool approval selects through tool permissions", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    await session.startTurn("run command");
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "approval-bash",
+      method: "select",
+      title: "Allow tool: bash\nCommand: echo rpc-ui-hi",
+      options: ["Approve", "Deny"],
+    });
+
+    const permission = await events.nextPermissionRequest();
+    expect(permission.request).toMatchObject({
+      id: "approval-bash",
+      provider: "omp",
+      name: "bash",
+      kind: "tool",
+      title: "Allow tool: bash",
+      detail: { type: "shell", command: "echo rpc-ui-hi" },
+      metadata: {
+        extensionUiMethod: "select",
+        toolApproval: "omp_rpc_ui_tool_approval",
+        toolName: "bash",
+        toolArgs: { command: "echo rpc-ui-hi" },
+        approveValue: "Approve",
+        denyValue: "Deny",
+      },
+    });
+    expect(session.getPendingPermissions()).toHaveLength(1);
+
+    await session.respondToPermission("approval-bash", { behavior: "allow" });
+
+    expect(fakeSession.extensionUiResponses).toEqual([
+      { id: "approval-bash", response: { value: "Approve" } },
+    ]);
+    expect(session.getPendingPermissions()).toEqual([]);
+    expect(events.permissionResolutions()).toEqual([
+      expect.objectContaining({
+        requestId: "approval-bash",
+        resolution: { behavior: "allow" },
+      }),
+    ]);
+  });
+
+  test("denies OMP rpc-ui tool approvals with the Deny select value", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "approval-write",
+      method: "select",
+      title: "Allow tool: write\nPath: created.txt\nContent:\nhello write",
+      options: ["Approve", "Deny"],
+    });
+
+    const permission = await events.nextPermissionRequest();
+    expect(permission.request).toMatchObject({
+      provider: "omp",
+      name: "write",
+      kind: "tool",
+      detail: { type: "write", filePath: "created.txt", content: "hello write" },
+    });
+
+    await session.respondToPermission("approval-write", {
+      behavior: "deny",
+      message: "No",
+    });
+
+    expect(fakeSession.extensionUiResponses).toEqual([
+      { id: "approval-write", response: { value: "Deny" } },
+    ]);
+  });
+
+  test("keeps OMP ask_user chained select and optional comment passthrough working", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "tool_execution_start",
+      toolCallId: "ask-tool-1",
+      toolName: "ask_user",
+      args: {
+        question: "Pick a path",
+        options: ["A", "B"],
+        allowComment: true,
+        allowFreeform: false,
+      },
+    });
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "ask-select",
+      method: "select",
+      title: "Pick a path",
+      options: ["A", "B"],
+    });
+
+    const permission = await events.nextPermissionRequest();
+    expect(permission.request).toMatchObject({
+      id: "ask-select",
+      provider: "omp",
+      name: "OMP ask_user",
+      kind: "question",
+      input: {
+        questions: [
+          {
+            question: "Pick a path",
+            header: "Response",
+            options: [{ label: "A" }, { label: "B" }],
+            multiSelect: false,
+          },
+          {
+            question: "Optional comment",
+            header: "Comment",
+            options: [],
+            multiSelect: false,
+            placeholder: "Optional comment (press Enter to skip)...",
+            allowEmpty: true,
+          },
+        ],
+      },
+    });
+
+    await session.respondToPermission("ask-select", {
+      behavior: "allow",
+      updatedInput: { answers: { Response: "B", Comment: "Looks good" } },
+    });
+
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "ask-comment",
+      method: "input",
+      title: "Pick a path\n\nSelected option:\n- B",
+      placeholder: "Optional comment (press Enter to skip)...",
+    });
+
+    expect(fakeSession.extensionUiResponses).toEqual([
+      { id: "ask-select", response: { value: "B" } },
+      { id: "ask-comment", response: { value: "Looks good" } },
+    ]);
+  });
+
+  test("passes unrecognized OMP rpc-ui dialogs through the existing question bridge", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "plain-select",
+      method: "select",
+      title: "Probe select",
+      options: ["first", "second"],
+    });
+
+    const permission = await events.nextPermissionRequest();
+    expect(permission.request).toMatchObject({
+      id: "plain-select",
+      provider: "omp",
+      name: "OMP select",
+      kind: "question",
+      title: "Probe select",
+      input: {
+        questions: [
+          {
+            question: "Probe select",
+            header: "Response",
+            options: [{ label: "first" }, { label: "second" }],
+            multiSelect: false,
+          },
+        ],
+      },
+    });
+
+    await session.respondToPermission("plain-select", {
+      behavior: "allow",
+      updatedInput: { answers: { Response: "second" } },
+    });
+
+    expect(fakeSession.extensionUiResponses).toEqual([
+      { id: "plain-select", response: { value: "second" } },
+    ]);
+  });
+
   test("maps fixture reasoning models to the inherited off-through-xhigh thinking ladder and gates non-reasoning models", async () => {
     const reasoningModels = readReasoningFixtureModels();
     const nonReasoningModel = nonReasoningFixtureModel();

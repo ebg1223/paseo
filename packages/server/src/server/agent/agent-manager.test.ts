@@ -36,6 +36,9 @@ import type {
 } from "./agent-sdk-types.js";
 import type { PaseoToolCatalog } from "./tools/types.js";
 import type { ProviderDefinition } from "./provider-registry.js";
+import { FakePi } from "./providers/pi-shared/test-utils/fake-pi.js";
+import { OmpRpcAgentClient } from "./providers/omp/agent.js";
+import { PiRpcAgentClient } from "./providers/pi/agent.js";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -158,6 +161,18 @@ class NativeArchiveRecordingClient extends TestAgentClient {
     if (this.unarchiveFailure) {
       throw this.unarchiveFailure;
     }
+  }
+}
+
+class AvailableOmpClient extends OmpRpcAgentClient {
+  override async isAvailable(): Promise<boolean> {
+    return true;
+  }
+}
+
+class AvailablePiClient extends PiRpcAgentClient {
+  override async isAvailable(): Promise<boolean> {
+    return true;
   }
 }
 
@@ -2229,6 +2244,169 @@ test("setTitle bumps updatedAt and persists title in the same snapshot write", a
   const live = manager.getAgent(snapshot.id);
   expect(live).not.toBeNull();
   expect(live!.updatedAt.getTime()).toBeGreaterThan(Date.parse(before!.updatedAt));
+});
+
+test("setTitle and live metadata updates push generated titles down to OMP", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-omp-title-"));
+  const pi = new FakePi(["omp"]);
+  const manager = new AgentManager({
+    clients: {
+      omp: new AvailableOmpClient({
+        logger,
+        runtime: pi,
+      }),
+    },
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-00000000a401",
+  });
+
+  const snapshot = await manager.createAgent(
+    {
+      provider: "omp",
+      cwd: workdir,
+    },
+    undefined,
+    { initialTitle: "Initial title", workspaceId: undefined },
+  );
+  const session = pi.latestSession();
+
+  expect(session.sessionNameRequests).toEqual(["Initial title"]);
+
+  await manager.setTitle(snapshot.id, "Generated title");
+  await manager.updateAgentMetadata(snapshot.id, {
+    title: "Metadata title",
+  });
+
+  expect(session.sessionNameRequests).toEqual([
+    "Initial title",
+    "Generated title",
+    "Metadata title",
+  ]);
+});
+
+test("OMP title push-down failures are debug-logged and do not fail setTitle", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-omp-title-failure-"));
+  const pi = new FakePi(["omp"]);
+  const rootLogger = createTestLogger();
+  const managerLogger = rootLogger.child({});
+  const debugSpy = vi.spyOn(managerLogger, "debug");
+  vi.spyOn(rootLogger, "child").mockReturnValue(managerLogger);
+  const manager = new AgentManager({
+    clients: {
+      omp: new AvailableOmpClient({
+        logger: rootLogger,
+        runtime: pi,
+      }),
+    },
+    logger: rootLogger,
+    idFactory: () => "00000000-0000-4000-8000-00000000a402",
+  });
+
+  const snapshot = await manager.createAgent(
+    {
+      provider: "omp",
+      cwd: workdir,
+    },
+    undefined,
+    { workspaceId: undefined },
+  );
+  pi.latestSession().setSessionNameError = new Error("set_session_name failed");
+
+  await expect(manager.setTitle(snapshot.id, "Generated title")).resolves.toBeUndefined();
+  await vi.waitFor(() => {
+    expect(debugSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        agentId: snapshot.id,
+        provider: "omp",
+      }),
+      "Failed to notify provider of title change",
+    );
+  });
+});
+
+test("synchronous provider title notification failures are debug-logged and do not fail setTitle", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-sync-title-failure-"));
+  const storagePath = join(workdir, "agents");
+  const storage = new AgentStorage(storagePath, logger);
+  const rootLogger = createTestLogger();
+  const managerLogger = rootLogger.child({});
+  const debugSpy = vi.spyOn(managerLogger, "debug");
+  vi.spyOn(rootLogger, "child").mockReturnValue(managerLogger);
+
+  class SyncThrowTitleSession extends TestAgentSession {
+    notifyTitleChanged(): void {
+      throw new Error("sync title failure");
+    }
+  }
+
+  class SyncThrowTitleClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      this.createdConfigs.push(config);
+      return new SyncThrowTitleSession(config);
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: {
+      codex: new SyncThrowTitleClient(),
+    },
+    registry: storage,
+    logger: rootLogger,
+    idFactory: () => "00000000-0000-4000-8000-00000000a404",
+  });
+
+  const snapshot = await manager.createAgent(
+    {
+      provider: "codex",
+      cwd: workdir,
+    },
+    undefined,
+    { workspaceId: undefined },
+  );
+
+  await expect(manager.setTitle(snapshot.id, "Generated title")).resolves.toBeUndefined();
+  expect((await storage.get(snapshot.id))?.title).toBe("Generated title");
+  expect(manager.getAgent(snapshot.id)?.lifecycle).toBe("idle");
+  await vi.waitFor(() => {
+    expect(debugSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        agentId: snapshot.id,
+        provider: "codex",
+      }),
+      "Failed to notify provider of title change",
+    );
+  });
+});
+
+test("setTitle does not push titles down to Pi sessions", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-pi-title-"));
+  const pi = new FakePi(["pi"]);
+  const manager = new AgentManager({
+    clients: {
+      pi: new AvailablePiClient({
+        logger,
+        runtime: pi,
+      }),
+    },
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-00000000a403",
+  });
+
+  const snapshot = await manager.createAgent(
+    {
+      provider: "pi",
+      cwd: workdir,
+    },
+    undefined,
+    { initialTitle: "Initial title", workspaceId: undefined },
+  );
+  const session = pi.latestSession();
+
+  await manager.setTitle(snapshot.id, "Generated title");
+
+  expect(session.sessionNameRequests).toEqual([]);
 });
 
 test("updateAgentMetadata bumps updatedAt for stored agents", async () => {

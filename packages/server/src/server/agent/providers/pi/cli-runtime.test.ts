@@ -156,6 +156,35 @@ describe("PiCliRuntime", () => {
     ]);
   });
 
+  test("does not append rpc mode when the configured command already includes a mode flag", async () => {
+    const child = createPiChild();
+    replyToCommands(child, () => ({}));
+    const launches: PiRuntimeLaunch[] = [];
+    const runtime = new PiCliRuntime({
+      logger: pino({ level: "silent" }),
+      command: ["pi"],
+      runtimeSettings: {
+        command: {
+          mode: "replace",
+          argv: ["custom-pi", "--mode", "json"],
+        },
+      },
+      spawnProcess: (launch) => {
+        launches.push(launch);
+        return child;
+      },
+    });
+
+    await runtime.startSession({ cwd: "/workspace/project" });
+
+    expect(launches).toEqual([
+      expect.objectContaining({
+        cwd: "/workspace/project",
+        argv: ["custom-pi", "--mode", "json"],
+      }),
+    ]);
+  });
+
   test("passes an appended system prompt to Pi", async () => {
     const child = createPiChild();
     replyToCommands(child, () => ({}));

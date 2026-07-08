@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { OMP_MODES } from "@getpaseo/protocol/provider-manifest";
 
 import type {
   AgentTimelineItem,
@@ -34,11 +35,34 @@ import { OmpSubagentIndex, isTerminalOmpSubagentStatus } from "./subagent-index.
 import { mapOmpToolDetail } from "./tool-call-mapper.js";
 import { mapOmpUsage } from "./usage-mapper.js";
 import { OmpVirtualChildSession } from "./virtual-child-session.js";
+import {
+  buildOmpRpcUiPermissionResponse,
+  mapOmpRpcUiPermissionRequest,
+} from "./rpc-ui-permission-mapper.js";
 
 const OMP_PROVIDER = "omp";
 const OMP_SESSION_DIR = "~/.omp/agent/sessions";
 // Fixture-backed Wave 1 parity targets OMP 16.3.9; runtime logic uses capability probing.
 export const MIN_SUPPORTED_OMP_VERSION = "16.3.9";
+const DEFAULT_OMP_MODE_ID = "full";
+export const OMP_PASEO_MCP_SYSTEM_PROMPT =
+  "OMP task tool = fast in-process helpers. Paseo create_agent = independent, user-visible agents.";
+export { OMP_MODES };
+
+export function resolveOmpLaunchMode(modeId: string | undefined): {
+  modeId: string;
+  extraArgs: string[];
+} {
+  const normalizedModeId = modeId ?? DEFAULT_OMP_MODE_ID;
+  switch (normalizedModeId) {
+    case "full":
+      return { modeId: "full", extraArgs: ["--approval-mode", "yolo"] };
+    case "ask":
+      return { modeId: "ask", extraArgs: ["--approval-mode", "always-ask"] };
+    default:
+      throw new Error(`Unsupported OMP mode '${normalizedModeId}'`);
+  }
+}
 
 export interface OmpRpcAgentClientOptions extends Omit<PiRpcAgentClientOptions, "dialect"> {
   subagentCardScheduler?: OmpSubagentCardScheduler;
@@ -98,10 +122,24 @@ function createOmpDialect(
     label: "OMP",
     defaultCommand: ["omp"],
     commandsRpcName: "get_available_commands",
+    protocolMode: "rpc-ui",
+    supportsMcpServers: true,
+    appendSystemPrompt: OMP_PASEO_MCP_SYSTEM_PROMPT,
+    modes: OMP_MODES,
+    defaultModeId: DEFAULT_OMP_MODE_ID,
+    resolveLaunchMode: resolveOmpLaunchMode,
+    setModeNotice: () => ({
+      type: "info",
+      message:
+        "OMP approval mode is set when the agent launches. Start a new OMP session to use a different mode.",
+    }),
     defaultSessionDir: OMP_SESSION_DIR,
     ...OMP_HISTORY_MAPPER_HOOKS,
     handledBuiltinSlashCommands: OMP_HANDLED_BUILTIN_SLASH_COMMANDS,
     mapSlashCommands: mapOmpRuntimeSlashCommands,
+    mapExtensionUiRequestToPermission: (event) =>
+      mapOmpRpcUiPermissionRequest(event, { provider: OMP_PROVIDER }),
+    buildExtensionUiResponse: buildOmpRpcUiPermissionResponse,
     mapHydratedTimelineItems: mapOmpTodoState,
     mapToolDetail: (toolCall, result, context) =>
       mapOmpToolDetail(toolCall, result, {
@@ -118,6 +156,9 @@ function createOmpDialect(
         .catch((error: unknown) => {
           sessionLogger.debug({ err: error }, "OMP subagent subscription unavailable");
         });
+    },
+    notifyTitleChanged: async ({ runtimeSession, title }) => {
+      await asOmpRuntimeSession(runtimeSession).setSessionName(title);
     },
     onSessionClose: (runtimeSession) => {
       subagentIndex.clearParent(runtimeSession);

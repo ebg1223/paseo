@@ -69,8 +69,54 @@ Executes [02-v1-parity.md](02-v1-parity.md) on top of the landed D1 extraction
       Review fixes: task-arg agent type stays stable, sparse batch prefixes use max-index totals,
       suppressible active-call re-emits return false, tracked details preserve `actions` omission,
       and orphan lifecycle frames still emit `child_session` events.
-- [ ] Wave 3 (§3 approvals + §4 modes — riskiest; strongest implementer + opus review).
-- [ ] Wave 4 (§9 MCP unconditional + §8 title push-down).
+- [x] Wave 3 (§3 approvals + §4 modes — riskiest) — implemented 2026-07-08 UTC.
+      Landed: OMP launches through the Pi-compatible runtime with `--mode rpc-ui` and
+      launch-time approval modes `full`→`--approval-mode yolo` and
+      `ask`→`--approval-mode always-ask`; Pi remains on `--mode rpc`. OMP `rpc-ui`
+      tool-approval `select` frames are upgraded to Paseo `kind:"tool"` permissions only
+      when they exactly match the fixture/source signals (`["Approve","Deny"]`, title
+      `Allow tool: bash|edit|write`, and the matching `Command:`/`File:`/`Path:` +
+      `Content:` detail). Unrecognized dialogs, including ordinary selects and ask_user
+      select+optional-comment chains, still fall through to the shared extension-UI question
+      bridge. Tool approval responses send the exact selected OMP values (`Approve`/`Deny`);
+      no allow-always value exists in OMP 16.3.9 source/fixtures, so any Paseo allow-always
+      action collapses to `Approve`. The shared bridge now stamps extension-UI question
+      permissions with the dialect provider instead of hardcoded `pi`.
+      Plan-mode verdict: not shipped in the OMP manifest. Upstream `--plan <value>` is a
+      planning model-role override, while actual plan mode is interactive `/plan` or ACP
+      `session/setMode`; no RPC/rpc-ui launch flag or mid-session RPC command exists for
+      headless plan mode in 16.3.9. Verification passed: mapper fixture test, OMP agent test,
+      Pi `agent.test.ts`, Pi `cli-runtime.test.ts`, `npm run build:client`,
+      `npm run typecheck`, `npm run lint`, `npm run format`.
+- [x] Wave 4 (§9 MCP unconditional + §8 title push-down) — implemented
+      2026-07-08 UTC.
+      Landed: Wave 3 nits fixed by exporting `OMP_MODES` from the protocol manifest
+      and importing/re-exporting it in the OMP server adapter, plus a Pi runtime launch
+      test proving an explicit custom `--mode X` suppresses the appended `--mode rpc`.
+      OMP now advertises `supportsMcpServers:true` from the dialect and skips the
+      Pi-only `pi-mcp-adapter` probe while still using the shared per-agent
+      `--mcp-config` file writer. The generated config remains `{mcpServers}` and maps
+      HTTP/SSE entries, including the injected Paseo `/mcp/agents` endpoint, to
+      `auth:false` and `oauth:false`; upstream OMP 16.3.9 accepts this shape via
+      `MCPConfigFile.mcpServers` / `MCPServerConfig` and documents `oauth:false` as
+      the way to skip OAuth credential injection.
+      OMP-only appended system prompt copy:
+      `OMP task tool = fast in-process helpers. Paseo create_agent = independent, user-visible agents.`
+      Title push-down ships through the new optional server-internal
+      `AgentSession.notifyTitleChanged?(title: string): void | Promise<void>` hook.
+      `AgentManager` invokes it best-effort after initial title registration and after
+      `setTitle`; live `updateAgentMetadata({title})` already routes through `setTitle`.
+      Errors are debug-logged and never fail the caller. OMP implements the hook with
+      `set_session_name` over the generic RPC request escape hatch; Pi does not implement
+      the optional hook. Upstream RPC evidence: command
+      `{id?, type:"set_session_name", name:string}` and success response
+      `{id?, type:"response", command:"set_session_name", success:true}`; `rpc-mode.ts`
+      trims/rejects empty names then calls `session.setSessionName(name, "user")`.
+      Verification passed: OMP agent test, AgentManager test, provider wrapper
+      test, Pi `agent.test.ts`, Pi `cli-runtime.test.ts`, `npm run build:client`,
+      `npm run typecheck`, `npm run lint`, `npm run format`.
+      Wave 4 review-fixes applied: title push-down now catches synchronous provider
+      throws, and OMP skips whitespace-only `set_session_name` RPCs.
 - [ ] E2E config (`daemon-e2e/agent-configs.ts`: full=`yolo`, ask=`always-ask`) + CI.
 - [ ] Manual verify on web + iOS per 02-v1-parity.md Testing section.
 

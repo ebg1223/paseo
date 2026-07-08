@@ -16,6 +16,7 @@ import {
   type McpServerConfig,
   type AgentPermissionRequest,
   type AgentPermissionResponse,
+  type AgentProviderNotice,
   type AgentPersistenceHandle,
   type AgentPromptInput,
   type AgentProvider,
@@ -197,6 +198,7 @@ interface PiPersistenceMetadata {
   cwd?: string;
   model?: string;
   thinkingOptionId?: string;
+  modeId?: string;
   systemPrompt?: string;
 }
 
@@ -226,6 +228,16 @@ export interface PiDialect {
   label: string;
   defaultCommand: [string, ...string[]];
   commandsRpcName: string;
+  protocolMode?: "rpc" | "rpc-ui";
+  supportsMcpServers?: boolean;
+  appendSystemPrompt?: string;
+  modes?: readonly AgentMode[];
+  defaultModeId?: string;
+  resolveLaunchMode?: (modeId: string | undefined) => {
+    modeId: string;
+    extraArgs?: string[];
+  };
+  setModeNotice?: (modeId: string) => AgentProviderNotice;
   defaultSessionDir?: string;
   mapCustomMessage?: (
     text: string,
@@ -253,6 +265,17 @@ export interface PiDialect {
   onSessionInterrupt?: (runtimeSession: PiRuntimeSession) => void;
   onSessionClose?: (runtimeSession: PiRuntimeSession) => void;
   handleExtraRuntimeEvent?: (event: PiRuntimeEvent, context: PiExtraRuntimeEventContext) => boolean;
+  mapExtensionUiRequestToPermission?: (
+    event: Extract<PiRuntimeEvent, { type: "extension_ui_request" }>,
+  ) => AgentPermissionRequest | null;
+  buildExtensionUiResponse?: (
+    request: AgentPermissionRequest,
+    response: AgentPermissionResponse,
+  ) => { value?: string; confirmed?: boolean; cancelled?: boolean } | null;
+  notifyTitleChanged?: (input: {
+    runtimeSession: PiRuntimeSession;
+    title: string;
+  }) => void | Promise<void>;
   onToolExecutionEnd?: (input: {
     event: Extract<PiAgentSessionEvent, { type: "tool_execution_end" }>;
     result: PiToolResult;
@@ -278,6 +301,28 @@ const PI_DIALECT: PiDialect = {
   commandsRpcName: "get_commands",
 };
 
+function resolveDialectLaunchMode(
+  dialect: PiDialect,
+  requestedModeId: string | undefined,
+): { modeId: string | null; extraArgs?: string[] } {
+  if (!dialect.resolveLaunchMode) {
+    return { modeId: null };
+  }
+  const resolved = dialect.resolveLaunchMode(requestedModeId ?? dialect.defaultModeId);
+  return {
+    modeId: resolved.modeId,
+    ...(resolved.extraArgs ? { extraArgs: resolved.extraArgs } : {}),
+  };
+}
+
+function capabilitiesForClient(dialect: PiDialect): AgentCapabilityFlags {
+  return withPiMcpCapability(dialect.supportsMcpServers === true);
+}
+
+function capabilitiesForSession(dialect: PiDialect, hasMcpConfig: boolean): AgentCapabilityFlags {
+  return withPiMcpCapability(dialect.supportsMcpServers === true || hasMcpConfig);
+}
+
 interface StartTurnResult {
   turnId: string;
 }
@@ -288,6 +333,7 @@ interface PiRpcAgentSessionOptions {
   initialState: PiSessionState;
   capabilities: AgentCapabilityFlags;
   dialect: PiDialect;
+  currentModeId?: string | null;
   logger: Logger;
   cleanup?: () => void;
   extensionTimeoutMs?: number;
@@ -297,6 +343,7 @@ interface PiResumeConfig {
   cwd: string;
   model?: string;
   thinkingOptionId?: string;
+  modeId?: string;
   config: AgentSessionConfig;
 }
 
@@ -347,6 +394,8 @@ interface PendingCombinedAskUserResponse {
 }
 
 interface ExtensionUiMappingOptions {
+  provider?: AgentProvider;
+  label?: string;
   combineOptionalComment?: boolean;
   allowFreeform?: boolean;
 }
@@ -530,6 +579,7 @@ function parsePersistenceMetadata(metadata: AgentMetadata | undefined): PiPersis
     ...(typeof metadata.thinkingOptionId === "string"
       ? { thinkingOptionId: metadata.thinkingOptionId }
       : {}),
+    ...(typeof metadata.modeId === "string" ? { modeId: metadata.modeId } : {}),
     ...(typeof metadata.systemPrompt === "string" ? { systemPrompt: metadata.systemPrompt } : {}),
   };
 }
@@ -543,16 +593,19 @@ function buildResumeConfig(
   const cwd = overrideConfig.cwd ?? metadata.cwd ?? process.cwd();
   const model = overrideConfig.model ?? metadata.model;
   const thinkingOptionId = overrideConfig.thinkingOptionId ?? metadata.thinkingOptionId;
+  const modeId = overrideConfig.modeId ?? metadata.modeId;
   return {
     cwd,
     model,
     thinkingOptionId,
+    modeId,
     config: {
       ...overrideConfig,
       provider,
       cwd,
       model,
       thinkingOptionId,
+      modeId,
       systemPrompt: overrideConfig.systemPrompt ?? metadata.systemPrompt,
     },
   };
@@ -861,17 +914,23 @@ function mapExtensionUiRequestToPermission(
   event: Extract<PiRuntimeEvent, { type: "extension_ui_request" }>,
   options: ExtensionUiMappingOptions = {},
 ): AgentPermissionRequest | null {
+  const provider = options.provider ?? PI_PROVIDER;
+  const label = options.label ?? "Pi";
   switch (event.method) {
     case "select": {
       const selectOptions = readStringArray(event.options);
       if (options.combineOptionalComment) {
         return buildCombinedAskUserQuestionPermission(event, {
+          provider,
+          label,
           question: optionalString(event.title) ?? "Select an option",
           options: selectOptions,
           allowFreeform: options.allowFreeform === true,
         });
       }
       return buildExtensionUiQuestionPermission(event, {
+        provider,
+        label,
         question: optionalString(event.title) ?? "Select an option",
         options: selectOptions,
         multiSelect: false,
@@ -882,6 +941,8 @@ function mapExtensionUiRequestToPermission(
       const title = optionalString(event.title);
       const allowEmpty = isOptionalInputPlaceholder(placeholder);
       return buildExtensionUiQuestionPermission(event, {
+        provider,
+        label,
         question: getInputQuestionTitle(title, placeholder),
         options: [],
         multiSelect: false,
@@ -891,12 +952,16 @@ function mapExtensionUiRequestToPermission(
     }
     case "editor":
       return buildExtensionUiQuestionPermission(event, {
+        provider,
+        label,
         question: optionalString(event.title) ?? "Edit text",
         options: [],
         multiSelect: false,
       });
     case "confirm":
       return buildExtensionUiQuestionPermission(event, {
+        provider,
+        label,
         question: [optionalString(event.title), optionalString(event.message)]
           .filter(Boolean)
           .join("\n\n"),
@@ -942,6 +1007,8 @@ function isPiAgentSessionEvent(event: PiRuntimeEvent): event is PiAgentSessionEv
 function buildExtensionUiQuestionPermission(
   event: Extract<PiRuntimeEvent, { type: "extension_ui_request" }>,
   input: {
+    provider: AgentProvider;
+    label: string;
     question: string;
     options: string[];
     multiSelect: boolean;
@@ -952,8 +1019,8 @@ function buildExtensionUiQuestionPermission(
 ): AgentPermissionRequest {
   return {
     id: event.id,
-    provider: PI_PROVIDER,
-    name: `Pi ${event.method}`,
+    provider: input.provider,
+    name: `${input.label} ${event.method}`,
     kind: "question",
     title: input.question,
     input: {
@@ -979,6 +1046,8 @@ function buildExtensionUiQuestionPermission(
 function buildCombinedAskUserQuestionPermission(
   event: Extract<PiRuntimeEvent, { type: "extension_ui_request" }>,
   input: {
+    provider: AgentProvider;
+    label: string;
     question: string;
     options: string[];
     allowFreeform: boolean;
@@ -988,8 +1057,8 @@ function buildCombinedAskUserQuestionPermission(
   const allowOther = input.allowFreeform || visibleOptions.length !== input.options.length;
   return {
     id: event.id,
-    provider: PI_PROVIDER,
-    name: "Pi ask_user",
+    provider: input.provider,
+    name: `${input.label} ask_user`,
     kind: "question",
     title: input.question,
     input: {
@@ -1124,6 +1193,7 @@ function createRuntime(
 export class PiRpcAgentSession implements AgentSession {
   readonly provider: AgentProvider;
   readonly capabilities: AgentCapabilityFlags;
+  readonly notifyTitleChanged?: (title: string) => Promise<void>;
 
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly activeToolCalls = new Map<string, PiTrackedToolCall>();
@@ -1143,6 +1213,7 @@ export class PiRpcAgentSession implements AgentSession {
   private outOfBandCompactionCompleted = false;
   private commandCache: AgentSlashCommand[] | null = null;
   private state: PiSessionState;
+  private readonly currentModeId: string | null;
   private closed = false;
 
   constructor(options: PiRpcAgentSessionOptions) {
@@ -1152,8 +1223,17 @@ export class PiRpcAgentSession implements AgentSession {
     this.capabilities = options.capabilities;
     this.dialect = options.dialect;
     this.provider = options.dialect.providerId;
+    this.currentModeId = options.currentModeId ?? null;
     this.logger = options.logger;
     this.cleanup = options.cleanup;
+    if (options.dialect.notifyTitleChanged) {
+      this.notifyTitleChanged = async (title: string) => {
+        await options.dialect.notifyTitleChanged?.({
+          runtimeSession: this.runtimeSession,
+          title,
+        });
+      };
+    }
     this.lastKnownThinkingOptionId =
       normalizePiThinkingOption(options.config.thinkingOptionId) ??
       this.state.thinkingLevel ??
@@ -1255,20 +1335,26 @@ export class PiRpcAgentSession implements AgentSession {
         this.lastKnownThinkingOptionId,
         this.state.thinkingLevel,
       ),
-      modeId: null,
+      modeId: this.currentModeId,
     };
   }
 
   async getAvailableModes(): Promise<AgentMode[]> {
-    return [];
+    return [...(this.dialect.modes ?? [])];
   }
 
   async getCurrentMode(): Promise<string | null> {
-    return null;
+    return this.currentModeId;
   }
 
-  async setMode(modeId: string): Promise<void> {
-    void modeId;
+  async setMode(modeId: string): Promise<void | AgentProviderNotice> {
+    const modes = this.dialect.modes;
+    if (modes) {
+      if (!modes.some((mode) => mode.id === modeId)) {
+        throw new Error(`Invalid ${this.dialect.label} mode '${modeId}'`);
+      }
+      return this.dialect.setModeNotice?.(modeId);
+    }
     throw new Error("Pi does not expose selectable modes");
   }
 
@@ -1290,7 +1376,8 @@ export class PiRpcAgentSession implements AgentSession {
     } else {
       this.runtimeSession.respondToExtensionUiRequest(
         requestId,
-        buildExtensionUiResponse(request, response),
+        this.dialect.buildExtensionUiResponse?.(request, response) ??
+          buildExtensionUiResponse(request, response),
       );
     }
     this.emit({
@@ -1311,6 +1398,7 @@ export class PiRpcAgentSession implements AgentSession {
         cwd: this.config.cwd,
         ...(this.config.model ? { model: this.config.model } : {}),
         ...(this.config.thinkingOptionId ? { thinkingOptionId: this.config.thinkingOptionId } : {}),
+        ...(this.currentModeId ? { modeId: this.currentModeId } : {}),
       },
     };
   }
@@ -1729,10 +1817,14 @@ export class PiRpcAgentSession implements AgentSession {
       event.method === "select" &&
       this.activeAskUserDialog?.allowComment === true &&
       this.activeAskUserDialog.allowMultiple === false;
-    const request = mapExtensionUiRequestToPermission(event, {
-      combineOptionalComment: shouldCombineOptionalComment,
-      allowFreeform: this.activeAskUserDialog?.allowFreeform,
-    });
+    const request =
+      this.dialect.mapExtensionUiRequestToPermission?.(event) ??
+      mapExtensionUiRequestToPermission(event, {
+        provider: this.provider,
+        label: this.dialect.label,
+        combineOptionalComment: shouldCombineOptionalComment,
+        allowFreeform: this.activeAskUserDialog?.allowFreeform,
+      });
     if (!request) {
       return;
     }
@@ -2116,7 +2208,7 @@ export class PiRpcAgentSession implements AgentSession {
 
 export class PiRpcAgentClient implements AgentClient {
   readonly provider: AgentProvider;
-  readonly capabilities = PI_CAPABILITIES;
+  readonly capabilities: AgentCapabilityFlags;
 
   private readonly logger: Logger;
   private readonly runtimeSettings?: ProviderRuntimeSettings;
@@ -2127,6 +2219,7 @@ export class PiRpcAgentClient implements AgentClient {
   constructor(options: PiRpcAgentClientOptions) {
     this.dialect = options.dialect ?? PI_DIALECT;
     this.provider = this.dialect.providerId;
+    this.capabilities = capabilitiesForClient(this.dialect);
     this.logger = options.logger;
     this.runtimeSettings = options.runtimeSettings;
     this.providerParams = PiProviderParamsSchema.parse(
@@ -2143,16 +2236,21 @@ export class PiRpcAgentClient implements AgentClient {
   ): Promise<AgentSession> {
     const mcpConfig = await this.prepareMcpConfig(config.cwd, config.mcpServers);
     const paseoExtension = createPiPaseoExtensionFile();
+    const launchMode = resolveDialectLaunchMode(this.dialect, config.modeId);
     let runtimeSession: PiRuntimeSession;
     try {
       runtimeSession = await this.runtime.startSession({
         cwd: config.cwd,
+        protocolMode: this.dialect.protocolMode,
         model: config.model,
         thinkingOptionId:
           normalizePiThinkingOption(config.thinkingOptionId) ?? DEFAULT_PI_THINKING_LEVEL,
+        ...(launchMode.modeId ? { modeId: launchMode.modeId } : {}),
+        ...(launchMode.extraArgs ? { extraArgs: launchMode.extraArgs } : {}),
         systemPrompt: composeSystemPromptParts(
           config.systemPrompt,
           config.daemonAppendSystemPrompt,
+          this.dialect.appendSystemPrompt,
         ),
         env: launchContext?.env,
         mcpConfigPath: mcpConfig?.path,
@@ -2168,8 +2266,9 @@ export class PiRpcAgentClient implements AgentClient {
         runtimeSession,
         config,
         initialState: await runtimeSession.getState(),
-        capabilities: withPiMcpCapability(mcpConfig !== null),
+        capabilities: capabilitiesForSession(this.dialect, mcpConfig !== null),
         dialect: this.dialect,
+        currentModeId: launchMode.modeId,
         logger: this.logger,
         cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
@@ -2197,16 +2296,21 @@ export class PiRpcAgentClient implements AgentClient {
 
     const mcpConfig = await this.prepareMcpConfig(resumeConfig.cwd, resumeConfig.config.mcpServers);
     const paseoExtension = createPiPaseoExtensionFile();
+    const launchMode = resolveDialectLaunchMode(this.dialect, resumeConfig.modeId);
     let runtimeSession: PiRuntimeSession;
     try {
       runtimeSession = await this.runtime.startSession({
         cwd: resumeConfig.cwd,
+        protocolMode: this.dialect.protocolMode,
         session: sessionFile,
         model: resumeConfig.model,
         thinkingOptionId: normalizePiThinkingOption(resumeConfig.thinkingOptionId) ?? undefined,
+        ...(launchMode.modeId ? { modeId: launchMode.modeId } : {}),
+        ...(launchMode.extraArgs ? { extraArgs: launchMode.extraArgs } : {}),
         systemPrompt: composeSystemPromptParts(
           resumeConfig.config.systemPrompt,
           resumeConfig.config.daemonAppendSystemPrompt,
+          this.dialect.appendSystemPrompt,
         ),
         mcpConfigPath: mcpConfig?.path,
         extensionPaths: [paseoExtension.path],
@@ -2221,8 +2325,9 @@ export class PiRpcAgentClient implements AgentClient {
         runtimeSession,
         config: resumeConfig.config,
         initialState: await runtimeSession.getState(),
-        capabilities: withPiMcpCapability(mcpConfig !== null),
+        capabilities: capabilitiesForSession(this.dialect, mcpConfig !== null),
         dialect: this.dialect,
+        currentModeId: launchMode.modeId,
         logger: this.logger,
         cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
@@ -2236,14 +2341,18 @@ export class PiRpcAgentClient implements AgentClient {
   }
 
   async fetchCatalog(options: FetchCatalogOptions): Promise<ProviderCatalog> {
+    const launchMode = resolveDialectLaunchMode(this.dialect, undefined);
     const runtimeSession = await this.runtime.startSession({
       cwd: options.scope === "global" ? homedir() : options.cwd,
+      protocolMode: this.dialect.protocolMode,
+      ...(launchMode.modeId ? { modeId: launchMode.modeId } : {}),
+      ...(launchMode.extraArgs ? { extraArgs: launchMode.extraArgs } : {}),
     });
     try {
       const models = transformPiModels(
         (await runtimeSession.getAvailableModels(PI_CATALOG_REQUEST_TIMEOUT_MS)).map(mapPiModel),
       );
-      return { models, modes: [] };
+      return { models, modes: [...(this.dialect.modes ?? [])] };
     } finally {
       await runtimeSession.close();
     }
@@ -2322,6 +2431,9 @@ export class PiRpcAgentClient implements AgentClient {
   ): Promise<PiMcpConfigFile | null> {
     if (!servers || Object.keys(servers).length === 0) {
       return null;
+    }
+    if (this.dialect.supportsMcpServers === true) {
+      return createPiMcpConfigFile(servers);
     }
     if (!(await this.detectMcpAdapter(cwd))) {
       return null;

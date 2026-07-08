@@ -12,23 +12,29 @@ export interface PiRuntimeLaunch {
   cwd: string;
   argv: string[];
   env?: Record<string, string>;
+  protocolMode?: "rpc" | "rpc-ui";
   model?: string;
   thinkingOptionId?: string;
+  modeId?: string;
   session?: string;
   systemPrompt?: string;
   mcpConfigPath?: string;
   extensionPaths?: string[];
+  extraArgs?: string[];
 }
 
 export interface PiStartSessionInput {
   cwd: string;
   env?: Record<string, string>;
+  protocolMode?: "rpc" | "rpc-ui";
   model?: string;
   thinkingOptionId?: string;
+  modeId?: string;
   session?: string;
   systemPrompt?: string;
   mcpConfigPath?: string;
   extensionPaths?: string[];
+  extraArgs?: string[];
 }
 
 export interface PiRuntimeSession {
@@ -71,28 +77,9 @@ export function buildPiLaunch(input: {
       : input.command;
   const argv = [...command];
 
-  if (!hasModeRpc(argv)) {
-    argv.push("--mode", "rpc");
-  }
-  if (input.session.model) {
-    argv.push("--model", input.session.model);
-  }
-  if (input.session.thinkingOptionId) {
-    argv.push("--thinking", input.session.thinkingOptionId);
-  }
-  if (input.session.session) {
-    argv.push("--session", input.session.session);
-  }
+  const protocolMode = input.session.protocolMode ?? "rpc";
   const systemPrompt = input.session.systemPrompt?.trim();
-  if (systemPrompt) {
-    argv.push("--append-system-prompt", systemPrompt);
-  }
-  if (input.session.mcpConfigPath) {
-    argv.push("--mcp-config", input.session.mcpConfigPath);
-  }
-  for (const extensionPath of input.session.extensionPaths ?? []) {
-    argv.push("--extension", extensionPath);
-  }
+  appendPiLaunchArgs(argv, input.session, protocolMode, systemPrompt);
 
   return {
     cwd: input.session.cwd,
@@ -106,19 +93,54 @@ export function buildPiLaunch(input: {
         : undefined,
     model: input.session.model,
     thinkingOptionId: input.session.thinkingOptionId,
+    protocolMode,
+    modeId: input.session.modeId,
     session: input.session.session,
     systemPrompt,
     mcpConfigPath: input.session.mcpConfigPath,
     extensionPaths: input.session.extensionPaths,
+    extraArgs: input.session.extraArgs,
   };
 }
 
-function hasModeRpc(argv: string[]): boolean {
+function appendPiLaunchArgs(
+  argv: string[],
+  session: PiStartSessionInput,
+  protocolMode: "rpc" | "rpc-ui",
+  systemPrompt: string | undefined,
+): void {
+  if (!hasModeFlag(argv)) {
+    argv.push("--mode", protocolMode);
+  }
+  if (session.extraArgs?.length) {
+    argv.push(...session.extraArgs);
+  }
+  if (session.model) {
+    argv.push("--model", session.model);
+  }
+  if (session.thinkingOptionId) {
+    argv.push("--thinking", session.thinkingOptionId);
+  }
+  if (session.session) {
+    argv.push("--session", session.session);
+  }
+  if (systemPrompt) {
+    argv.push("--append-system-prompt", systemPrompt);
+  }
+  if (session.mcpConfigPath) {
+    argv.push("--mcp-config", session.mcpConfigPath);
+  }
+  for (const extensionPath of session.extensionPaths ?? []) {
+    argv.push("--extension", extensionPath);
+  }
+}
+
+function hasModeFlag(argv: string[]): boolean {
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--mode" && argv[i + 1] === "rpc") {
+    if (argv[i] === "--mode") {
       return true;
     }
-    if (argv[i] === "--mode=rpc") {
+    if (argv[i]?.startsWith("--mode=")) {
       return true;
     }
   }

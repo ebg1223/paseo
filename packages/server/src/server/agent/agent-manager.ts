@@ -1403,6 +1403,22 @@ export class AgentManager {
     this.touchUpdatedAt(agent);
     await this.persistSnapshot(agent, { title: normalizedTitle });
     this.emitState(agent, { persist: false });
+    this.notifyProviderTitleChanged(agent, normalizedTitle);
+  }
+
+  private notifyProviderTitleChanged(agent: ManagedAgent, title: string): void {
+    if (!agent.session?.notifyTitleChanged) {
+      return;
+    }
+    const notifyTitleChanged = agent.session.notifyTitleChanged.bind(agent.session);
+    void Promise.resolve()
+      .then(() => notifyTitleChanged(title))
+      .catch((error: unknown) => {
+        this.logger.debug(
+          { err: error, agentId: agent.id, provider: agent.provider },
+          "Failed to notify provider of title change",
+        );
+      });
   }
 
   async setLabels(agentId: string, labels: Record<string, string>): Promise<void> {
@@ -2511,6 +2527,9 @@ export class AgentManager {
     });
     if (!options?.publishWhenReady) {
       this.emitState(managed, { persist: false });
+    }
+    if (initialPersistedTitle) {
+      this.notifyProviderTitleChanged(managed, initialPersistedTitle);
     }
 
     await this.refreshSessionState(managed, { emit: !options?.publishWhenReady });

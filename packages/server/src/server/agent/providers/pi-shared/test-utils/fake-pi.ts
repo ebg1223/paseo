@@ -95,6 +95,7 @@ export class FakePiSession implements PiRuntimeSession {
   readonly setThinkingLevelRequests: string[] = [];
   readonly treeNavigationRequests: string[] = [];
   readonly handoffRequests: Array<{ customInstructions?: string }> = [];
+  readonly sessionNameRequests: string[] = [];
   capturedUserEntries: Array<{ id: string; parentId: string | null; text: string }> = [];
   abortRequested = false;
   readonly canceledExtensionUiRequests: string[] = [];
@@ -112,6 +113,7 @@ export class FakePiSession implements PiRuntimeSession {
   commands: PiRpcSlashCommand[] = [];
   subagents: FakePiSubagentSnapshot[] = [];
   subagentSubscriptionError: Error | null = null;
+  setSessionNameError: Error | null = null;
   compactError: Error | null = null;
   emitCompactEnd = true;
   state: PiSessionState;
@@ -256,6 +258,12 @@ export class FakePiSession implements PiRuntimeSession {
             ? { customInstructions: command.customInstructions }
             : {},
         );
+        return {};
+      case "set_session_name":
+        this.sessionNameRequests.push(typeof command.name === "string" ? command.name : "");
+        if (this.setSessionNameError) {
+          throw this.setSessionNameError;
+        }
         return {};
       default:
         throw new Error(`FakePi request does not implement ${command.type}`);
