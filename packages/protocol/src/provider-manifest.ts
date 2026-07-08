@@ -232,8 +232,8 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
   },
   {
     id: "omp",
-    label: "OMP",
-    description: "Pi-compatible coding agent distributed as Oh My Pi",
+    label: "Oh My Pi",
+    description: "Multi-provider coding agent with native approvals, host tools, and subagents",
     enabledByDefault: false,
     defaultModeId: "full",
     modes: OMP_MODES,

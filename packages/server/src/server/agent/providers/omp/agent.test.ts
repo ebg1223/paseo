@@ -71,7 +71,7 @@ class ManualScheduler implements OmpSubagentCardScheduler {
 
 function createClient(
   pi = new FakePi(),
-  options: { subagentCardScheduler?: OmpSubagentCardScheduler } = {},
+  options: { providerParams?: unknown; subagentCardScheduler?: OmpSubagentCardScheduler } = {},
 ): OmpRpcAgentClient {
   return new OmpRpcAgentClient({
     logger: pino({ level: "silent" }),
@@ -415,6 +415,25 @@ describe("OMP RPC agent", () => {
       modeId: "ask",
       extraArgs: ["--approval-mode", "always-ask"],
     });
+    expect(
+      resolveOmpLaunchMode("full", {
+        smolModel: "openai/gpt-5-mini",
+        slowModel: "anthropic/claude-opus-4-1",
+        planModel: "openai/o3",
+      }),
+    ).toEqual({
+      modeId: "full",
+      extraArgs: [
+        "--approval-mode",
+        "yolo",
+        "--smol",
+        "openai/gpt-5-mini",
+        "--slow",
+        "anthropic/claude-opus-4-1",
+        "--plan",
+        "openai/o3",
+      ],
+    });
     expect(() => resolveOmpLaunchMode("plan")).toThrow("Unsupported OMP mode 'plan'");
 
     const pi = new FakePi(["omp"]);
@@ -452,6 +471,40 @@ describe("OMP RPC agent", () => {
         "OMP approval mode is set when the agent launches. Start a new OMP session to use a different mode.",
     });
     await expect(session.getCurrentMode()).resolves.toBe("ask");
+  });
+
+  test("passes OMP model-role params through as launch flags", async () => {
+    const pi = new FakePi(["omp"]);
+    const client = createClient(pi, {
+      providerParams: {
+        smolModel: "openai/gpt-5-mini",
+        slowModel: "anthropic/claude-opus-4-1",
+        planModel: "openai/o3",
+      },
+    });
+
+    await client.createSession(createConfig({ modeId: "ask" }));
+
+    const launch = pi.recordedLaunches[0];
+    expect(launch?.argv).toEqual([
+      "omp",
+      "--mode",
+      "rpc-ui",
+      "--approval-mode",
+      "always-ask",
+      "--smol",
+      "openai/gpt-5-mini",
+      "--slow",
+      "anthropic/claude-opus-4-1",
+      "--plan",
+      "openai/o3",
+      "--thinking",
+      "medium",
+      "--append-system-prompt",
+      OMP_PASEO_MCP_SYSTEM_PROMPT,
+      "--extension",
+      launch?.extensionPaths?.[0],
+    ]);
   });
 
   test("appends the OMP task-versus-Paseo-agent system prompt context", async () => {

@@ -273,6 +273,12 @@ export interface PiDialect {
   onSessionInterrupt?: (runtimeSession: PiRuntimeSession) => void;
   onSessionClose?: (runtimeSession: PiRuntimeSession) => void;
   handleExtraRuntimeEvent?: (event: PiRuntimeEvent, context: PiExtraRuntimeEventContext) => boolean;
+  handleUnknownRuntimeEvent?: (
+    event: PiRuntimeEvent,
+    context: {
+      logger: Logger;
+    },
+  ) => void;
   mapExtensionUiRequestToPermission?: (
     event: Extract<PiRuntimeEvent, { type: "extension_ui_request" }>,
   ) => AgentPermissionRequest | null;
@@ -1921,7 +1927,9 @@ export class PiRpcAgentSession implements AgentSession {
     }
     if (isPiAgentSessionEvent(event)) {
       this.handleSessionEvent(event);
+      return;
     }
+    this.dialect.handleUnknownRuntimeEvent?.(event, { logger: this.logger });
   }
 
   private handleProcessExit(error: string): void {

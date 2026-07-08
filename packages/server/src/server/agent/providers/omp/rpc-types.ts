@@ -112,6 +112,17 @@ export type OmpRuntimeEvent =
   | OmpRpcHostToolCancelRequest
   | OmpRpcHostToolUpdate
   | OmpTodoReminderEvent
+  | OmpNoticeEvent
+  | OmpGoalUpdatedEvent
+  | OmpAutoRetryStartEvent
+  | OmpAutoRetryEndEvent
+  | OmpRetryFallbackAppliedEvent
+  | OmpRetryFallbackSucceededEvent
+  | OmpAutoCompactionStartEvent
+  | OmpAutoCompactionEndEvent
+  | OmpTtsrTriggeredEvent
+  | OmpIrcMessageEvent
+  | OmpTodoAutoClearEvent
   | OmpAvailableCommandsUpdateEvent;
 
 export type OmpTodoStatus = "pending" | "in_progress" | "completed" | "abandoned";
@@ -140,6 +151,136 @@ export const OmpTodoReminderEventSchema = z
 export type OmpTodoItem = z.infer<typeof OmpTodoItemSchema>;
 export type OmpTodoPhase = z.infer<typeof OmpTodoPhaseSchema>;
 export type OmpTodoReminderEvent = z.infer<typeof OmpTodoReminderEventSchema>;
+
+export const OmpNoticeEventSchema = z
+  .object({
+    type: z.literal("notice"),
+    level: z.enum(["info", "warning", "error"]),
+    message: z.string(),
+    source: z.string().optional(),
+  })
+  .passthrough();
+
+export const OmpGoalSchema = z
+  .object({
+    id: z.string().optional(),
+    objective: z.string().optional(),
+    status: z.string().optional(),
+    tokenBudget: z.number().optional(),
+    tokensUsed: z.number().optional(),
+    timeUsedSeconds: z.number().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+
+export const OmpGoalModeStateSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    mode: z.string().optional(),
+    reason: z.string().optional(),
+    goal: OmpGoalSchema.optional(),
+  })
+  .passthrough();
+
+export const OmpGoalUpdatedEventSchema = z
+  .object({
+    type: z.literal("goal_updated"),
+    goal: OmpGoalSchema.nullable().optional(),
+    state: OmpGoalModeStateSchema.optional(),
+  })
+  .passthrough();
+
+export const OmpAutoRetryStartEventSchema = z
+  .object({
+    type: z.literal("auto_retry_start"),
+    attempt: z.number().int().nonnegative(),
+    maxAttempts: z.number().int().positive(),
+    delayMs: z.number().int().nonnegative(),
+    errorMessage: z.string(),
+    errorId: z.number().int().optional(),
+  })
+  .passthrough();
+
+export const OmpAutoRetryEndEventSchema = z
+  .object({
+    type: z.literal("auto_retry_end"),
+    success: z.boolean(),
+    attempt: z.number().int().nonnegative(),
+    finalError: z.string().optional(),
+    recoveredErrors: z.unknown().optional(),
+  })
+  .passthrough();
+
+export const OmpRetryFallbackAppliedEventSchema = z
+  .object({
+    type: z.literal("retry_fallback_applied"),
+    from: z.string(),
+    to: z.string(),
+    role: z.string(),
+  })
+  .passthrough();
+
+export const OmpRetryFallbackSucceededEventSchema = z
+  .object({
+    type: z.literal("retry_fallback_succeeded"),
+    model: z.string(),
+    role: z.string(),
+  })
+  .passthrough();
+
+export const OmpAutoCompactionStartEventSchema = z
+  .object({
+    type: z.literal("auto_compaction_start"),
+    reason: z.string(),
+    action: z.string(),
+  })
+  .passthrough();
+
+export const OmpAutoCompactionEndEventSchema = z
+  .object({
+    type: z.literal("auto_compaction_end"),
+    action: z.string().optional(),
+    result: z.unknown().optional(),
+    aborted: z.boolean(),
+    willRetry: z.boolean(),
+    errorMessage: z.string().optional(),
+    skipped: z.boolean().optional(),
+  })
+  .passthrough();
+
+export const OmpTtsrTriggeredEventSchema = z
+  .object({
+    type: z.literal("ttsr_triggered"),
+    rules: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
+export const OmpIrcMessageEventSchema = z
+  .object({
+    type: z.literal("irc_message"),
+    message: z.unknown().optional(),
+  })
+  .passthrough();
+
+export const OmpTodoAutoClearEventSchema = z
+  .object({
+    type: z.literal("todo_auto_clear"),
+  })
+  .passthrough();
+
+export type OmpNoticeEvent = z.infer<typeof OmpNoticeEventSchema>;
+export type OmpGoal = z.infer<typeof OmpGoalSchema>;
+export type OmpGoalUpdatedEvent = z.infer<typeof OmpGoalUpdatedEventSchema>;
+export type OmpAutoRetryStartEvent = z.infer<typeof OmpAutoRetryStartEventSchema>;
+export type OmpAutoRetryEndEvent = z.infer<typeof OmpAutoRetryEndEventSchema>;
+export type OmpRetryFallbackAppliedEvent = z.infer<typeof OmpRetryFallbackAppliedEventSchema>;
+export type OmpRetryFallbackSucceededEvent = z.infer<typeof OmpRetryFallbackSucceededEventSchema>;
+export type OmpAutoCompactionStartEvent = z.infer<typeof OmpAutoCompactionStartEventSchema>;
+export type OmpAutoCompactionEndEvent = z.infer<typeof OmpAutoCompactionEndEventSchema>;
+export type OmpTtsrTriggeredEvent = z.infer<typeof OmpTtsrTriggeredEventSchema>;
+export type OmpIrcMessageEvent = z.infer<typeof OmpIrcMessageEventSchema>;
+export type OmpTodoAutoClearEvent = z.infer<typeof OmpTodoAutoClearEventSchema>;
 
 export const OmpAvailableCommandSchema = z
   .object({

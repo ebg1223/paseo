@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { z } from "zod";
 import { OMP_MODES } from "@getpaseo/protocol/provider-manifest";
 
 import type {
@@ -10,6 +11,7 @@ import type {
 } from "../../agent-sdk-types.js";
 import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
 import {
+  PiProviderParamsSchema,
   PiRpcAgentClient as SharedPiRpcAgentClient,
   type PiDialect,
   type PiToolDetailContext,
@@ -26,6 +28,7 @@ import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
 import { filterOmpImportableSessionFiles } from "./session-import-filter.js";
 import { asOmpRuntimeSession } from "./runtime.js";
+import { mapOmpRuntimeEventToTimelineItem } from "./event-mapper.js";
 import {
   clearOmpHostToolState,
   handleOmpHostToolRuntimeEvent,
@@ -54,19 +57,55 @@ export const OMP_PASEO_MCP_SYSTEM_PROMPT =
   "OMP task tool = fast in-process helpers inside this OMP session. Paseo create_agent, send_agent_prompt, and wait_for_agent are host tools for independent, user-visible Paseo agents that can run separately from this session.";
 export { OMP_MODES };
 
-export function resolveOmpLaunchMode(modeId: string | undefined): {
+const OmpProviderParamsSchema = PiProviderParamsSchema.extend({
+  smolModel: z.string().min(1).optional(),
+  slowModel: z.string().min(1).optional(),
+  planModel: z.string().min(1).optional(),
+}).strict();
+
+type OmpProviderParams = z.infer<typeof OmpProviderParamsSchema>;
+type SharedPiProviderParams = z.infer<typeof PiProviderParamsSchema>;
+
+export interface OmpModelRoleParams {
+  smolModel?: string;
+  slowModel?: string;
+  planModel?: string;
+}
+
+export function resolveOmpLaunchMode(
+  modeId: string | undefined,
+  modelRoleParams: OmpModelRoleParams = {},
+): {
   modeId: string;
   extraArgs: string[];
 } {
   const normalizedModeId = modeId ?? DEFAULT_OMP_MODE_ID;
+  const modelRoleArgs = resolveOmpModelRoleArgs(modelRoleParams);
   switch (normalizedModeId) {
     case "full":
-      return { modeId: "full", extraArgs: ["--approval-mode", "yolo"] };
+      return { modeId: "full", extraArgs: ["--approval-mode", "yolo", ...modelRoleArgs] };
     case "ask":
-      return { modeId: "ask", extraArgs: ["--approval-mode", "always-ask"] };
+      return {
+        modeId: "ask",
+        extraArgs: ["--approval-mode", "always-ask", ...modelRoleArgs],
+      };
     default:
       throw new Error(`Unsupported OMP mode '${normalizedModeId}'`);
   }
+}
+
+function resolveOmpModelRoleArgs(modelRoleParams: OmpModelRoleParams): string[] {
+  const args: string[] = [];
+  if (modelRoleParams.smolModel) {
+    args.push("--smol", modelRoleParams.smolModel);
+  }
+  if (modelRoleParams.slowModel) {
+    args.push("--slow", modelRoleParams.slowModel);
+  }
+  if (modelRoleParams.planModel) {
+    args.push("--plan", modelRoleParams.planModel);
+  }
+  return args;
 }
 
 export interface OmpRpcAgentClientOptions extends Omit<PiRpcAgentClientOptions, "dialect"> {
@@ -77,8 +116,12 @@ export class OmpRpcAgentClient extends SharedPiRpcAgentClient {
   constructor(options: OmpRpcAgentClientOptions) {
     const subagentIndex = new OmpSubagentIndex();
     const subagentSessionFilesById = new Map<string, string>();
+    const { sharedProviderParams, modelRoleParams } = resolveOmpProviderParams(
+      options.providerParams,
+    );
     super({
       ...options,
+      providerParams: sharedProviderParams,
       runtimeSettings: mergeRuntimeSettings(
         {
           command: {
@@ -93,9 +136,32 @@ export class OmpRpcAgentClient extends SharedPiRpcAgentClient {
         subagentSessionFilesById,
         options.logger,
         options.subagentCardScheduler,
+        modelRoleParams,
       ),
     });
   }
+}
+
+function resolveOmpProviderParams(providerParams: unknown): {
+  sharedProviderParams: SharedPiProviderParams;
+  modelRoleParams: OmpModelRoleParams;
+} {
+  const parsedParams = OmpProviderParamsSchema.parse(providerParams ?? {});
+  return {
+    sharedProviderParams: {
+      sessionDir: parsedParams.sessionDir ?? OMP_SESSION_DIR,
+      extensionTimeoutMs: parsedParams.extensionTimeoutMs,
+    },
+    modelRoleParams: readOmpModelRoleParams(parsedParams),
+  };
+}
+
+function readOmpModelRoleParams(params: OmpProviderParams): OmpModelRoleParams {
+  return {
+    ...(params.smolModel ? { smolModel: params.smolModel } : {}),
+    ...(params.slowModel ? { slowModel: params.slowModel } : {}),
+    ...(params.planModel ? { planModel: params.planModel } : {}),
+  };
 }
 
 function createOmpDialect(
@@ -103,6 +169,7 @@ function createOmpDialect(
   subagentSessionFilesById: Map<string, string>,
   logger: Logger,
   subagentCardScheduler: OmpSubagentCardScheduler | undefined,
+  modelRoleParams: OmpModelRoleParams,
 ): PiDialect {
   const lastTodoItemsBySession = new WeakMap<
     PiRuntimeSession,
@@ -133,7 +200,7 @@ function createOmpDialect(
     appendSystemPrompt: OMP_PASEO_MCP_SYSTEM_PROMPT,
     modes: OMP_MODES,
     defaultModeId: DEFAULT_OMP_MODE_ID,
-    resolveLaunchMode: resolveOmpLaunchMode,
+    resolveLaunchMode: (modeId) => resolveOmpLaunchMode(modeId, modelRoleParams),
     setModeNotice: () => ({
       type: "info",
       message:
@@ -239,7 +306,26 @@ function createOmpDialect(
         }
         return true;
       }
+      const mappedEvent = mapOmpRuntimeEventToTimelineItem(event);
+      if (mappedEvent.handled) {
+        if (mappedEvent.item) {
+          context.emit({
+            type: "timeline",
+            provider: OMP_PROVIDER,
+            item: mappedEvent.item,
+          });
+        } else {
+          context.logger.debug(
+            { event, reason: mappedEvent.logReason },
+            "Dropped unsupported OMP runtime event",
+          );
+        }
+        return true;
+      }
       return false;
+    },
+    handleUnknownRuntimeEvent: (event, { logger: sessionLogger }) => {
+      sessionLogger.debug({ event }, "Dropped unknown OMP runtime event");
     },
     onToolExecutionEnd: ({
       event,
