@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 
 import type {
+  AgentTimelineItem,
   AgentPersistenceHandle,
   AgentSessionConfig,
   AgentStreamEvent,
@@ -12,7 +13,14 @@ import {
   type PiRpcAgentClientOptions,
 } from "../pi-shared/agent.js";
 import type { PiRuntimeSession } from "../pi-shared/runtime.js";
+import {
+  mapOmpAvailableCommandsUpdate,
+  mapOmpRuntimeSlashCommands,
+  OMP_HANDLED_BUILTIN_SLASH_COMMANDS,
+} from "./commands.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
+import { filterOmpImportableSessionFiles } from "./session-import-filter.js";
 import { asOmpRuntimeSession } from "./runtime.js";
 import type {
   OmpRuntimeEvent,
@@ -20,10 +28,13 @@ import type {
   OmpSubagentStatus,
 } from "./rpc-types.js";
 import { OmpSubagentIndex, isTerminalOmpSubagentStatus } from "./subagent-index.js";
+import { mapOmpUsage } from "./usage-mapper.js";
 import { OmpVirtualChildSession } from "./virtual-child-session.js";
 
 const OMP_PROVIDER = "omp";
 const OMP_SESSION_DIR = "~/.omp/agent/sessions";
+// Fixture-backed Wave 1 parity targets OMP 16.3.9; runtime logic uses capability probing.
+export const MIN_SUPPORTED_OMP_VERSION = "16.3.9";
 
 export interface OmpRpcAgentClientOptions extends Omit<PiRpcAgentClientOptions, "dialect"> {}
 
@@ -52,6 +63,10 @@ function createOmpDialect(
   subagentSessionFilesById: Map<string, string>,
   logger: Logger,
 ): PiDialect {
+  const lastTodoItemsBySession = new WeakMap<
+    PiRuntimeSession,
+    Extract<AgentTimelineItem, { type: "todo" }>
+  >();
   return {
     providerId: OMP_PROVIDER,
     label: "OMP",
@@ -59,6 +74,12 @@ function createOmpDialect(
     commandsRpcName: "get_available_commands",
     defaultSessionDir: OMP_SESSION_DIR,
     ...OMP_HISTORY_MAPPER_HOOKS,
+    handledBuiltinSlashCommands: OMP_HANDLED_BUILTIN_SLASH_COMMANDS,
+    mapSlashCommands: mapOmpRuntimeSlashCommands,
+    mapHydratedTimelineItems: mapOmpTodoState,
+    mapUsage: mapOmpUsage,
+    filterImportableSessionFiles: filterOmpImportableSessionFiles,
+    supportsHandoffCommand: true,
     onSessionStart: (runtimeSession, sessionLogger) => {
       void asOmpRuntimeSession(runtimeSession)
         .setSubagentSubscription("progress")
@@ -89,7 +110,53 @@ function createOmpDialect(
         );
         return true;
       }
+      if (event.type === "todo_reminder") {
+        const item = mapOmpTodoReminderEvent(event);
+        if (item && shouldEmitOmpTodoItem(item, context.runtimeSession, lastTodoItemsBySession)) {
+          context.emit({
+            type: "timeline",
+            provider: OMP_PROVIDER,
+            item,
+          });
+        } else {
+          context.logger.debug({ event }, "Dropped malformed OMP todo reminder event");
+        }
+        return true;
+      }
+      if (event.type === "available_commands_update") {
+        const commands = mapOmpAvailableCommandsUpdate(event);
+        if (commands) {
+          context.setCommandCache(commands);
+        } else {
+          context.logger.debug({ event }, "Dropped malformed OMP command update event");
+        }
+        return true;
+      }
       return false;
+    },
+    onToolExecutionEnd: ({
+      event,
+      result,
+      runtimeSession,
+      provider,
+      turnId,
+      emit,
+      logger: sessionLogger,
+    }) => {
+      if (event.toolName !== "todo") {
+        return;
+      }
+      const item = mapOmpTodoToolResult(result);
+      if (item && shouldEmitOmpTodoItem(item, runtimeSession, lastTodoItemsBySession)) {
+        emit({
+          type: "timeline",
+          provider,
+          turnId,
+          item,
+        });
+      } else {
+        sessionLogger.debug({ event }, "Dropped malformed OMP todo tool result");
+      }
     },
     importSession: async ({ client, input, context }) => {
       const liveSubagent = subagentIndex.get(input.providerHandleId);
@@ -229,6 +296,35 @@ function mapOmpSubagentLifecycleStatus(
   status: OmpSubagentLifecyclePayload["status"],
 ): Exclude<OmpSubagentStatus, "pending"> {
   return status === "started" ? "running" : status;
+}
+
+function shouldEmitOmpTodoItem(
+  item: AgentTimelineItem,
+  runtimeSession: PiRuntimeSession,
+  lastTodoItemsBySession: WeakMap<PiRuntimeSession, Extract<AgentTimelineItem, { type: "todo" }>>,
+): boolean {
+  if (item.type !== "todo") {
+    return true;
+  }
+  const previous = lastTodoItemsBySession.get(runtimeSession);
+  if (previous && areTodoItemsEqual(previous, item)) {
+    return false;
+  }
+  lastTodoItemsBySession.set(runtimeSession, item);
+  return true;
+}
+
+function areTodoItemsEqual(
+  left: Extract<AgentTimelineItem, { type: "todo" }>,
+  right: Extract<AgentTimelineItem, { type: "todo" }>,
+): boolean {
+  if (left.items.length !== right.items.length) {
+    return false;
+  }
+  return left.items.every((leftItem, index) => {
+    const rightItem = right.items[index];
+    return rightItem?.text === leftItem.text && rightItem.completed === leftItem.completed;
+  });
 }
 
 function mergeRuntimeSettings(

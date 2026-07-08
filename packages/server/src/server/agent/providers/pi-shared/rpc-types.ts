@@ -85,6 +85,12 @@ export interface PiSessionState {
   sessionName?: string;
   messageCount: number;
   pendingMessageCount: number;
+  contextUsage?: {
+    tokens?: number | null;
+    contextWindow?: number | null;
+    percent?: number | null;
+  };
+  todoPhases?: unknown;
 }
 
 export interface PiSessionStats {

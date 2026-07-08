@@ -150,4 +150,21 @@ describe("OMP history mapper", () => {
       },
     ]);
   });
+
+  test("suppresses replayed raw todo tool calls through the OMP detail hook", async () => {
+    await expect(
+      collectHistory([
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "todo-1", name: "todo", arguments: { op: "view" } }],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "todo-1",
+          toolName: "todo",
+          content: [{ type: "text", text: "todos" }],
+        },
+      ]),
+    ).resolves.toEqual([]);
+  });
 });

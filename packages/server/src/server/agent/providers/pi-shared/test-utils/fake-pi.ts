@@ -94,6 +94,7 @@ export class FakePiSession implements PiRuntimeSession {
   readonly setModelRequests: Array<{ provider: string; modelId: string }> = [];
   readonly setThinkingLevelRequests: string[] = [];
   readonly treeNavigationRequests: string[] = [];
+  readonly handoffRequests: Array<{ customInstructions?: string }> = [];
   capturedUserEntries: Array<{ id: string; parentId: string | null; text: string }> = [];
   abortRequested = false;
   readonly canceledExtensionUiRequests: string[] = [];
@@ -249,6 +250,13 @@ export class FakePiSession implements PiRuntimeSession {
           ...(typeof command.sessionFile === "string" ? { sessionFile: command.sessionFile } : {}),
           ...(typeof command.fromByte === "number" ? { fromByte: command.fromByte } : {}),
         });
+      case "handoff":
+        this.handoffRequests.push(
+          typeof command.customInstructions === "string"
+            ? { customInstructions: command.customInstructions }
+            : {},
+        );
+        return {};
       default:
         throw new Error(`FakePi request does not implement ${command.type}`);
     }

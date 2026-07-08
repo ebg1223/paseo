@@ -21,6 +21,7 @@ interface PiSessionDescriptorOptions extends ListImportableSessionsOptions {
   runtimeSettings?: ProviderRuntimeSettings;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
+  filterSessionFiles?: (input: { filePaths: readonly string[]; sessionsDir: string }) => string[];
 }
 
 interface PiSessionHeader {
@@ -64,11 +65,14 @@ export async function listPiImportableSessions(
 ): Promise<ImportableProviderSession[]> {
   const sessionsDir = await resolvePiSessionsDir(options);
   const files = await walkJsonlFiles(sessionsDir);
+  const importableFiles = options.filterSessionFiles
+    ? options.filterSessionFiles({ filePaths: files, sessionsDir })
+    : files;
   const matchesCwd = options.cwd ? createRealpathAwarePathMatcher(options.cwd) : null;
   const limit = options.limit ?? 20;
   const sessions: ImportableProviderSession[] = [];
 
-  for (const file of files) {
+  for (const file of importableFiles) {
     const session = await readPiImportableSession(file);
     if (!session) continue;
     if (matchesCwd && !matchesCwd(session.cwd)) continue;

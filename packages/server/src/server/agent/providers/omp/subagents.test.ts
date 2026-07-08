@@ -213,6 +213,31 @@ function writeImportableSessionFile(): string {
   return sessionFile;
 }
 
+function writeSessionFile(
+  filePath: string,
+  input: { id: string; cwd: string; timestamp: string; prompt: string },
+): void {
+  writeFileSync(
+    filePath,
+    [
+      JSON.stringify({
+        type: "session",
+        version: 3,
+        id: input.id,
+        timestamp: input.timestamp,
+        cwd: input.cwd,
+      }),
+      JSON.stringify({
+        type: "message",
+        id: `${input.id}-message`,
+        timestamp: new Date(new Date(input.timestamp).getTime() + 1000).toISOString(),
+        message: { role: "user", content: input.prompt },
+      }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+}
+
 describe("Pi native subagents", () => {
   test("emits child_session events for lifecycle frames with session files", async () => {
     const { pi, events } = await createParentSession();
@@ -544,6 +569,45 @@ describe("Pi native subagents", () => {
       }),
     );
     expectOmpHookedTranscript(virtualEvents.timelineItems(), "DocsSmokeReset");
+  });
+
+  test("excludes task-spawned child session files from OMP import listing", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "paseo-omp-child-filter-"));
+    const cwd = path.join(root, "workspace");
+    const sessionsDir = path.join(root, "sessions");
+    const parentStem = "2026-07-07T23-41-42-657Z_019f3ef5-7980-7000-a76d";
+    const parentFile = path.join(sessionsDir, `${parentStem}.jsonl`);
+    const childDir = path.join(sessionsDir, parentStem);
+    const childFile = path.join(childDir, "EchoChild.jsonl");
+    mkdirSync(childDir, { recursive: true });
+    writeSessionFile(parentFile, {
+      id: "parent",
+      cwd,
+      timestamp: "2026-07-07T23:41:42.657Z",
+      prompt: "parent prompt",
+    });
+    writeSessionFile(childFile, {
+      id: "child",
+      cwd,
+      timestamp: "2026-07-07T23:41:43.657Z",
+      prompt: "child prompt",
+    });
+    const client = new OmpRpcAgentClient({
+      logger: pino({ level: "silent" }),
+      runtime: new FakePi(),
+      providerParams: { sessionDir: sessionsDir },
+    });
+
+    await expect(client.listImportableSessions({ cwd, limit: 10 })).resolves.toEqual([
+      {
+        providerHandleId: parentFile,
+        cwd,
+        title: "parent prompt",
+        firstPromptPreview: "parent prompt",
+        lastPromptPreview: "parent prompt",
+        lastActivityAt: new Date("2026-07-07T23:41:43.657Z"),
+      },
+    ]);
   });
 
   test("fails the virtual child turn when the subagent lifecycle reports failure", async () => {

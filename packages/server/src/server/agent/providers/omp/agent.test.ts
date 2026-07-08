@@ -1,8 +1,12 @@
 import pino from "pino";
 import { describe, expect, test } from "vitest";
 
+import modelsFixture from "./__fixtures__/get_available_models_reasoning.json" with { type: "json" };
+import commandUpdateFixture from "./__fixtures__/available_commands_update.json" with { type: "json" };
+import todoFixture from "./__fixtures__/todo_tool_reminder_state.json" with { type: "json" };
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
 import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
+import type { PiModel } from "../pi-shared/rpc-types.js";
 import { OmpRpcAgentClient } from "./agent.js";
 
 function createConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSessionConfig {
@@ -60,9 +64,329 @@ class SessionEvents {
       return [];
     });
   }
+
+  usageEvents() {
+    return this.events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "usage_updated" }> =>
+        event.type === "usage_updated",
+    );
+  }
+}
+
+function readReasoningFixtureModels(): PiModel[] {
+  const response = (modelsFixture as readonly unknown[])[0];
+  if (!isRecord(response) || !isRecord(response.data) || !Array.isArray(response.data.models)) {
+    throw new Error("Reasoning fixture is missing models");
+  }
+  return response.data.models.map((model): PiModel => {
+    if (!isRecord(model) || typeof model.id !== "string" || typeof model.provider !== "string") {
+      throw new Error("Reasoning fixture model is malformed");
+    }
+    const piModel: PiModel = {
+      id: model.id,
+      provider: model.provider,
+    };
+    if (typeof model.name === "string") {
+      piModel.name = model.name;
+    }
+    if (typeof model.reasoning === "boolean") {
+      piModel.reasoning = model.reasoning;
+    }
+    return piModel;
+  });
+}
+
+function toThinkingSummary(model: {
+  id: string;
+  thinkingOptions?: Array<{ id: string }>;
+  defaultThinkingOptionId?: string;
+}) {
+  return {
+    id: model.id,
+    thinkingOptions: model.thinkingOptions?.map(readOptionId),
+    defaultThinkingOptionId: model.defaultThinkingOptionId,
+  };
+}
+
+function readOptionId(option: { id: string }): string {
+  return option.id;
+}
+
+function expectedReasoningSummary(model: PiModel) {
+  return {
+    id: `${model.provider}/${model.id}`,
+    thinkingOptions: ["off", "minimal", "low", "medium", "high", "xhigh"],
+    defaultThinkingOptionId: "medium",
+  };
+}
+
+function nonReasoningFixtureModel(): PiModel {
+  return {
+    id: "plain-chat",
+    provider: "fixture",
+    name: "Plain Chat",
+    reasoning: false,
+  };
+}
+
+function readTodoToolEndFixture(index: number): {
+  type: "tool_execution_end";
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  isError?: boolean;
+} {
+  const record = fixtureRecord(todoFixture, index, "todo");
+  if (
+    record.type !== "tool_execution_end" ||
+    typeof record.toolCallId !== "string" ||
+    typeof record.toolName !== "string"
+  ) {
+    throw new Error(`Todo fixture record ${index} is not a tool_execution_end`);
+  }
+  return {
+    type: "tool_execution_end",
+    toolCallId: record.toolCallId,
+    toolName: record.toolName,
+    result: record.result,
+    ...(typeof record.isError === "boolean" ? { isError: record.isError } : {}),
+  };
+}
+
+function readTodoReminderFixture(index: number): { type: "todo_reminder"; [key: string]: unknown } {
+  const record = fixtureRecord(todoFixture, index, "todo");
+  if (record.type !== "todo_reminder") {
+    throw new Error(`Todo fixture record ${index} is not a todo_reminder`);
+  }
+  return {
+    ...record,
+    type: "todo_reminder",
+  };
+}
+
+function readStateTodoPhasesFixture(): unknown {
+  const record = fixtureRecord(todoFixture, 3, "todo");
+  if (!isRecord(record.data)) {
+    throw new Error("Todo state fixture is missing data");
+  }
+  return record.data.todoPhases;
+}
+
+function readCommandUpdateFixture(): { type: "available_commands_update"; [key: string]: unknown } {
+  const record = fixtureRecord(commandUpdateFixture, 0, "commands");
+  if (record.type !== "available_commands_update") {
+    throw new Error("Command fixture is not an available_commands_update");
+  }
+  return {
+    ...record,
+    type: "available_commands_update",
+  };
+}
+
+function fixtureRecord(values: unknown, index: number, label: string): Record<string, unknown> {
+  if (!Array.isArray(values) || !isRecord(values[index])) {
+    throw new Error(`Missing ${label} fixture record ${index}`);
+  }
+  return values[index];
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 describe("OMP RPC agent", () => {
+  test("maps fixture reasoning models to the inherited off-through-xhigh thinking ladder and gates non-reasoning models", async () => {
+    const reasoningModels = readReasoningFixtureModels();
+    const nonReasoningModel = nonReasoningFixtureModel();
+    const pi = new FakePi();
+    pi.queueSessionSetup((session) => {
+      session.models = [...reasoningModels, nonReasoningModel];
+    });
+    const catalog = await createClient(pi).fetchCatalog({
+      scope: "workspace",
+      cwd: "/tmp/paseo-omp-models-test",
+      force: false,
+    });
+
+    expect(catalog.models.map(toThinkingSummary)).toEqual([
+      ...reasoningModels.map(expectedReasoningSummary),
+      {
+        id: `${nonReasoningModel.provider}/${nonReasoningModel.id}`,
+        thinkingOptions: undefined,
+        defaultThinkingOptionId: undefined,
+      },
+    ]);
+  });
+
+  test("suppresses raw todo tool cards and emits todo timeline items from tool results and reminders", async () => {
+    const { pi, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit(readTodoToolEndFixture(1));
+    fakeSession.emit(readTodoReminderFixture(2));
+
+    expect(events.timelineItems()).toEqual([
+      {
+        type: "todo",
+        items: [
+          { text: "alpha task", completed: true },
+          { text: "beta task", completed: false },
+          { text: "gamma task", completed: false },
+        ],
+      },
+      {
+        type: "todo",
+        items: [
+          { text: "beta task", completed: false },
+          { text: "gamma task", completed: false },
+        ],
+      },
+    ]);
+  });
+
+  test("hydrates current todo state during history replay", async () => {
+    const pi = new FakePi();
+    pi.queueSessionSetup((session) => {
+      session.state = {
+        ...session.state,
+        todoPhases: readStateTodoPhasesFixture(),
+      };
+    });
+    const { session } = await createSession(pi);
+    const historyEvents: AgentStreamEvent[] = [];
+
+    for await (const event of session.streamHistory()) {
+      historyEvents.push(event);
+    }
+
+    expect(historyEvents).toEqual([
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "todo",
+          items: [
+            { text: "alpha task", completed: true },
+            { text: "beta task", completed: false },
+            { text: "gamma task", completed: false },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("does not emit duplicate consecutive todo timeline items", async () => {
+    const { pi, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    fakeSession.emit(readTodoToolEndFixture(1));
+    fakeSession.emit({
+      type: "todo_reminder",
+      todos: [
+        { content: "alpha task", status: "completed" },
+        { content: "beta task", status: "in_progress" },
+        { content: "gamma task", status: "pending" },
+      ],
+    });
+
+    expect(events.timelineItems()).toEqual([
+      {
+        type: "todo",
+        items: [
+          { text: "alpha task", completed: true },
+          { text: "beta task", completed: false },
+          { text: "gamma task", completed: false },
+        ],
+      },
+    ]);
+  });
+
+  test("uses refreshed OMP context usage over stats-derived context usage after turns", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    fakeSession.stats = {
+      tokens: { input: 10, output: 5, cacheRead: 3 },
+      cost: 0.25,
+      contextUsage: {
+        tokens: 1,
+        contextWindow: 2,
+        percent: 50,
+      },
+    };
+    fakeSession.state = {
+      ...fakeSession.state,
+      contextUsage: {
+        tokens: 23656,
+        contextWindow: 272000,
+        percent: 8.697058823529412,
+      },
+    };
+
+    await session.startTurn("measure usage");
+    fakeSession.finishTurn();
+    await waitFor(() => events.usageEvents().length === 1);
+
+    expect(events.usageEvents()).toEqual([
+      {
+        type: "usage_updated",
+        provider: "omp",
+        turnId: expect.any(String),
+        usage: {
+          inputTokens: 10,
+          cachedInputTokens: 3,
+          outputTokens: 5,
+          totalCostUsd: 0.25,
+          contextWindowMaxTokens: 272000,
+          contextWindowUsedTokens: 23656,
+        },
+      },
+    ]);
+  });
+
+  test("refreshes listCommands from available_commands_update frames", async () => {
+    const { pi, session } = await createSession();
+    pi.latestSession().emit(readCommandUpdateFixture());
+
+    const commands = await session.listCommands();
+
+    expect(commands.find((command) => command.name === "todo")).toEqual({
+      name: "todo",
+      description: "Manage todos",
+      argumentHint: "<subcommand>",
+      kind: "command",
+    });
+    expect(commands.find((command) => command.name === "handoff")).toEqual({
+      name: "handoff",
+      description: "Hand off from planning to implementation",
+      argumentHint: "[instructions]",
+      kind: "command",
+    });
+  });
+
+  test("handles OMP handoff out-of-band without adding it to Pi", async () => {
+    const { pi, session } = await createSession();
+    const handler = session.tryHandleOutOfBand?.("/handoff implement the approved plan");
+    if (!handler) {
+      throw new Error("Expected OMP handoff handler");
+    }
+
+    await handler.run({ emit: () => undefined });
+
+    expect(pi.latestSession().handoffRequests).toEqual([
+      { customInstructions: "implement the approved plan" },
+    ]);
+  });
+
   test("coalesces live subagent poll calls by target set", async () => {
     const { pi, events } = await createSession();
     const fakeSession = pi.latestSession();

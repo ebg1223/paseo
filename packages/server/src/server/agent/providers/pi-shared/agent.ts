@@ -27,6 +27,7 @@ import {
   type AgentSlashCommand,
   type AgentSlashCommandKind,
   type AgentStreamEvent,
+  type AgentTimelineItem,
   type AgentUsage,
   type FetchCatalogOptions,
   type ImportableProviderSession,
@@ -35,6 +36,7 @@ import {
   type ImportProviderSessionInput,
   type ListImportableSessionsOptions,
   type ProviderCatalog,
+  type ToolCallDetail,
 } from "../../agent-sdk-types.js";
 import { importSessionFromPersistence } from "../../provider-session-import.js";
 import { runProviderTurn } from "../provider-runner.js";
@@ -127,6 +129,25 @@ function mapPiCommandKind(source: PiRpcSlashCommand["source"]): AgentSlashComman
   return "command";
 }
 
+function mapPiSlashCommands(
+  commands: readonly PiRpcSlashCommand[],
+  handledCommands: readonly AgentSlashCommand[] = PI_HANDLED_BUILTIN_SLASH_COMMANDS,
+): AgentSlashCommand[] {
+  const mappedCommands = new Map<string, AgentSlashCommand>(
+    handledCommands.map((command) => [command.name, { ...command }]),
+  );
+  for (const command of commands) {
+    const knownCommand = mappedCommands.get(command.name);
+    mappedCommands.set(command.name, {
+      name: command.name,
+      description: command.description ?? command.source,
+      argumentHint: knownCommand?.argumentHint ?? "",
+      kind: mapPiCommandKind(command.source),
+    });
+  }
+  return [...mappedCommands.values()];
+}
+
 const PI_CAPABILITIES: AgentCapabilityFlags = {
   supportsStreaming: true,
   supportsSessionPersistence: true,
@@ -182,6 +203,7 @@ interface PiPersistenceMetadata {
 export interface PiExtraRuntimeEventContext {
   runtimeSession: PiRuntimeSession;
   emit: (event: AgentStreamEvent) => void;
+  setCommandCache: (commands: AgentSlashCommand[]) => void;
   logger: Logger;
 }
 
@@ -201,10 +223,33 @@ export interface PiDialect {
     text: string,
     provider: AgentProvider,
   ) => Extract<AgentStreamEvent, { type: "timeline" }> | null;
+  mapToolDetail?: (toolCall: PiTrackedToolCall, result: PiToolResult) => ToolCallDetail | null;
   resolveToolCallId?: (toolCallId: string, toolCall: PiTrackedToolCall) => string;
+  handledBuiltinSlashCommands?: readonly AgentSlashCommand[];
+  mapSlashCommands?: (commands: readonly PiRpcSlashCommand[]) => AgentSlashCommand[];
+  mapHydratedTimelineItems?: (state: PiSessionState) => AgentTimelineItem[];
+  mapUsage?: (input: {
+    stats: PiSessionStats;
+    state: PiSessionState;
+    baseUsage: AgentUsage | undefined;
+  }) => AgentUsage | undefined;
+  filterImportableSessionFiles?: (input: {
+    filePaths: readonly string[];
+    sessionsDir: string;
+  }) => string[];
   onSessionStart?: (runtimeSession: PiRuntimeSession, logger: Logger) => void;
   onSessionClose?: (runtimeSession: PiRuntimeSession) => void;
   handleExtraRuntimeEvent?: (event: PiRuntimeEvent, context: PiExtraRuntimeEventContext) => boolean;
+  onToolExecutionEnd?: (input: {
+    event: Extract<PiAgentSessionEvent, { type: "tool_execution_end" }>;
+    result: PiToolResult;
+    runtimeSession: PiRuntimeSession;
+    provider: AgentProvider;
+    turnId: string | undefined;
+    emit: (event: AgentStreamEvent) => void;
+    logger: Logger;
+  }) => void;
+  supportsHandoffCommand?: boolean;
   importSession?: (input: PiImportSessionHookInput) => Promise<{
     session: AgentSession;
     config: AgentSessionConfig;
@@ -1083,6 +1128,7 @@ export class PiRpcAgentSession implements AgentSession {
   private outOfBandCompactionEmit: ((event: AgentStreamEvent) => void) | null = null;
   private outOfBandCompactionStarted = false;
   private outOfBandCompactionCompleted = false;
+  private commandCache: AgentSlashCommand[] | null = null;
   private state: PiSessionState;
   private closed = false;
 
@@ -1177,6 +1223,13 @@ export class PiRpcAgentSession implements AgentSession {
       this.capturedUserEntries,
       this.dialect,
     );
+    for (const item of this.dialect.mapHydratedTimelineItems?.(this.state) ?? []) {
+      yield {
+        type: "timeline",
+        provider: this.provider,
+        item,
+      };
+    }
   }
 
   async getRuntimeInfo(): Promise<AgentRuntimeInfo> {
@@ -1298,20 +1351,14 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   async listCommands(): Promise<AgentSlashCommand[]> {
-    const commands = await this.runtimeSession.getCommands();
-    const mappedCommands = new Map<string, AgentSlashCommand>(
-      PI_HANDLED_BUILTIN_SLASH_COMMANDS.map((command) => [command.name, { ...command }]),
-    );
-    for (const command of commands) {
-      const knownCommand = mappedCommands.get(command.name);
-      mappedCommands.set(command.name, {
-        name: command.name,
-        description: command.description ?? command.source,
-        argumentHint: knownCommand?.argumentHint ?? "",
-        kind: mapPiCommandKind(command.source),
-      });
+    if (this.commandCache) {
+      return this.commandCache;
     }
-    return [...mappedCommands.values()];
+    const commands = await this.runtimeSession.getCommands();
+    const mappedCommands =
+      this.dialect.mapSlashCommands?.(commands) ??
+      mapPiSlashCommands(commands, this.dialect.handledBuiltinSlashCommands);
+    return mappedCommands;
   }
 
   tryHandleOutOfBand(
@@ -1336,6 +1383,13 @@ export class PiRpcAgentSession implements AgentSession {
       return {
         run: async ({ emit }) => {
           await this.executeAutoCompactCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (commandName === "handoff" && this.dialect.supportsHandoffCommand === true) {
+      return {
+        run: async ({ emit }) => {
+          await this.executeHandoffCommand(parsed.args, emit);
         },
       };
     }
@@ -1502,6 +1556,28 @@ export class PiRpcAgentSession implements AgentSession {
         text: `Auto-compaction ${enabled ? "enabled" : "disabled"}.`,
       },
     });
+  }
+
+  private async executeHandoffCommand(
+    instructions: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    try {
+      await this.runtimeSession.request({
+        type: "handoff",
+        ...(instructions ? { customInstructions: instructions } : {}),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      emit({
+        type: "timeline",
+        provider: this.provider,
+        item: {
+          type: "assistant_message",
+          text: `[Error] Failed to hand off turn: ${message}`,
+        },
+      });
+    }
   }
 
   private async requestEntryCapture(reason: string): Promise<void> {
@@ -1693,6 +1769,9 @@ export class PiRpcAgentSession implements AgentSession {
       this.dialect.handleExtraRuntimeEvent?.(event, {
         runtimeSession: this.runtimeSession,
         emit: (streamEvent) => this.emit(streamEvent),
+        setCommandCache: (commands) => {
+          this.commandCache = [...commands];
+        },
         logger: this.logger,
       })
     ) {
@@ -1763,19 +1842,7 @@ export class PiRpcAgentSession implements AgentSession {
         return;
       }
       case "tool_execution_end": {
-        const toolCall =
-          this.activeToolCalls.get(event.toolCallId) ?? parseToolArgs(event.toolName, null);
-        this.activeToolCalls.delete(event.toolCallId);
-
-        if (event.toolName === "ask_user") {
-          this.activeAskUserDialog = null;
-          this.pendingCombinedAskUserResponse = null;
-        }
-
-        const result = parseToolResult(event.result);
-        const error = event.isError ? event.result : null;
-        const status = event.isError ? "failed" : "completed";
-        this.emitToolCallEvent(event.toolCallId, toolCall, status, result, error);
+        this.handleToolExecutionEnd(event, turnId);
         return;
       }
       case "compaction_start":
@@ -1804,6 +1871,34 @@ export class PiRpcAgentSession implements AgentSession {
       default:
         return;
     }
+  }
+
+  private handleToolExecutionEnd(
+    event: Extract<PiAgentSessionEvent, { type: "tool_execution_end" }>,
+    turnId: string | undefined,
+  ): void {
+    const toolCall =
+      this.activeToolCalls.get(event.toolCallId) ?? parseToolArgs(event.toolName, null);
+    this.activeToolCalls.delete(event.toolCallId);
+
+    if (event.toolName === "ask_user") {
+      this.activeAskUserDialog = null;
+      this.pendingCombinedAskUserResponse = null;
+    }
+
+    const result = parseToolResult(event.result);
+    const error = event.isError ? event.result : null;
+    const status = event.isError ? "failed" : "completed";
+    this.emitToolCallEvent(event.toolCallId, toolCall, status, result, error);
+    this.dialect.onToolExecutionEnd?.({
+      event,
+      result,
+      runtimeSession: this.runtimeSession,
+      provider: this.provider,
+      turnId,
+      emit: (streamEvent) => this.emit(streamEvent),
+      logger: this.logger,
+    });
   }
 
   private emitCompactionTimeline(input: {
@@ -1917,7 +2012,10 @@ export class PiRpcAgentSession implements AgentSession {
     error: unknown,
   ): void {
     const turnId = this.currentTurnIdForEvent();
-    const detail = mapToolDetail(toolCall, result);
+    const detail = this.mapToolDetail(toolCall, result);
+    if (!detail) {
+      return;
+    }
     const emittedCallId = this.dialect.resolveToolCallId?.(toolCallId, toolCall) ?? toolCallId;
     const baseItem = {
       type: "tool_call" as const,
@@ -1933,6 +2031,11 @@ export class PiRpcAgentSession implements AgentSession {
       turnId,
       item,
     });
+  }
+
+  private mapToolDetail(toolCall: PiTrackedToolCall, result: PiToolResult): ToolCallDetail | null {
+    const hook = this.dialect.mapToolDetail;
+    return hook ? hook(toolCall, result) : mapToolDetail(toolCall, result);
   }
 
   private completeTurn(turnId: string | undefined, messages: PiAgentMessage[]): void {
@@ -1963,7 +2066,10 @@ export class PiRpcAgentSession implements AgentSession {
     await this.refreshState().catch(() => undefined);
     const usage = await this.runtimeSession
       .getSessionStats()
-      .then(toAgentUsage)
+      .then((stats) => {
+        const baseUsage = toAgentUsage(stats);
+        return this.dialect.mapUsage?.({ stats, state: this.state, baseUsage }) ?? baseUsage;
+      })
       .catch(() => undefined);
     if (usage) {
       this.emit({
@@ -2122,6 +2228,7 @@ export class PiRpcAgentClient implements AgentClient {
       ...options,
       sessionDir: this.providerParams.sessionDir,
       runtimeSettings: this.runtimeSettings,
+      filterSessionFiles: this.dialect.filterImportableSessionFiles,
     });
   }
 
