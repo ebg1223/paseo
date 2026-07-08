@@ -1,0 +1,176 @@
+{
+  "readmeNote": "Live omp 16.3.9 RPC capture for D3 native branch recon. Run in /tmp/omp-d3-live.lh3m2j/work with --session-dir /tmp/omp-d3-live.lh3m2j/sessions, --no-extensions, --no-tools, --approval-mode yolo. No Paseo daemon was touched.",
+  "ompVersion": "omp/16.3.9",
+  "argv": [
+    "omp",
+    "--mode",
+    "rpc",
+    "--cwd",
+    "/tmp/omp-d3-live.lh3m2j/work",
+    "--session-dir",
+    "/tmp/omp-d3-live.lh3m2j/sessions",
+    "--no-extensions",
+    "--no-tools",
+    "--approval-mode",
+    "yolo",
+    "--append-system-prompt",
+    "For this verification run, answer with exactly the requested short token and no extra text."
+  ],
+  "cwd": "/tmp/omp-d3-live.lh3m2j/work",
+  "sessionDir": "/tmp/omp-d3-live.lh3m2j/sessions",
+  "capturedAt": "2026-07-08T04:59:48Z",
+  "sourceShape": {
+    "command": {
+      "id": "string optional",
+      "type": "get_branch_messages"
+    },
+    "successResponse": {
+      "id": "same id optional",
+      "type": "response",
+      "command": "get_branch_messages",
+      "success": true,
+      "data": {
+        "messages": [
+          {
+            "entryId": "string",
+            "text": "string"
+          }
+        ]
+      }
+    },
+    "upstreamReferences": [
+      "/home/fedora/oh-my-pi/packages/coding-agent/src/modes/rpc/rpc-types.ts:77,271-273",
+      "/home/fedora/oh-my-pi/packages/coding-agent/src/session/agent-session.ts:15113-15125"
+    ]
+  },
+  "frames": [
+    {
+      "at": "2026-07-08T04:59:48.574Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_3",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:48.574Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_3",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": []
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.592Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_8",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.593Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_8",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "entryId": "60493110",
+              "text": "Reply exactly: ONE"
+            },
+            {
+              "entryId": "9e941ebe",
+              "text": "Reply exactly: TWO"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_12",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_12",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": []
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.208Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_16",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.208Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_16",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "entryId": "560a4638",
+              "text": "Reply exactly: BRANCHED"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.220Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_20",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.220Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_20",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "entryId": "60493110",
+              "text": "Reply exactly: ONE"
+            },
+            {
+              "entryId": "9e941ebe",
+              "text": "Reply exactly: TWO"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

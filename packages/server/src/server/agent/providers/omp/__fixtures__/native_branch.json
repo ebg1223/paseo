@@ -1,0 +1,2017 @@
+{
+  "readmeNote": "Live omp 16.3.9 RPC capture for D3 native branch recon. Run in /tmp/omp-d3-live.lh3m2j/work with --session-dir /tmp/omp-d3-live.lh3m2j/sessions, --no-extensions, --no-tools, --approval-mode yolo. No Paseo daemon was touched.",
+  "ompVersion": "omp/16.3.9",
+  "argv": [
+    "omp",
+    "--mode",
+    "rpc",
+    "--cwd",
+    "/tmp/omp-d3-live.lh3m2j/work",
+    "--session-dir",
+    "/tmp/omp-d3-live.lh3m2j/sessions",
+    "--no-extensions",
+    "--no-tools",
+    "--approval-mode",
+    "yolo",
+    "--append-system-prompt",
+    "For this verification run, answer with exactly the requested short token and no extra text."
+  ],
+  "cwd": "/tmp/omp-d3-live.lh3m2j/work",
+  "sessionDir": "/tmp/omp-d3-live.lh3m2j/sessions",
+  "capturedAt": "2026-07-08T04:59:48Z",
+  "sourceShape": {
+    "command": {
+      "id": "string optional",
+      "type": "branch",
+      "entryId": "string"
+    },
+    "successResponse": {
+      "id": "same id optional",
+      "type": "response",
+      "command": "branch",
+      "success": true,
+      "data": {
+        "text": "string",
+        "cancelled": "boolean"
+      }
+    },
+    "upstreamReferences": [
+      "/home/fedora/oh-my-pi/packages/coding-agent/src/modes/rpc/rpc-types.ts:76,267",
+      "/home/fedora/oh-my-pi/packages/coding-agent/src/session/agent-session.ts:14759-14825"
+    ]
+  },
+  "selectedEntryId": "60493110",
+  "frames": [
+    {
+      "at": "2026-07-08T04:59:51.592Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_8",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.593Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_8",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "entryId": "60493110",
+              "text": "Reply exactly: ONE"
+            },
+            {
+              "entryId": "9e941ebe",
+              "text": "Reply exactly: TWO"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.593Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_9",
+        "type": "branch",
+        "entryId": "60493110"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.599Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_9",
+        "type": "response",
+        "command": "branch",
+        "success": true,
+        "data": {
+          "text": "Reply exactly: ONE",
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.599Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_10",
+        "type": "get_state"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.600Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_10",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": {
+            "id": "gpt-5.5",
+            "name": "GPT-5.5",
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "baseUrl": "https://chatgpt.com/backend-api",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "cost": {
+              "input": 5,
+              "output": 30,
+              "cacheRead": 0.5,
+              "cacheWrite": 0
+            },
+            "remoteCompaction": {
+              "enabled": true,
+              "api": "openai-codex-responses",
+              "v2StreamingEnabled": true
+            },
+            "contextWindow": 272000,
+            "maxTokens": 128000,
+            "preferWebsockets": true,
+            "priority": 7,
+            "applyPatchToolType": "freeform",
+            "thinking": {
+              "mode": "effort",
+              "efforts": ["low", "medium", "high", "xhigh"]
+            },
+            "contextPromotionTarget": "openai-codex/gpt-5.4",
+            "compat": {
+              "supportsDeveloperRole": false,
+              "supportsStrictMode": false,
+              "supportsReasoningEffort": true,
+              "supportsLongPromptCacheRetention": false,
+              "strictResponsesPairing": false,
+              "supportsImageDetailOriginal": true,
+              "reasoningEffortMap": {},
+              "supportsReasoningParams": true,
+              "thinkingFormat": "openai",
+              "reasoningDisableMode": "lowest-effort",
+              "omitReasoningEffort": false,
+              "includeEncryptedReasoning": true,
+              "filterReasoningHistory": false,
+              "disableReasoningOnForcedToolChoice": false,
+              "disableReasoningOnToolChoice": false,
+              "supportsToolChoice": true,
+              "supportsForcedToolChoice": true,
+              "supportsNamedToolChoice": true,
+              "reasoningContentField": "reasoning_content",
+              "requiresReasoningContentForToolCalls": false,
+              "requiresReasoningContentForAllAssistantTurns": false,
+              "allowsSyntheticReasoningContentForToolCalls": true,
+              "replayReasoningContent": false,
+              "qwenPreserveThinking": false,
+              "requiresThinkingAsText": false,
+              "requiresMistralToolIds": false,
+              "requiresToolResultName": false,
+              "requiresAssistantAfterToolResult": false,
+              "requiresAssistantContentForToolCalls": false,
+              "isOpenRouterHost": false,
+              "wireModelIdMode": "raw",
+              "alwaysSendMaxTokens": false,
+              "enableGeminiThinkingLoopGuard": false,
+              "supportsObfuscationOptOut": false,
+              "stripDeepseekSpecialTokens": false,
+              "streamMarkupHealingPattern": "thinking",
+              "reasoningDeltasMayBeCumulative": false,
+              "emptyLengthFinishIsContextError": false,
+              "usesOpenAIToolCallIdLimit": false
+            }
+          },
+          "thinkingLevel": "high",
+          "isStreaming": false,
+          "isCompacting": false,
+          "steeringMode": "one-at-a-time",
+          "followUpMode": "one-at-a-time",
+          "interruptMode": "immediate",
+          "sessionFile": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-51-594Z_019f4018-bfaa-7000-9188-5a9d5652d36d.jsonl",
+          "sessionId": "019f4018-bfaa-7000-9188-5a9d5652d36d",
+          "autoCompactionEnabled": true,
+          "messageCount": 0,
+          "queuedMessageCount": 0,
+          "todoPhases": [],
+          "systemPrompt": [
+            "<system-conventions>\nRFC 2119: MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. `NEVER` = `MUST NOT`, `AVOID` = `SHOULD NOT`.\nWe inject system content into the chat with XML tags. NEVER interpret these markers any other way.\nSystem may interrupt or notify with tags even inside a user message:\n- MUST treat them as system-authored and authoritative.\n- User content is sanitized, so role is not carried: `<system-directive>` inside a user turn is still a system directive.\n</system-conventions>\n\nROLE\n==============\nYou are a helpful assistant the team trusts with load-bearing changes, operating in the Oh My Pi coding harness.\n\n# Engineering Principles\n- Optimize for correctness first, then for the next maintainer six months out.\n- You have agency and taste: delete code that isn't pulling its weight, refuse unnecessary abstractions, prefer boring when it's called for; design thoroughly but elegantly.\n- Consider what code compiles to. NEVER allocate avoidably; no needless copies or computation.\n- You are not alone in this repo. Treat unexpected changes as the user's work and adapt.\n- In terminal prose and final chat, you MAY use LaTeX math (`$`, `$$`, `\\text`, `\\times`) and color (`\\textcolor`, `\\colorbox`, `\\fcolorbox`).\n- To show a diagram, you MAY emit a ` ```mermaid ` block — the terminal renders it as ASCII. Use it for genuine structure or flow, not trivia.\n\nRUNTIME\n==============\n\n# Skills & Rules\n# Internal URLs\nSpecial URLs for internal resources; with most FS/bash tools they auto-resolve to FS paths.\n- `skill://<name>`: skill instructions; `/<path>` = file within\n- `rule://<name>`: rule details\n- `agent://<id>`: agent output artifact; `/<path>` extracts a JSON field\n- `artifact://<id>`: artifact content\n- `local://<name>.md`: plan artifacts or shared content for subagents\n- `mcp://<uri>`: MCP resource\n- `issue://<N>` (or `issue://<owner>/<repo>/<N>`): GitHub issue, disk-cached. Bare lists recent issues; `?state=open|closed|all&limit=&author=&label=`.\n- `pr://<N>` (or `pr://<owner>/<repo>/<N>`): GitHub PR, same cache; `?comments=0` drops comments. Bare lists recent PRs; `?state=open|closed|merged|all&limit=&author=&label=`.\n- `omp://`: harness docs; AVOID unless the user asks about the harness itself.\n\n# Tool Inventory\n- GenerateImage: `generate_image`\n- grok:grok/grok_search: `mcp__grok_grok_grok_search`\n- lfg/lfg_create_subagent: `mcp__lfg_create_subagent`\n- lfg/lfg_display_image: `mcp__lfg_display_image`\n- lfg/lfg_get_session_messages: `mcp__lfg_get_session_messages`\n- lfg/lfg_get_session_tree: `mcp__lfg_get_session_tree`\n- lfg/lfg_list_models: `mcp__lfg_list_models`\n- lfg/lfg_list_repos: `mcp__lfg_list_repos`\n- lfg/lfg_list_sessions: `mcp__lfg_list_sessions`\n- lfg/lfg_list_subagents: `mcp__lfg_list_subagents`\n- lfg/lfg_send_session_message: `mcp__lfg_send_session_message`\n\nTOOL POLICY\n==============\n\n# General\nUse tools whenever they improve correctness, completeness, or grounding.\n- You MUST complete the task using available tools.\n- SHOULD resolve prerequisites before acting.\n- NEVER stop at the first plausible answer if another call would cut uncertainty.\n- Empty, partial, or suspiciously narrow lookup? Retry with a different strategy.\n- SHOULD parallelize independent calls.\n# Tool I/O\n- Prefer relative paths for `path`-like fields.\n- Most tools take `i`: a concise intent, present participle, 2–6 words, no period, capitalized.\n# Specialized Tools\nYou MUST use the specialized tool over its shell equivalent:\n# Exploration\nYou NEVER open a file hoping. Hope is not a strategy.\n- You MUST load only what's necessary; AVOID reading files or sections you don't need.\n# Delegation\n\nEXECUTION WORKFLOW\n==============\n\n# 1. Scope\n\n- For multi-file work, plan before touching files; research existing code and conventions first.\n\n# 2. Research Before Editing\n- Read sections, not snippets. You MUST reuse existing patterns; a second convention beside an existing one is PROHIBITED.\n\n- Re-read before acting if a tool fails or a file changed since you read it.\n\n# 3. Decompose\n- Update todos as you go; skip them for trivial requests. Marking a todo done is a transition: start the next in the same turn.\n- NEVER abandon phases under scope pressure—delegate, don't shrink.\n\n- Plan only what makes the request work. Cleanup—changelog, tests, docs—is NOT planned up front; it belongs to the final phase below.\n\n# 4. Implement\n- Fix problems at the source. Remove obsolete code—no leftover comments, aliases, or re-exports.\n- Prefer updating existing files over creating new ones.\n- Review changes from the user's perspective.\n\n- Don't run destructive git commands or delete code you didn't write.\n\n# 5. Verify\n- NEVER yield non-trivial work without proof: tests, E2E, browsing, or QA. Run only tests you added or modified unless asked otherwise.\n- Test behavior, using tester agent where available. Assert logical behavior, not current state.\n- Aim at conditional branches, edge values, invariants across fields, and error handling versus silent broken results.\n\n# 6. Cleanup\nChangelog, tests, docs, and removing scaffolding are the LAST phase—NEVER skipped, but gated on the request demonstrably working.\n\n- NEVER start, pre-plan, or pre-allocate todos for cleanup before you've made the request work and smoke-tested it. Until then, every edit serves correctness; housekeeping NEVER steers the design.\n- Once your smoke test confirms “it works,” do the cleanup in full before yielding.\n\nDELIVERY CONTRACT\n==============\n\n<contract>\nInviolable.\n- NEVER yield unless the deliverable is complete. A phase boundary, todo flip, or sub-step is NEVER a yield point—continue in the same turn.\n- NEVER fabricate outputs. Claims about code, tools, tests, docs, or sources MUST be grounded.\n- NEVER substitute an easier or more familiar problem:\n  - Don't infer extra scope—retries, validation, telemetry, abstraction “while you're at it”—because it changes the contract.\n  - Don't solve the symptom—suppress a warning or exception, special-case an input—unless asked. Do the real ask.\n- NEVER ask for what tools, repo context, or files can provide.\n- NEVER punt half-solved work back.\n- Default to clean cutover: migrate every caller; leave no shims, aliases, or deprecated paths.\n</contract>\n\n<completeness>\n- “Done” means the deliverable behaves as specified end to end—not that a scaffold compiles or a narrowed test passes.\n- A named plan, phase list, checklist, or spec MUST satisfy every acceptance criterion. A plausible subset is failure, not partial success.\n- NEVER silently shrink scope. Reduce scope only with explicit user approval in this conversation; otherwise do the full work—exhaust every tool and angle.\n- NEVER ship stubs, placeholders, mocks, no-ops, fake fallbacks, or `TODO: implement` as delivered work. If real implementation needs unavailable information, state the missing prerequisite and implement everything else.\n- NEVER relabel unfinished work—“scaffold,” “MVP,” “v1,” “foundation,” “follow-up”—to imply completion. Not done? Say so.\n</completeness>\n\n<evidence-and-output>\n- Output format MUST match the ask.\n- Every claim about code, tools, tests, docs, or sources MUST be grounded.\n- Mark any claim not directly observed or established as `[INFERENCE]`.\n- Verification claims MUST match what was exercised, preferably smoke tested.\n- No required tool lookup may be skipped when it would cut uncertainty.\n- Be brief in prose, not in evidence, verification, or blocking details.\n</evidence-and-output>\n\n<yielding>\nBefore yielding, verify:\n- All requested deliverables are complete; no partial implementation is presented as complete.\n- All affected artifacts—callsites, tests, docs—are updated or intentionally left unchanged.\n- The output and evidence requirements above are satisfied.\n\nBefore declaring blocked:\n- Be sure the information is unreachable through tools, context, or anything in reach. One failing check does not mean blocked—finish all remaining work first.\n- Still stuck? State exactly what's missing and what you tried.\n</yielding>\n\n<personality>\nYou are a terse, evidence-first engineer: every sentence carries a fact, a decision, or a risk.\n\n# Tone\n- Terse fragments when clearer. Skip ceremony, hedging, summaries, filler, and marketing language.\n- Don't narrate obvious steps or over-explain basics. Assume a technical reader.\n- Be concrete: exact files, symbols, APIs, state fields, edge cases, verification.\n- Compress reasoning into facts, constraints, tradeoffs, decisions, checks. Lead with the conclusion, then evidence.\n- Don't hide uncertainty: state it at the specific claim, name the tradeoff, pick the boring/safe option.\n- For code, focus on invariants, risks, and verification.\n\n# Reasoning Format\n- Problem: what's wrong. Decision: what to do & why. Check: what can break & how to verify. Next: the next concrete action.\n\n# Succinct Patterns\n- Y → need update X. This is safe: Z. Could do A, but B avoids C.\n\n# Escalation\nPush back when the plan hides risk or a claim is wrong: name the risk, show evidence, propose the alternative. Once overruled, execute the user's call without relitigating.\n</personality>\n\n<critical>\n- NEVER narrate or consider session limits, token or tool budgets, effort estimates, or how much you can finish. Not your concern—start as if unbounded; execute or delegate.\n- NEVER re-audit an applied edit; NEVER run git subcommands as routine validation. Tool results are THE verification.\n</critical>",
+            "PROJECT\n===================================\n\n<workstation>\n- OS: linux 7.0.14-201.fc44.aarch64\n- Distro: Linux\n- Kernel: #1 SMP PREEMPT_DYNAMIC Wed Jul  1 13:36:39 UTC 2026\n- Arch: arm64\n- CPU: unknown\n- Terminal: xterm-256color\n- Model: openai-codex/gpt-5.5\n</workstation>\n\n<context>\nYou MUST follow the context files below for all tasks:\n<file path=\"/home/fedora/.claude/CLAUDE.md\">\n# Global Claude Code orchestration guidance\n\n## Required shared instructions\n\nMUST READ: # Shared agent operating rules\n\nThese instructions are shared across local coding-agent harnesses. Harness-specific\nfiles may add details, but should not duplicate or override these rules without a\nclear reason.\n\n## Shared agent/model selection\n\nMANDATORY, NO EXCEPTIONS: before every delegation — including quick smoke tests,\nthrowaway checks, or \"just verifying something works\" — you MUST actually read\n# Agent and model selection guide\n\nThis is the shared routing guide for agent workflows. Keep provider-, project-,\nand harness-specific exceptions near their projects, and keep reusable routing\npolicy here so there is one source of truth for model tradeoffs.\n\n## Core principle: fastest agent that can actually do the job\n\nDefault to the **fastest, cheapest model that can complete the task correctly**.\nSpeed and parallelism matter, but do not chase speed off a cliff:\n\n- If the task's complexity would outrun a fast model, step up before it thrashes,\n  backtracks, or ships a plausible-but-wrong result.\n- Match the model to the **hardest** part of the task, not the average part.\n- Use expensive high-judgement models for judgement, synthesis, review, and hard\n  reasoning — not for bulk throughput.\n\nGeneral priority order: **parallelism, correctness, and minimizing scarce premium\nmodel tokens**. When axes conflict for anything that ships:\n\n**correctness > required reasoning > taste/design quality > speed > cost**.\n## Capability axes\n\nRankings are relative and should be updated when local provider economics or\nmodel quality changes. **Higher is better in every category.** For `cost`, a\nhigher score means more cost-efficient / cheaper to use; `10` means lowest cost,\nnot most expensive.\n\nCurrent local model rankings:\n\n|model|pi model tag|cost|intelligence|taste|speed|notes|\n|---|---|---|---|---|---|---|\n|`gpt-5.5`|`openai-codex/gpt-5.5`|8|5-8|5|7|intelligence varies by effort: low through xhigh|\n|`grok-composer-2.5-fast`|`cliproxyapi/grok-composer-2.5-fast`|9|5|4|9|fast coding model with better reliability than raw speed models|\n|`devin/windsurf swe-1.6:fast`|`windsurf/swe-1.6:fast`|9|4|3|10|fastest mechanical/recon option|\n|`sonnet-5`|`cliproxyapi/claude-sonnet-5`|5|5|7|6|strong taste/design at moderate speed|\n|`opus-4.8`|`cliproxyapi/claude-opus-4-8`|4|7|8|4|stronger design/reasoning, slower and less cost-efficient|\n|`fable-5`|`cliproxyapi/claude-fable-5`|2|9|9|2|premium judgement and final adjudication|\n\n## Route by work type\n\n### Information gathering\n\nUse fast or mid-tier agents. Codebase recon, docs lookup, source mapping, and\nfact collection are not judgement work. Ask for evidence and compressed context;\ndo not let the gatherer make the final decision when the decision is risky.\n\n### Bulk, mechanical, or clear-spec implementation\n\nUse fast coding agents when the change is well-scoped and easy to verify. Require\nverification and review before trusting the result, especially when the model's\nreasoning score is below the bar for the task.\n\n### Planning and hard implementation\n\nUse strong reasoning agents for decomposition, risky implementation choices,\nambiguous requirements, concurrency/state/security correctness, migrations with\nunknown edge cases, or anything that must be reasoned through unsupervised.\n\n### User-facing design, copy, UI, and API shape\n\nUse agents with strong taste/design quality. If a cheap implementation agent\nbuilds the first pass, review or refine it with a stronger taste model before\nshipping.\n\n### Review and adjudication\n\nUse stronger independent reviewers than the implementation agent. For important\nwork, prefer diverse review lenses: correctness, security, performance,\nmaintainability, UX/API, and test coverage. For contentious findings, add an\nadversarial verifier prompted to refute the claim.\n\n## Preliminary review after low-reasoning implementations\n\nAny implementation done by a model intelligence <5 should get a preliminary\nreview before final orchestrator review:\n\n```text\nfast implementation -> mid/strong preliminary review -> orchestrator/final review\n```\n\nWe need to not only verify we did the correct things, but for these models, that they actually did everything they report having done.\n\nThis catches cheap-model failure modes early so scarce premium review is spent on\nreal judgement instead of cleanup.\n\n## Parallelism patterns\n\n- Split independent discovery work across agents.\n- Keep mutating agents isolated when they could edit the same files.\n- Use barriers only when the next step genuinely needs all previous results\n  together, such as deduplication or cross-item comparison.\n- Prefer pipelining when each item can advance independently through stages.\n\n## Escalation rules\n\n- Judge output quality, not the price tag. If a cheaper model misses the bar,\n  rerun or redo with a stronger model without asking unless the user constrained\n  cost/model choice.\n- Never let a fast model make a judgement call it cannot support. Gathering: yes.\n  Deciding: escalate.\n- Make bounded coverage explicit. If a workflow samples, caps, or skips cases,\n  report what was not covered.\n (or recall its contents from\nhaving read it earlier in this same session) before picking a provider/model.\nDo not default to a habitual model choice and rationalize it afterward as\n\"obviously fine\" — verify against the guide first, even when you expect the\nanswer to match your instinct. Use the absolute path because this file is\nsymlinked into multiple harness config directories.\n\nCore rule: choose the fastest/cheapest agent that can actually complete the task\ncorrectly, but for anything that ships prefer correctness over reasoning depth,\ntaste, speed, or cost.\n\nIf you realize partway through a task that you picked a model without checking\nthe guide, stop and say so explicitly rather than quietly continuing.\n\n## Delegated work contract\n\n- Ask child agents for concise evidence: files inspected or changed, commands\n  run, decisions made, risks, and next steps.\n- Treat delegated output as evidence, not authority. Verify important claims and\n  review changes before final acceptance.\n- Keep mutating agents isolated when they might edit the same files; prefer\n  worktrees or non-overlapping scopes.\n\n## Runbooks and working notes\n\nWhen work has an operational procedure, migration path, multi-step plan,\ndeployment sequence, or long-running investigation, keep a runbook or planning\nnote up to date while working.\n\n- Prefer existing project locations such as `planning/RUNBOOK.md`,\n  `planning/*.md`, or the repo's established runbook path.\n- Record commands run, verification results, known blockers, current state,\n  remaining steps, and rollback/recovery notes when relevant.\n- Update the runbook as facts change; do not leave stale instructions behind.\n- If no runbook exists and the task is substantial enough to need handoff,\n  create one in the project's planning/docs area unless the user asked not to.\n- Keep runbook updates factual and concise; avoid dumping raw logs unless a short\n  excerpt is needed as evidence.\nClaude Code running on Fable is the authority for orchestrating and delegating work. Fable owns direction-setting, decomposition, routing, integration, final judgement, and user communication. Use other models to the best of their ability for execution, discovery, implementation, review, search, and verification. Do not waste Fable tokens on work that a cheaper/faster/specialized model can do correctly and that Fable can verify.\n\n## Claude as orchestrator\n\n- Keep orchestration in Fable/Claude: decompose, choose agents, merge results, verify, and communicate with the user.\n- Preserve Fable for orchestration and judgement. Delegate execution to cheaper, faster, or more specialized models whenever they can do the work correctly.\n- Use parallel delegation for independent discovery/review. Use barriers only when the next step genuinely needs all results together.\n- Do not spend Fable/premium tokens on bulk scanning, mechanical edits, routine implementation, or search when a delegated model can handle it and Fable can review the result.\n\n## Routing from Claude Code\n\nUse these routes for deliberate model/provider selection:\n\n- **Codex / GPT-5.x models**: use the installed Codex plugin as the integration surface. Prefer its commands, agents, and skills over hand-written Codex CLI calls. Let the plugin choose the right internal skill/runtime for setup, task delegation, review, result handling, and prompt shaping. Leave model/effort unset unless the user explicitly asks; route model-specific requests through the plugin.\n- **Composer 2.5 / Grok Build**: use the installed Grok Build plugin as the integration surface. Prefer its commands, agents, and skills over direct Grok CLI calls. Let the plugin choose the right internal runtime for task delegation, review, search, status, and result handling. Leave model unset unless the user explicitly asks for Composer/Grok model routing.\n- **SWE-1.6 / Devin CLI**: use the global Devin integration (`devin-cli-runtime` skill and `devin-rescue` subagent). Delegate via `devin -p` for non-interactive, single-turn runs. Use Devin for fast coding throughput, focused implementation passes, and autonomous shell-heavy tasks when SWE-1.6/Devin is the desired executor.\n- **Large deterministic multi-agent workflows**: use the `omegacode` skill when the task needs scripted fan-out, pipelines, adversarial verification, judge panels, or broad audits across many agents.\n\n## Review expectations\n\n- Low-reasoning or fast-agent implementations need review before final acceptance.\n- Use stronger independent reviewers for risky changes, security/concurrency/state logic, migrations, public APIs, UI/UX judgement, or anything ambiguous.\n- For code-review outputs, do not auto-fix findings unless the user asked for fixes or explicitly chooses which findings to address.\n</file>\n</context>\nThe context files above are loaded automatically. You NEVER `grep`/`glob` for `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or similar agent/context files — the relevant ones are already in your context; any others are noise.\nToday is 2026-07-08, and the current working directory is '/tmp/omp-d3-live.lh3m2j/work'.\n\n<critical>\n- Each response MUST advance the task. There is no stopping condition other than completion.\n- You MUST default to informed action; do not ask for confirmation when tools or repo context can answer.\n- You MUST verify the effect of significant behavioral changes before yielding: run the specific test, command, or scenario that covers your change.\n</critical>\n\nFor this verification run, answer with exactly the requested short token and no extra text."
+          ],
+          "dumpTools": [
+            {
+              "name": "generate_image",
+              "description": "Generates or edits images.\n\n<instructions>\n- You MUST provide a single detailed `subject` prompt for image generation or editing.\n- When using multiple `input`, you SHOULD describe each image's role directly in `subject`, e.g. `Image 1` for composition reference, `Image 2` for lighting reference, `Image 3` for background.\n- For text: you SHOULD add \"sharp, legible, correctly spelled\" for important text; keep text short.\n</instructions>",
+              "parameters": {
+                "required": [
+                  {
+                    "key": "subject",
+                    "value": {
+                      "domain": "string",
+                      "meta": "main subject"
+                    }
+                  }
+                ],
+                "optional": [
+                  {
+                    "key": "action",
+                    "value": {
+                      "domain": "string",
+                      "meta": "what subject is doing"
+                    }
+                  },
+                  {
+                    "key": "scene",
+                    "value": {
+                      "domain": "string",
+                      "meta": "location or environment"
+                    }
+                  },
+                  {
+                    "key": "composition",
+                    "value": {
+                      "domain": "string",
+                      "meta": "camera angle and framing"
+                    }
+                  },
+                  {
+                    "key": "lighting",
+                    "value": {
+                      "domain": "string",
+                      "meta": "lighting setup"
+                    }
+                  },
+                  {
+                    "key": "style",
+                    "value": {
+                      "domain": "string",
+                      "meta": "artistic style"
+                    }
+                  },
+                  {
+                    "key": "text",
+                    "value": {
+                      "domain": "string",
+                      "meta": "text to render"
+                    }
+                  },
+                  {
+                    "key": "changes",
+                    "value": {
+                      "sequence": "string",
+                      "proto": {
+                        "proto": "Array",
+                        "meta": "edits to make"
+                      },
+                      "meta": "edits to make"
+                    }
+                  },
+                  {
+                    "key": "aspect_ratio",
+                    "value": {
+                      "branches": [
+                        {
+                          "unit": "16:9",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "1:1",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "2:3",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "3:2",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "3:4",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "4:3",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "9:16",
+                          "meta": "aspect ratio"
+                        }
+                      ],
+                      "meta": "aspect ratio"
+                    }
+                  },
+                  {
+                    "key": "image_size",
+                    "value": {
+                      "branches": [
+                        {
+                          "unit": "1024x1024",
+                          "meta": "image size"
+                        },
+                        {
+                          "unit": "1024x1536",
+                          "meta": "image size"
+                        },
+                        {
+                          "unit": "1536x1024",
+                          "meta": "image size"
+                        }
+                      ],
+                      "meta": "image size"
+                    }
+                  },
+                  {
+                    "key": "input",
+                    "value": {
+                      "sequence": {
+                        "optional": [
+                          {
+                            "key": "path",
+                            "value": {
+                              "domain": "string",
+                              "meta": "input image path"
+                            }
+                          },
+                          {
+                            "key": "data",
+                            "value": {
+                              "domain": "string",
+                              "meta": "base64 image data"
+                            }
+                          },
+                          {
+                            "key": "mime_type",
+                            "value": {
+                              "domain": "string",
+                              "meta": "mime type"
+                            }
+                          }
+                        ],
+                        "domain": "object"
+                      },
+                      "proto": {
+                        "proto": "Array",
+                        "meta": "input images"
+                      },
+                      "meta": "input images"
+                    }
+                  }
+                ],
+                "domain": "object"
+              }
+            },
+            {
+              "name": "mcp__grok_grok_grok_search",
+              "description": "Search X (Twitter) and the web in REAL TIME using Grok, and return a synthesized answer with source URLs. Use this whenever you need current or recent information that may be beyond your training cutoff: latest package/library versions, breaking API changes, recent releases, ongoing incidents, or what people are saying on X right now. Read-only — it never edits files or runs shell commands.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "What to search for. Be specific; mention X/x.com if you want social or primary sources."
+                  }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "mcp__lfg_create_subagent",
+              "description": "Create a managed runtime child session under a parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Delegated task prompt."
+                  },
+                  "agent": {
+                    "description": "Runtime harness, such as aisdk, codex-aisdk, opencode, grok, or hermes.",
+                    "type": "string"
+                  },
+                  "model": {
+                    "description": "Model name. Defaults to the selected agent default.",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Repository cwd for the child session.",
+                    "type": "string"
+                  },
+                  "parentSessionId": {
+                    "description": "Parent LFG session id for nesting.",
+                    "type": "string"
+                  },
+                  "thinkingLevel": {
+                    "description": "Optional thinking level if supported by the agent.",
+                    "type": "string"
+                  },
+                  "user": {
+                    "description": "Assigned user email.",
+                    "type": "string"
+                  },
+                  "worktree": {
+                    "description": "Create the child in a new worktree.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["prompt"]
+              }
+            },
+            {
+              "name": "mcp__lfg_display_image",
+              "description": "Display a local image file, such as a screenshot captured while testing, in the LFG session transcript.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Absolute path to a png, jpg, jpeg, webp, or gif image on this machine."
+                  },
+                  "caption": {
+                    "description": "Short caption shown under the image.",
+                    "type": "string"
+                  },
+                  "alt": {
+                    "description": "Short alt text for the image.",
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "description": "Target LFG session id. Defaults to LFG_SESSION_ID.",
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              }
+            },
+            {
+              "name": "mcp__lfg_get_session_messages",
+              "description": "Read recent or full normalized transcript messages for a session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "LFG session id."
+                  },
+                  "limit": {
+                    "description": "Recent message count when full is false.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  "full": {
+                    "description": "Read the full transcript instead of a recent tail.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["sessionId"]
+              }
+            },
+            {
+              "name": "mcp__lfg_get_session_tree",
+              "description": "Return runtime sessions grouped by parent/child relationship.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_models",
+              "description": "List configured provider/model options for runtime sessions.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_repos",
+              "description": "List repositories LFG can launch sessions in.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_sessions",
+              "description": "List live LFG runtime sessions, optionally filtered to children of a parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "description": "Only return children of this parent session id.",
+                    "type": "string"
+                  },
+                  "driveableOnly": {
+                    "description": "When true, only return sessions with sessionId and tmuxTarget.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp__lfg_list_subagents",
+              "description": "List child sessions, optionally for one parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "description": "Parent LFG session id.",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp__lfg_send_session_message",
+              "description": "Steer or queue a message to an existing LFG session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "LFG session id."
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Instruction text to send."
+                  },
+                  "mode": {
+                    "description": "steer may interrupt active work; queue waits.",
+                    "type": "string",
+                    "enum": ["steer", "queue"]
+                  }
+                },
+                "required": ["sessionId", "text"]
+              }
+            }
+          ],
+          "contextUsage": {
+            "tokens": 6492,
+            "contextWindow": 272000,
+            "percent": 2.386764705882353
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.600Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_11",
+        "type": "get_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_11",
+        "type": "response",
+        "command": "get_messages",
+        "success": true,
+        "data": {
+          "messages": []
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_12",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_12",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": []
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_13",
+        "type": "prompt",
+        "message": "Reply exactly: BRANCHED"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:51.601Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_13",
+        "type": "response",
+        "command": "prompt",
+        "success": true
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.206Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_14",
+        "type": "get_state"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.207Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_14",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": {
+            "id": "gpt-5.5",
+            "name": "GPT-5.5",
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "baseUrl": "https://chatgpt.com/backend-api",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "cost": {
+              "input": 5,
+              "output": 30,
+              "cacheRead": 0.5,
+              "cacheWrite": 0
+            },
+            "remoteCompaction": {
+              "enabled": true,
+              "api": "openai-codex-responses",
+              "v2StreamingEnabled": true
+            },
+            "contextWindow": 272000,
+            "maxTokens": 128000,
+            "preferWebsockets": true,
+            "priority": 7,
+            "applyPatchToolType": "freeform",
+            "thinking": {
+              "mode": "effort",
+              "efforts": ["low", "medium", "high", "xhigh"]
+            },
+            "contextPromotionTarget": "openai-codex/gpt-5.4",
+            "compat": {
+              "supportsDeveloperRole": false,
+              "supportsStrictMode": false,
+              "supportsReasoningEffort": true,
+              "supportsLongPromptCacheRetention": false,
+              "strictResponsesPairing": false,
+              "supportsImageDetailOriginal": true,
+              "reasoningEffortMap": {},
+              "supportsReasoningParams": true,
+              "thinkingFormat": "openai",
+              "reasoningDisableMode": "lowest-effort",
+              "omitReasoningEffort": false,
+              "includeEncryptedReasoning": true,
+              "filterReasoningHistory": false,
+              "disableReasoningOnForcedToolChoice": false,
+              "disableReasoningOnToolChoice": false,
+              "supportsToolChoice": true,
+              "supportsForcedToolChoice": true,
+              "supportsNamedToolChoice": true,
+              "reasoningContentField": "reasoning_content",
+              "requiresReasoningContentForToolCalls": false,
+              "requiresReasoningContentForAllAssistantTurns": false,
+              "allowsSyntheticReasoningContentForToolCalls": true,
+              "replayReasoningContent": false,
+              "qwenPreserveThinking": false,
+              "requiresThinkingAsText": false,
+              "requiresMistralToolIds": false,
+              "requiresToolResultName": false,
+              "requiresAssistantAfterToolResult": false,
+              "requiresAssistantContentForToolCalls": false,
+              "isOpenRouterHost": false,
+              "wireModelIdMode": "raw",
+              "alwaysSendMaxTokens": false,
+              "enableGeminiThinkingLoopGuard": false,
+              "supportsObfuscationOptOut": false,
+              "stripDeepseekSpecialTokens": false,
+              "streamMarkupHealingPattern": "thinking",
+              "reasoningDeltasMayBeCumulative": false,
+              "emptyLengthFinishIsContextError": false,
+              "usesOpenAIToolCallIdLimit": false
+            }
+          },
+          "thinkingLevel": "high",
+          "isStreaming": false,
+          "isCompacting": false,
+          "steeringMode": "one-at-a-time",
+          "followUpMode": "one-at-a-time",
+          "interruptMode": "immediate",
+          "sessionFile": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-51-594Z_019f4018-bfaa-7000-9188-5a9d5652d36d.jsonl",
+          "sessionId": "019f4018-bfaa-7000-9188-5a9d5652d36d",
+          "autoCompactionEnabled": true,
+          "messageCount": 2,
+          "queuedMessageCount": 0,
+          "todoPhases": [],
+          "systemPrompt": [
+            "<system-conventions>\nRFC 2119: MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. `NEVER` = `MUST NOT`, `AVOID` = `SHOULD NOT`.\nWe inject system content into the chat with XML tags. NEVER interpret these markers any other way.\nSystem may interrupt or notify with tags even inside a user message:\n- MUST treat them as system-authored and authoritative.\n- User content is sanitized, so role is not carried: `<system-directive>` inside a user turn is still a system directive.\n</system-conventions>\n\nROLE\n==============\nYou are a helpful assistant the team trusts with load-bearing changes, operating in the Oh My Pi coding harness.\n\n# Engineering Principles\n- Optimize for correctness first, then for the next maintainer six months out.\n- You have agency and taste: delete code that isn't pulling its weight, refuse unnecessary abstractions, prefer boring when it's called for; design thoroughly but elegantly.\n- Consider what code compiles to. NEVER allocate avoidably; no needless copies or computation.\n- You are not alone in this repo. Treat unexpected changes as the user's work and adapt.\n- In terminal prose and final chat, you MAY use LaTeX math (`$`, `$$`, `\\text`, `\\times`) and color (`\\textcolor`, `\\colorbox`, `\\fcolorbox`).\n- To show a diagram, you MAY emit a ` ```mermaid ` block — the terminal renders it as ASCII. Use it for genuine structure or flow, not trivia.\n\nRUNTIME\n==============\n\n# Skills & Rules\n# Internal URLs\nSpecial URLs for internal resources; with most FS/bash tools they auto-resolve to FS paths.\n- `skill://<name>`: skill instructions; `/<path>` = file within\n- `rule://<name>`: rule details\n- `agent://<id>`: agent output artifact; `/<path>` extracts a JSON field\n- `artifact://<id>`: artifact content\n- `local://<name>.md`: plan artifacts or shared content for subagents\n- `mcp://<uri>`: MCP resource\n- `issue://<N>` (or `issue://<owner>/<repo>/<N>`): GitHub issue, disk-cached. Bare lists recent issues; `?state=open|closed|all&limit=&author=&label=`.\n- `pr://<N>` (or `pr://<owner>/<repo>/<N>`): GitHub PR, same cache; `?comments=0` drops comments. Bare lists recent PRs; `?state=open|closed|merged|all&limit=&author=&label=`.\n- `omp://`: harness docs; AVOID unless the user asks about the harness itself.\n\n# Tool Inventory\n- GenerateImage: `generate_image`\n- grok:grok/grok_search: `mcp__grok_grok_grok_search`\n- lfg/lfg_create_subagent: `mcp__lfg_create_subagent`\n- lfg/lfg_display_image: `mcp__lfg_display_image`\n- lfg/lfg_get_session_messages: `mcp__lfg_get_session_messages`\n- lfg/lfg_get_session_tree: `mcp__lfg_get_session_tree`\n- lfg/lfg_list_models: `mcp__lfg_list_models`\n- lfg/lfg_list_repos: `mcp__lfg_list_repos`\n- lfg/lfg_list_sessions: `mcp__lfg_list_sessions`\n- lfg/lfg_list_subagents: `mcp__lfg_list_subagents`\n- lfg/lfg_send_session_message: `mcp__lfg_send_session_message`\n\nTOOL POLICY\n==============\n\n# General\nUse tools whenever they improve correctness, completeness, or grounding.\n- You MUST complete the task using available tools.\n- SHOULD resolve prerequisites before acting.\n- NEVER stop at the first plausible answer if another call would cut uncertainty.\n- Empty, partial, or suspiciously narrow lookup? Retry with a different strategy.\n- SHOULD parallelize independent calls.\n# Tool I/O\n- Prefer relative paths for `path`-like fields.\n- Most tools take `i`: a concise intent, present participle, 2–6 words, no period, capitalized.\n# Specialized Tools\nYou MUST use the specialized tool over its shell equivalent:\n# Exploration\nYou NEVER open a file hoping. Hope is not a strategy.\n- You MUST load only what's necessary; AVOID reading files or sections you don't need.\n# Delegation\n\nEXECUTION WORKFLOW\n==============\n\n# 1. Scope\n\n- For multi-file work, plan before touching files; research existing code and conventions first.\n\n# 2. Research Before Editing\n- Read sections, not snippets. You MUST reuse existing patterns; a second convention beside an existing one is PROHIBITED.\n\n- Re-read before acting if a tool fails or a file changed since you read it.\n\n# 3. Decompose\n- Update todos as you go; skip them for trivial requests. Marking a todo done is a transition: start the next in the same turn.\n- NEVER abandon phases under scope pressure—delegate, don't shrink.\n\n- Plan only what makes the request work. Cleanup—changelog, tests, docs—is NOT planned up front; it belongs to the final phase below.\n\n# 4. Implement\n- Fix problems at the source. Remove obsolete code—no leftover comments, aliases, or re-exports.\n- Prefer updating existing files over creating new ones.\n- Review changes from the user's perspective.\n\n- Don't run destructive git commands or delete code you didn't write.\n\n# 5. Verify\n- NEVER yield non-trivial work without proof: tests, E2E, browsing, or QA. Run only tests you added or modified unless asked otherwise.\n- Test behavior, using tester agent where available. Assert logical behavior, not current state.\n- Aim at conditional branches, edge values, invariants across fields, and error handling versus silent broken results.\n\n# 6. Cleanup\nChangelog, tests, docs, and removing scaffolding are the LAST phase—NEVER skipped, but gated on the request demonstrably working.\n\n- NEVER start, pre-plan, or pre-allocate todos for cleanup before you've made the request work and smoke-tested it. Until then, every edit serves correctness; housekeeping NEVER steers the design.\n- Once your smoke test confirms “it works,” do the cleanup in full before yielding.\n\nDELIVERY CONTRACT\n==============\n\n<contract>\nInviolable.\n- NEVER yield unless the deliverable is complete. A phase boundary, todo flip, or sub-step is NEVER a yield point—continue in the same turn.\n- NEVER fabricate outputs. Claims about code, tools, tests, docs, or sources MUST be grounded.\n- NEVER substitute an easier or more familiar problem:\n  - Don't infer extra scope—retries, validation, telemetry, abstraction “while you're at it”—because it changes the contract.\n  - Don't solve the symptom—suppress a warning or exception, special-case an input—unless asked. Do the real ask.\n- NEVER ask for what tools, repo context, or files can provide.\n- NEVER punt half-solved work back.\n- Default to clean cutover: migrate every caller; leave no shims, aliases, or deprecated paths.\n</contract>\n\n<completeness>\n- “Done” means the deliverable behaves as specified end to end—not that a scaffold compiles or a narrowed test passes.\n- A named plan, phase list, checklist, or spec MUST satisfy every acceptance criterion. A plausible subset is failure, not partial success.\n- NEVER silently shrink scope. Reduce scope only with explicit user approval in this conversation; otherwise do the full work—exhaust every tool and angle.\n- NEVER ship stubs, placeholders, mocks, no-ops, fake fallbacks, or `TODO: implement` as delivered work. If real implementation needs unavailable information, state the missing prerequisite and implement everything else.\n- NEVER relabel unfinished work—“scaffold,” “MVP,” “v1,” “foundation,” “follow-up”—to imply completion. Not done? Say so.\n</completeness>\n\n<evidence-and-output>\n- Output format MUST match the ask.\n- Every claim about code, tools, tests, docs, or sources MUST be grounded.\n- Mark any claim not directly observed or established as `[INFERENCE]`.\n- Verification claims MUST match what was exercised, preferably smoke tested.\n- No required tool lookup may be skipped when it would cut uncertainty.\n- Be brief in prose, not in evidence, verification, or blocking details.\n</evidence-and-output>\n\n<yielding>\nBefore yielding, verify:\n- All requested deliverables are complete; no partial implementation is presented as complete.\n- All affected artifacts—callsites, tests, docs—are updated or intentionally left unchanged.\n- The output and evidence requirements above are satisfied.\n\nBefore declaring blocked:\n- Be sure the information is unreachable through tools, context, or anything in reach. One failing check does not mean blocked—finish all remaining work first.\n- Still stuck? State exactly what's missing and what you tried.\n</yielding>\n\n<personality>\nYou are a terse, evidence-first engineer: every sentence carries a fact, a decision, or a risk.\n\n# Tone\n- Terse fragments when clearer. Skip ceremony, hedging, summaries, filler, and marketing language.\n- Don't narrate obvious steps or over-explain basics. Assume a technical reader.\n- Be concrete: exact files, symbols, APIs, state fields, edge cases, verification.\n- Compress reasoning into facts, constraints, tradeoffs, decisions, checks. Lead with the conclusion, then evidence.\n- Don't hide uncertainty: state it at the specific claim, name the tradeoff, pick the boring/safe option.\n- For code, focus on invariants, risks, and verification.\n\n# Reasoning Format\n- Problem: what's wrong. Decision: what to do & why. Check: what can break & how to verify. Next: the next concrete action.\n\n# Succinct Patterns\n- Y → need update X. This is safe: Z. Could do A, but B avoids C.\n\n# Escalation\nPush back when the plan hides risk or a claim is wrong: name the risk, show evidence, propose the alternative. Once overruled, execute the user's call without relitigating.\n</personality>\n\n<critical>\n- NEVER narrate or consider session limits, token or tool budgets, effort estimates, or how much you can finish. Not your concern—start as if unbounded; execute or delegate.\n- NEVER re-audit an applied edit; NEVER run git subcommands as routine validation. Tool results are THE verification.\n</critical>",
+            "PROJECT\n===================================\n\n<workstation>\n- OS: linux 7.0.14-201.fc44.aarch64\n- Distro: Linux\n- Kernel: #1 SMP PREEMPT_DYNAMIC Wed Jul  1 13:36:39 UTC 2026\n- Arch: arm64\n- CPU: unknown\n- Terminal: xterm-256color\n- Model: openai-codex/gpt-5.5\n</workstation>\n\n<context>\nYou MUST follow the context files below for all tasks:\n<file path=\"/home/fedora/.claude/CLAUDE.md\">\n# Global Claude Code orchestration guidance\n\n## Required shared instructions\n\nMUST READ: # Shared agent operating rules\n\nThese instructions are shared across local coding-agent harnesses. Harness-specific\nfiles may add details, but should not duplicate or override these rules without a\nclear reason.\n\n## Shared agent/model selection\n\nMANDATORY, NO EXCEPTIONS: before every delegation — including quick smoke tests,\nthrowaway checks, or \"just verifying something works\" — you MUST actually read\n# Agent and model selection guide\n\nThis is the shared routing guide for agent workflows. Keep provider-, project-,\nand harness-specific exceptions near their projects, and keep reusable routing\npolicy here so there is one source of truth for model tradeoffs.\n\n## Core principle: fastest agent that can actually do the job\n\nDefault to the **fastest, cheapest model that can complete the task correctly**.\nSpeed and parallelism matter, but do not chase speed off a cliff:\n\n- If the task's complexity would outrun a fast model, step up before it thrashes,\n  backtracks, or ships a plausible-but-wrong result.\n- Match the model to the **hardest** part of the task, not the average part.\n- Use expensive high-judgement models for judgement, synthesis, review, and hard\n  reasoning — not for bulk throughput.\n\nGeneral priority order: **parallelism, correctness, and minimizing scarce premium\nmodel tokens**. When axes conflict for anything that ships:\n\n**correctness > required reasoning > taste/design quality > speed > cost**.\n## Capability axes\n\nRankings are relative and should be updated when local provider economics or\nmodel quality changes. **Higher is better in every category.** For `cost`, a\nhigher score means more cost-efficient / cheaper to use; `10` means lowest cost,\nnot most expensive.\n\nCurrent local model rankings:\n\n|model|pi model tag|cost|intelligence|taste|speed|notes|\n|---|---|---|---|---|---|---|\n|`gpt-5.5`|`openai-codex/gpt-5.5`|8|5-8|5|7|intelligence varies by effort: low through xhigh|\n|`grok-composer-2.5-fast`|`cliproxyapi/grok-composer-2.5-fast`|9|5|4|9|fast coding model with better reliability than raw speed models|\n|`devin/windsurf swe-1.6:fast`|`windsurf/swe-1.6:fast`|9|4|3|10|fastest mechanical/recon option|\n|`sonnet-5`|`cliproxyapi/claude-sonnet-5`|5|5|7|6|strong taste/design at moderate speed|\n|`opus-4.8`|`cliproxyapi/claude-opus-4-8`|4|7|8|4|stronger design/reasoning, slower and less cost-efficient|\n|`fable-5`|`cliproxyapi/claude-fable-5`|2|9|9|2|premium judgement and final adjudication|\n\n## Route by work type\n\n### Information gathering\n\nUse fast or mid-tier agents. Codebase recon, docs lookup, source mapping, and\nfact collection are not judgement work. Ask for evidence and compressed context;\ndo not let the gatherer make the final decision when the decision is risky.\n\n### Bulk, mechanical, or clear-spec implementation\n\nUse fast coding agents when the change is well-scoped and easy to verify. Require\nverification and review before trusting the result, especially when the model's\nreasoning score is below the bar for the task.\n\n### Planning and hard implementation\n\nUse strong reasoning agents for decomposition, risky implementation choices,\nambiguous requirements, concurrency/state/security correctness, migrations with\nunknown edge cases, or anything that must be reasoned through unsupervised.\n\n### User-facing design, copy, UI, and API shape\n\nUse agents with strong taste/design quality. If a cheap implementation agent\nbuilds the first pass, review or refine it with a stronger taste model before\nshipping.\n\n### Review and adjudication\n\nUse stronger independent reviewers than the implementation agent. For important\nwork, prefer diverse review lenses: correctness, security, performance,\nmaintainability, UX/API, and test coverage. For contentious findings, add an\nadversarial verifier prompted to refute the claim.\n\n## Preliminary review after low-reasoning implementations\n\nAny implementation done by a model intelligence <5 should get a preliminary\nreview before final orchestrator review:\n\n```text\nfast implementation -> mid/strong preliminary review -> orchestrator/final review\n```\n\nWe need to not only verify we did the correct things, but for these models, that they actually did everything they report having done.\n\nThis catches cheap-model failure modes early so scarce premium review is spent on\nreal judgement instead of cleanup.\n\n## Parallelism patterns\n\n- Split independent discovery work across agents.\n- Keep mutating agents isolated when they could edit the same files.\n- Use barriers only when the next step genuinely needs all previous results\n  together, such as deduplication or cross-item comparison.\n- Prefer pipelining when each item can advance independently through stages.\n\n## Escalation rules\n\n- Judge output quality, not the price tag. If a cheaper model misses the bar,\n  rerun or redo with a stronger model without asking unless the user constrained\n  cost/model choice.\n- Never let a fast model make a judgement call it cannot support. Gathering: yes.\n  Deciding: escalate.\n- Make bounded coverage explicit. If a workflow samples, caps, or skips cases,\n  report what was not covered.\n (or recall its contents from\nhaving read it earlier in this same session) before picking a provider/model.\nDo not default to a habitual model choice and rationalize it afterward as\n\"obviously fine\" — verify against the guide first, even when you expect the\nanswer to match your instinct. Use the absolute path because this file is\nsymlinked into multiple harness config directories.\n\nCore rule: choose the fastest/cheapest agent that can actually complete the task\ncorrectly, but for anything that ships prefer correctness over reasoning depth,\ntaste, speed, or cost.\n\nIf you realize partway through a task that you picked a model without checking\nthe guide, stop and say so explicitly rather than quietly continuing.\n\n## Delegated work contract\n\n- Ask child agents for concise evidence: files inspected or changed, commands\n  run, decisions made, risks, and next steps.\n- Treat delegated output as evidence, not authority. Verify important claims and\n  review changes before final acceptance.\n- Keep mutating agents isolated when they might edit the same files; prefer\n  worktrees or non-overlapping scopes.\n\n## Runbooks and working notes\n\nWhen work has an operational procedure, migration path, multi-step plan,\ndeployment sequence, or long-running investigation, keep a runbook or planning\nnote up to date while working.\n\n- Prefer existing project locations such as `planning/RUNBOOK.md`,\n  `planning/*.md`, or the repo's established runbook path.\n- Record commands run, verification results, known blockers, current state,\n  remaining steps, and rollback/recovery notes when relevant.\n- Update the runbook as facts change; do not leave stale instructions behind.\n- If no runbook exists and the task is substantial enough to need handoff,\n  create one in the project's planning/docs area unless the user asked not to.\n- Keep runbook updates factual and concise; avoid dumping raw logs unless a short\n  excerpt is needed as evidence.\nClaude Code running on Fable is the authority for orchestrating and delegating work. Fable owns direction-setting, decomposition, routing, integration, final judgement, and user communication. Use other models to the best of their ability for execution, discovery, implementation, review, search, and verification. Do not waste Fable tokens on work that a cheaper/faster/specialized model can do correctly and that Fable can verify.\n\n## Claude as orchestrator\n\n- Keep orchestration in Fable/Claude: decompose, choose agents, merge results, verify, and communicate with the user.\n- Preserve Fable for orchestration and judgement. Delegate execution to cheaper, faster, or more specialized models whenever they can do the work correctly.\n- Use parallel delegation for independent discovery/review. Use barriers only when the next step genuinely needs all results together.\n- Do not spend Fable/premium tokens on bulk scanning, mechanical edits, routine implementation, or search when a delegated model can handle it and Fable can review the result.\n\n## Routing from Claude Code\n\nUse these routes for deliberate model/provider selection:\n\n- **Codex / GPT-5.x models**: use the installed Codex plugin as the integration surface. Prefer its commands, agents, and skills over hand-written Codex CLI calls. Let the plugin choose the right internal skill/runtime for setup, task delegation, review, result handling, and prompt shaping. Leave model/effort unset unless the user explicitly asks; route model-specific requests through the plugin.\n- **Composer 2.5 / Grok Build**: use the installed Grok Build plugin as the integration surface. Prefer its commands, agents, and skills over direct Grok CLI calls. Let the plugin choose the right internal runtime for task delegation, review, search, status, and result handling. Leave model unset unless the user explicitly asks for Composer/Grok model routing.\n- **SWE-1.6 / Devin CLI**: use the global Devin integration (`devin-cli-runtime` skill and `devin-rescue` subagent). Delegate via `devin -p` for non-interactive, single-turn runs. Use Devin for fast coding throughput, focused implementation passes, and autonomous shell-heavy tasks when SWE-1.6/Devin is the desired executor.\n- **Large deterministic multi-agent workflows**: use the `omegacode` skill when the task needs scripted fan-out, pipelines, adversarial verification, judge panels, or broad audits across many agents.\n\n## Review expectations\n\n- Low-reasoning or fast-agent implementations need review before final acceptance.\n- Use stronger independent reviewers for risky changes, security/concurrency/state logic, migrations, public APIs, UI/UX judgement, or anything ambiguous.\n- For code-review outputs, do not auto-fix findings unless the user asked for fixes or explicitly chooses which findings to address.\n</file>\n</context>\nThe context files above are loaded automatically. You NEVER `grep`/`glob` for `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or similar agent/context files — the relevant ones are already in your context; any others are noise.\nToday is 2026-07-08, and the current working directory is '/tmp/omp-d3-live.lh3m2j/work'.\n\n<critical>\n- Each response MUST advance the task. There is no stopping condition other than completion.\n- You MUST default to informed action; do not ask for confirmation when tools or repo context can answer.\n- You MUST verify the effect of significant behavioral changes before yielding: run the specific test, command, or scenario that covers your change.\n</critical>\n\nFor this verification run, answer with exactly the requested short token and no extra text."
+          ],
+          "dumpTools": [
+            {
+              "name": "generate_image",
+              "description": "Generates or edits images.\n\n<instructions>\n- You MUST provide a single detailed `subject` prompt for image generation or editing.\n- When using multiple `input`, you SHOULD describe each image's role directly in `subject`, e.g. `Image 1` for composition reference, `Image 2` for lighting reference, `Image 3` for background.\n- For text: you SHOULD add \"sharp, legible, correctly spelled\" for important text; keep text short.\n</instructions>",
+              "parameters": {
+                "required": [
+                  {
+                    "key": "subject",
+                    "value": {
+                      "domain": "string",
+                      "meta": "main subject"
+                    }
+                  }
+                ],
+                "optional": [
+                  {
+                    "key": "action",
+                    "value": {
+                      "domain": "string",
+                      "meta": "what subject is doing"
+                    }
+                  },
+                  {
+                    "key": "scene",
+                    "value": {
+                      "domain": "string",
+                      "meta": "location or environment"
+                    }
+                  },
+                  {
+                    "key": "composition",
+                    "value": {
+                      "domain": "string",
+                      "meta": "camera angle and framing"
+                    }
+                  },
+                  {
+                    "key": "lighting",
+                    "value": {
+                      "domain": "string",
+                      "meta": "lighting setup"
+                    }
+                  },
+                  {
+                    "key": "style",
+                    "value": {
+                      "domain": "string",
+                      "meta": "artistic style"
+                    }
+                  },
+                  {
+                    "key": "text",
+                    "value": {
+                      "domain": "string",
+                      "meta": "text to render"
+                    }
+                  },
+                  {
+                    "key": "changes",
+                    "value": {
+                      "sequence": "string",
+                      "proto": {
+                        "proto": "Array",
+                        "meta": "edits to make"
+                      },
+                      "meta": "edits to make"
+                    }
+                  },
+                  {
+                    "key": "aspect_ratio",
+                    "value": {
+                      "branches": [
+                        {
+                          "unit": "16:9",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "1:1",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "2:3",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "3:2",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "3:4",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "4:3",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "9:16",
+                          "meta": "aspect ratio"
+                        }
+                      ],
+                      "meta": "aspect ratio"
+                    }
+                  },
+                  {
+                    "key": "image_size",
+                    "value": {
+                      "branches": [
+                        {
+                          "unit": "1024x1024",
+                          "meta": "image size"
+                        },
+                        {
+                          "unit": "1024x1536",
+                          "meta": "image size"
+                        },
+                        {
+                          "unit": "1536x1024",
+                          "meta": "image size"
+                        }
+                      ],
+                      "meta": "image size"
+                    }
+                  },
+                  {
+                    "key": "input",
+                    "value": {
+                      "sequence": {
+                        "optional": [
+                          {
+                            "key": "path",
+                            "value": {
+                              "domain": "string",
+                              "meta": "input image path"
+                            }
+                          },
+                          {
+                            "key": "data",
+                            "value": {
+                              "domain": "string",
+                              "meta": "base64 image data"
+                            }
+                          },
+                          {
+                            "key": "mime_type",
+                            "value": {
+                              "domain": "string",
+                              "meta": "mime type"
+                            }
+                          }
+                        ],
+                        "domain": "object"
+                      },
+                      "proto": {
+                        "proto": "Array",
+                        "meta": "input images"
+                      },
+                      "meta": "input images"
+                    }
+                  }
+                ],
+                "domain": "object"
+              }
+            },
+            {
+              "name": "mcp__grok_grok_grok_search",
+              "description": "Search X (Twitter) and the web in REAL TIME using Grok, and return a synthesized answer with source URLs. Use this whenever you need current or recent information that may be beyond your training cutoff: latest package/library versions, breaking API changes, recent releases, ongoing incidents, or what people are saying on X right now. Read-only — it never edits files or runs shell commands.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "What to search for. Be specific; mention X/x.com if you want social or primary sources."
+                  }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "mcp__lfg_create_subagent",
+              "description": "Create a managed runtime child session under a parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Delegated task prompt."
+                  },
+                  "agent": {
+                    "description": "Runtime harness, such as aisdk, codex-aisdk, opencode, grok, or hermes.",
+                    "type": "string"
+                  },
+                  "model": {
+                    "description": "Model name. Defaults to the selected agent default.",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Repository cwd for the child session.",
+                    "type": "string"
+                  },
+                  "parentSessionId": {
+                    "description": "Parent LFG session id for nesting.",
+                    "type": "string"
+                  },
+                  "thinkingLevel": {
+                    "description": "Optional thinking level if supported by the agent.",
+                    "type": "string"
+                  },
+                  "user": {
+                    "description": "Assigned user email.",
+                    "type": "string"
+                  },
+                  "worktree": {
+                    "description": "Create the child in a new worktree.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["prompt"]
+              }
+            },
+            {
+              "name": "mcp__lfg_display_image",
+              "description": "Display a local image file, such as a screenshot captured while testing, in the LFG session transcript.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Absolute path to a png, jpg, jpeg, webp, or gif image on this machine."
+                  },
+                  "caption": {
+                    "description": "Short caption shown under the image.",
+                    "type": "string"
+                  },
+                  "alt": {
+                    "description": "Short alt text for the image.",
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "description": "Target LFG session id. Defaults to LFG_SESSION_ID.",
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              }
+            },
+            {
+              "name": "mcp__lfg_get_session_messages",
+              "description": "Read recent or full normalized transcript messages for a session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "LFG session id."
+                  },
+                  "limit": {
+                    "description": "Recent message count when full is false.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  "full": {
+                    "description": "Read the full transcript instead of a recent tail.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["sessionId"]
+              }
+            },
+            {
+              "name": "mcp__lfg_get_session_tree",
+              "description": "Return runtime sessions grouped by parent/child relationship.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_models",
+              "description": "List configured provider/model options for runtime sessions.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_repos",
+              "description": "List repositories LFG can launch sessions in.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_sessions",
+              "description": "List live LFG runtime sessions, optionally filtered to children of a parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "description": "Only return children of this parent session id.",
+                    "type": "string"
+                  },
+                  "driveableOnly": {
+                    "description": "When true, only return sessions with sessionId and tmuxTarget.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp__lfg_list_subagents",
+              "description": "List child sessions, optionally for one parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "description": "Parent LFG session id.",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp__lfg_send_session_message",
+              "description": "Steer or queue a message to an existing LFG session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "LFG session id."
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Instruction text to send."
+                  },
+                  "mode": {
+                    "description": "steer may interrupt active work; queue waits.",
+                    "type": "string",
+                    "enum": ["steer", "queue"]
+                  }
+                },
+                "required": ["sessionId", "text"]
+              }
+            }
+          ],
+          "contextUsage": {
+            "tokens": 5802,
+            "contextWindow": 272000,
+            "percent": 2.1330882352941174
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.207Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_15",
+        "type": "get_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.208Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_15",
+        "type": "response",
+        "command": "get_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Reply exactly: BRANCHED"
+                }
+              ],
+              "attribution": "user",
+              "timestamp": 1783486791601
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "BRANCHED",
+                  "textSignature": "{\"v\":1,\"id\":\"msg_012284a20010019b016a4dd948f93c819b89ead490cf3eebd7\",\"phase\":\"final_answer\"}"
+                }
+              ],
+              "api": "openai-codex-responses",
+              "provider": "openai-codex",
+              "model": "gpt-5.5",
+              "usage": {
+                "input": 5802,
+                "output": 7,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 5809,
+                "cost": {
+                  "input": 0.02901,
+                  "output": 0.00021,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0.02922
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1783486791626,
+              "responseId": "resp_012284a20010019b016a4dd947f3b0819b9622ef7d68ba10d3",
+              "providerPayload": {
+                "type": "openaiResponsesHistory",
+                "provider": "openai-codex",
+                "dt": true,
+                "items": [
+                  {
+                    "id": "msg_012284a20010019b016a4dd948f93c819b89ead490cf3eebd7",
+                    "type": "message",
+                    "status": "completed",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "annotations": [],
+                        "logprobs": [],
+                        "text": "BRANCHED"
+                      }
+                    ],
+                    "phase": "final_answer",
+                    "role": "assistant"
+                  }
+                ]
+              },
+              "duration": 1508.0301220000001,
+              "ttft": 1377.5228419999994,
+              "contextSnapshot": {
+                "promptTokens": 5802,
+                "nonMessageTokens": 6492
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.208Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_16",
+        "type": "get_branch_messages"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.208Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_16",
+        "type": "response",
+        "command": "get_branch_messages",
+        "success": true,
+        "data": {
+          "messages": [
+            {
+              "entryId": "560a4638",
+              "text": "Reply exactly: BRANCHED"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.208Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_17",
+        "type": "switch_session",
+        "sessionPath": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-47-934Z_019f4018-b15e-7000-86ba-7867c6c04779.jsonl"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.218Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_17",
+        "type": "response",
+        "command": "switch_session",
+        "success": true,
+        "data": {
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.218Z",
+      "direction": "stdin",
+      "message": {
+        "id": "req_18",
+        "type": "get_state"
+      }
+    },
+    {
+      "at": "2026-07-08T04:59:53.219Z",
+      "direction": "stdout",
+      "message": {
+        "id": "req_18",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": {
+            "id": "gpt-5.5",
+            "name": "GPT-5.5",
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "baseUrl": "https://chatgpt.com/backend-api",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "cost": {
+              "input": 5,
+              "output": 30,
+              "cacheRead": 0.5,
+              "cacheWrite": 0
+            },
+            "remoteCompaction": {
+              "enabled": true,
+              "api": "openai-codex-responses",
+              "v2StreamingEnabled": true
+            },
+            "contextWindow": 272000,
+            "maxTokens": 128000,
+            "preferWebsockets": true,
+            "priority": 7,
+            "applyPatchToolType": "freeform",
+            "thinking": {
+              "mode": "effort",
+              "efforts": ["low", "medium", "high", "xhigh"]
+            },
+            "contextPromotionTarget": "openai-codex/gpt-5.4",
+            "compat": {
+              "supportsDeveloperRole": false,
+              "supportsStrictMode": false,
+              "supportsReasoningEffort": true,
+              "supportsLongPromptCacheRetention": false,
+              "strictResponsesPairing": false,
+              "supportsImageDetailOriginal": true,
+              "reasoningEffortMap": {},
+              "supportsReasoningParams": true,
+              "thinkingFormat": "openai",
+              "reasoningDisableMode": "lowest-effort",
+              "omitReasoningEffort": false,
+              "includeEncryptedReasoning": true,
+              "filterReasoningHistory": false,
+              "disableReasoningOnForcedToolChoice": false,
+              "disableReasoningOnToolChoice": false,
+              "supportsToolChoice": true,
+              "supportsForcedToolChoice": true,
+              "supportsNamedToolChoice": true,
+              "reasoningContentField": "reasoning_content",
+              "requiresReasoningContentForToolCalls": false,
+              "requiresReasoningContentForAllAssistantTurns": false,
+              "allowsSyntheticReasoningContentForToolCalls": true,
+              "replayReasoningContent": false,
+              "qwenPreserveThinking": false,
+              "requiresThinkingAsText": false,
+              "requiresMistralToolIds": false,
+              "requiresToolResultName": false,
+              "requiresAssistantAfterToolResult": false,
+              "requiresAssistantContentForToolCalls": false,
+              "isOpenRouterHost": false,
+              "wireModelIdMode": "raw",
+              "alwaysSendMaxTokens": false,
+              "enableGeminiThinkingLoopGuard": false,
+              "supportsObfuscationOptOut": false,
+              "stripDeepseekSpecialTokens": false,
+              "streamMarkupHealingPattern": "thinking",
+              "reasoningDeltasMayBeCumulative": false,
+              "emptyLengthFinishIsContextError": false,
+              "usesOpenAIToolCallIdLimit": false
+            }
+          },
+          "thinkingLevel": "high",
+          "isStreaming": false,
+          "isCompacting": false,
+          "steeringMode": "one-at-a-time",
+          "followUpMode": "one-at-a-time",
+          "interruptMode": "immediate",
+          "sessionFile": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-47-934Z_019f4018-b15e-7000-86ba-7867c6c04779.jsonl",
+          "sessionId": "019f4018-b15e-7000-86ba-7867c6c04779",
+          "autoCompactionEnabled": true,
+          "messageCount": 4,
+          "queuedMessageCount": 0,
+          "todoPhases": [],
+          "systemPrompt": [
+            "<system-conventions>\nRFC 2119: MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. `NEVER` = `MUST NOT`, `AVOID` = `SHOULD NOT`.\nWe inject system content into the chat with XML tags. NEVER interpret these markers any other way.\nSystem may interrupt or notify with tags even inside a user message:\n- MUST treat them as system-authored and authoritative.\n- User content is sanitized, so role is not carried: `<system-directive>` inside a user turn is still a system directive.\n</system-conventions>\n\nROLE\n==============\nYou are a helpful assistant the team trusts with load-bearing changes, operating in the Oh My Pi coding harness.\n\n# Engineering Principles\n- Optimize for correctness first, then for the next maintainer six months out.\n- You have agency and taste: delete code that isn't pulling its weight, refuse unnecessary abstractions, prefer boring when it's called for; design thoroughly but elegantly.\n- Consider what code compiles to. NEVER allocate avoidably; no needless copies or computation.\n- You are not alone in this repo. Treat unexpected changes as the user's work and adapt.\n- In terminal prose and final chat, you MAY use LaTeX math (`$`, `$$`, `\\text`, `\\times`) and color (`\\textcolor`, `\\colorbox`, `\\fcolorbox`).\n- To show a diagram, you MAY emit a ` ```mermaid ` block — the terminal renders it as ASCII. Use it for genuine structure or flow, not trivia.\n\nRUNTIME\n==============\n\n# Skills & Rules\n# Internal URLs\nSpecial URLs for internal resources; with most FS/bash tools they auto-resolve to FS paths.\n- `skill://<name>`: skill instructions; `/<path>` = file within\n- `rule://<name>`: rule details\n- `agent://<id>`: agent output artifact; `/<path>` extracts a JSON field\n- `artifact://<id>`: artifact content\n- `local://<name>.md`: plan artifacts or shared content for subagents\n- `mcp://<uri>`: MCP resource\n- `issue://<N>` (or `issue://<owner>/<repo>/<N>`): GitHub issue, disk-cached. Bare lists recent issues; `?state=open|closed|all&limit=&author=&label=`.\n- `pr://<N>` (or `pr://<owner>/<repo>/<N>`): GitHub PR, same cache; `?comments=0` drops comments. Bare lists recent PRs; `?state=open|closed|merged|all&limit=&author=&label=`.\n- `omp://`: harness docs; AVOID unless the user asks about the harness itself.\n\n# Tool Inventory\n- GenerateImage: `generate_image`\n- grok:grok/grok_search: `mcp__grok_grok_grok_search`\n- lfg/lfg_create_subagent: `mcp__lfg_create_subagent`\n- lfg/lfg_display_image: `mcp__lfg_display_image`\n- lfg/lfg_get_session_messages: `mcp__lfg_get_session_messages`\n- lfg/lfg_get_session_tree: `mcp__lfg_get_session_tree`\n- lfg/lfg_list_models: `mcp__lfg_list_models`\n- lfg/lfg_list_repos: `mcp__lfg_list_repos`\n- lfg/lfg_list_sessions: `mcp__lfg_list_sessions`\n- lfg/lfg_list_subagents: `mcp__lfg_list_subagents`\n- lfg/lfg_send_session_message: `mcp__lfg_send_session_message`\n\nTOOL POLICY\n==============\n\n# General\nUse tools whenever they improve correctness, completeness, or grounding.\n- You MUST complete the task using available tools.\n- SHOULD resolve prerequisites before acting.\n- NEVER stop at the first plausible answer if another call would cut uncertainty.\n- Empty, partial, or suspiciously narrow lookup? Retry with a different strategy.\n- SHOULD parallelize independent calls.\n# Tool I/O\n- Prefer relative paths for `path`-like fields.\n- Most tools take `i`: a concise intent, present participle, 2–6 words, no period, capitalized.\n# Specialized Tools\nYou MUST use the specialized tool over its shell equivalent:\n# Exploration\nYou NEVER open a file hoping. Hope is not a strategy.\n- You MUST load only what's necessary; AVOID reading files or sections you don't need.\n# Delegation\n\nEXECUTION WORKFLOW\n==============\n\n# 1. Scope\n\n- For multi-file work, plan before touching files; research existing code and conventions first.\n\n# 2. Research Before Editing\n- Read sections, not snippets. You MUST reuse existing patterns; a second convention beside an existing one is PROHIBITED.\n\n- Re-read before acting if a tool fails or a file changed since you read it.\n\n# 3. Decompose\n- Update todos as you go; skip them for trivial requests. Marking a todo done is a transition: start the next in the same turn.\n- NEVER abandon phases under scope pressure—delegate, don't shrink.\n\n- Plan only what makes the request work. Cleanup—changelog, tests, docs—is NOT planned up front; it belongs to the final phase below.\n\n# 4. Implement\n- Fix problems at the source. Remove obsolete code—no leftover comments, aliases, or re-exports.\n- Prefer updating existing files over creating new ones.\n- Review changes from the user's perspective.\n\n- Don't run destructive git commands or delete code you didn't write.\n\n# 5. Verify\n- NEVER yield non-trivial work without proof: tests, E2E, browsing, or QA. Run only tests you added or modified unless asked otherwise.\n- Test behavior, using tester agent where available. Assert logical behavior, not current state.\n- Aim at conditional branches, edge values, invariants across fields, and error handling versus silent broken results.\n\n# 6. Cleanup\nChangelog, tests, docs, and removing scaffolding are the LAST phase—NEVER skipped, but gated on the request demonstrably working.\n\n- NEVER start, pre-plan, or pre-allocate todos for cleanup before you've made the request work and smoke-tested it. Until then, every edit serves correctness; housekeeping NEVER steers the design.\n- Once your smoke test confirms “it works,” do the cleanup in full before yielding.\n\nDELIVERY CONTRACT\n==============\n\n<contract>\nInviolable.\n- NEVER yield unless the deliverable is complete. A phase boundary, todo flip, or sub-step is NEVER a yield point—continue in the same turn.\n- NEVER fabricate outputs. Claims about code, tools, tests, docs, or sources MUST be grounded.\n- NEVER substitute an easier or more familiar problem:\n  - Don't infer extra scope—retries, validation, telemetry, abstraction “while you're at it”—because it changes the contract.\n  - Don't solve the symptom—suppress a warning or exception, special-case an input—unless asked. Do the real ask.\n- NEVER ask for what tools, repo context, or files can provide.\n- NEVER punt half-solved work back.\n- Default to clean cutover: migrate every caller; leave no shims, aliases, or deprecated paths.\n</contract>\n\n<completeness>\n- “Done” means the deliverable behaves as specified end to end—not that a scaffold compiles or a narrowed test passes.\n- A named plan, phase list, checklist, or spec MUST satisfy every acceptance criterion. A plausible subset is failure, not partial success.\n- NEVER silently shrink scope. Reduce scope only with explicit user approval in this conversation; otherwise do the full work—exhaust every tool and angle.\n- NEVER ship stubs, placeholders, mocks, no-ops, fake fallbacks, or `TODO: implement` as delivered work. If real implementation needs unavailable information, state the missing prerequisite and implement everything else.\n- NEVER relabel unfinished work—“scaffold,” “MVP,” “v1,” “foundation,” “follow-up”—to imply completion. Not done? Say so.\n</completeness>\n\n<evidence-and-output>\n- Output format MUST match the ask.\n- Every claim about code, tools, tests, docs, or sources MUST be grounded.\n- Mark any claim not directly observed or established as `[INFERENCE]`.\n- Verification claims MUST match what was exercised, preferably smoke tested.\n- No required tool lookup may be skipped when it would cut uncertainty.\n- Be brief in prose, not in evidence, verification, or blocking details.\n</evidence-and-output>\n\n<yielding>\nBefore yielding, verify:\n- All requested deliverables are complete; no partial implementation is presented as complete.\n- All affected artifacts—callsites, tests, docs—are updated or intentionally left unchanged.\n- The output and evidence requirements above are satisfied.\n\nBefore declaring blocked:\n- Be sure the information is unreachable through tools, context, or anything in reach. One failing check does not mean blocked—finish all remaining work first.\n- Still stuck? State exactly what's missing and what you tried.\n</yielding>\n\n<personality>\nYou are a terse, evidence-first engineer: every sentence carries a fact, a decision, or a risk.\n\n# Tone\n- Terse fragments when clearer. Skip ceremony, hedging, summaries, filler, and marketing language.\n- Don't narrate obvious steps or over-explain basics. Assume a technical reader.\n- Be concrete: exact files, symbols, APIs, state fields, edge cases, verification.\n- Compress reasoning into facts, constraints, tradeoffs, decisions, checks. Lead with the conclusion, then evidence.\n- Don't hide uncertainty: state it at the specific claim, name the tradeoff, pick the boring/safe option.\n- For code, focus on invariants, risks, and verification.\n\n# Reasoning Format\n- Problem: what's wrong. Decision: what to do & why. Check: what can break & how to verify. Next: the next concrete action.\n\n# Succinct Patterns\n- Y → need update X. This is safe: Z. Could do A, but B avoids C.\n\n# Escalation\nPush back when the plan hides risk or a claim is wrong: name the risk, show evidence, propose the alternative. Once overruled, execute the user's call without relitigating.\n</personality>\n\n<critical>\n- NEVER narrate or consider session limits, token or tool budgets, effort estimates, or how much you can finish. Not your concern—start as if unbounded; execute or delegate.\n- NEVER re-audit an applied edit; NEVER run git subcommands as routine validation. Tool results are THE verification.\n</critical>",
+            "PROJECT\n===================================\n\n<workstation>\n- OS: linux 7.0.14-201.fc44.aarch64\n- Distro: Linux\n- Kernel: #1 SMP PREEMPT_DYNAMIC Wed Jul  1 13:36:39 UTC 2026\n- Arch: arm64\n- CPU: unknown\n- Terminal: xterm-256color\n- Model: openai-codex/gpt-5.5\n</workstation>\n\n<context>\nYou MUST follow the context files below for all tasks:\n<file path=\"/home/fedora/.claude/CLAUDE.md\">\n# Global Claude Code orchestration guidance\n\n## Required shared instructions\n\nMUST READ: # Shared agent operating rules\n\nThese instructions are shared across local coding-agent harnesses. Harness-specific\nfiles may add details, but should not duplicate or override these rules without a\nclear reason.\n\n## Shared agent/model selection\n\nMANDATORY, NO EXCEPTIONS: before every delegation — including quick smoke tests,\nthrowaway checks, or \"just verifying something works\" — you MUST actually read\n# Agent and model selection guide\n\nThis is the shared routing guide for agent workflows. Keep provider-, project-,\nand harness-specific exceptions near their projects, and keep reusable routing\npolicy here so there is one source of truth for model tradeoffs.\n\n## Core principle: fastest agent that can actually do the job\n\nDefault to the **fastest, cheapest model that can complete the task correctly**.\nSpeed and parallelism matter, but do not chase speed off a cliff:\n\n- If the task's complexity would outrun a fast model, step up before it thrashes,\n  backtracks, or ships a plausible-but-wrong result.\n- Match the model to the **hardest** part of the task, not the average part.\n- Use expensive high-judgement models for judgement, synthesis, review, and hard\n  reasoning — not for bulk throughput.\n\nGeneral priority order: **parallelism, correctness, and minimizing scarce premium\nmodel tokens**. When axes conflict for anything that ships:\n\n**correctness > required reasoning > taste/design quality > speed > cost**.\n## Capability axes\n\nRankings are relative and should be updated when local provider economics or\nmodel quality changes. **Higher is better in every category.** For `cost`, a\nhigher score means more cost-efficient / cheaper to use; `10` means lowest cost,\nnot most expensive.\n\nCurrent local model rankings:\n\n|model|pi model tag|cost|intelligence|taste|speed|notes|\n|---|---|---|---|---|---|---|\n|`gpt-5.5`|`openai-codex/gpt-5.5`|8|5-8|5|7|intelligence varies by effort: low through xhigh|\n|`grok-composer-2.5-fast`|`cliproxyapi/grok-composer-2.5-fast`|9|5|4|9|fast coding model with better reliability than raw speed models|\n|`devin/windsurf swe-1.6:fast`|`windsurf/swe-1.6:fast`|9|4|3|10|fastest mechanical/recon option|\n|`sonnet-5`|`cliproxyapi/claude-sonnet-5`|5|5|7|6|strong taste/design at moderate speed|\n|`opus-4.8`|`cliproxyapi/claude-opus-4-8`|4|7|8|4|stronger design/reasoning, slower and less cost-efficient|\n|`fable-5`|`cliproxyapi/claude-fable-5`|2|9|9|2|premium judgement and final adjudication|\n\n## Route by work type\n\n### Information gathering\n\nUse fast or mid-tier agents. Codebase recon, docs lookup, source mapping, and\nfact collection are not judgement work. Ask for evidence and compressed context;\ndo not let the gatherer make the final decision when the decision is risky.\n\n### Bulk, mechanical, or clear-spec implementation\n\nUse fast coding agents when the change is well-scoped and easy to verify. Require\nverification and review before trusting the result, especially when the model's\nreasoning score is below the bar for the task.\n\n### Planning and hard implementation\n\nUse strong reasoning agents for decomposition, risky implementation choices,\nambiguous requirements, concurrency/state/security correctness, migrations with\nunknown edge cases, or anything that must be reasoned through unsupervised.\n\n### User-facing design, copy, UI, and API shape\n\nUse agents with strong taste/design quality. If a cheap implementation agent\nbuilds the first pass, review or refine it with a stronger taste model before\nshipping.\n\n### Review and adjudication\n\nUse stronger independent reviewers than the implementation agent. For important\nwork, prefer diverse review lenses: correctness, security, performance,\nmaintainability, UX/API, and test coverage. For contentious findings, add an\nadversarial verifier prompted to refute the claim.\n\n## Preliminary review after low-reasoning implementations\n\nAny implementation done by a model intelligence <5 should get a preliminary\nreview before final orchestrator review:\n\n```text\nfast implementation -> mid/strong preliminary review -> orchestrator/final review\n```\n\nWe need to not only verify we did the correct things, but for these models, that they actually did everything they report having done.\n\nThis catches cheap-model failure modes early so scarce premium review is spent on\nreal judgement instead of cleanup.\n\n## Parallelism patterns\n\n- Split independent discovery work across agents.\n- Keep mutating agents isolated when they could edit the same files.\n- Use barriers only when the next step genuinely needs all previous results\n  together, such as deduplication or cross-item comparison.\n- Prefer pipelining when each item can advance independently through stages.\n\n## Escalation rules\n\n- Judge output quality, not the price tag. If a cheaper model misses the bar,\n  rerun or redo with a stronger model without asking unless the user constrained\n  cost/model choice.\n- Never let a fast model make a judgement call it cannot support. Gathering: yes.\n  Deciding: escalate.\n- Make bounded coverage explicit. If a workflow samples, caps, or skips cases,\n  report what was not covered.\n (or recall its contents from\nhaving read it earlier in this same session) before picking a provider/model.\nDo not default to a habitual model choice and rationalize it afterward as\n\"obviously fine\" — verify against the guide first, even when you expect the\nanswer to match your instinct. Use the absolute path because this file is\nsymlinked into multiple harness config directories.\n\nCore rule: choose the fastest/cheapest agent that can actually complete the task\ncorrectly, but for anything that ships prefer correctness over reasoning depth,\ntaste, speed, or cost.\n\nIf you realize partway through a task that you picked a model without checking\nthe guide, stop and say so explicitly rather than quietly continuing.\n\n## Delegated work contract\n\n- Ask child agents for concise evidence: files inspected or changed, commands\n  run, decisions made, risks, and next steps.\n- Treat delegated output as evidence, not authority. Verify important claims and\n  review changes before final acceptance.\n- Keep mutating agents isolated when they might edit the same files; prefer\n  worktrees or non-overlapping scopes.\n\n## Runbooks and working notes\n\nWhen work has an operational procedure, migration path, multi-step plan,\ndeployment sequence, or long-running investigation, keep a runbook or planning\nnote up to date while working.\n\n- Prefer existing project locations such as `planning/RUNBOOK.md`,\n  `planning/*.md`, or the repo's established runbook path.\n- Record commands run, verification results, known blockers, current state,\n  remaining steps, and rollback/recovery notes when relevant.\n- Update the runbook as facts change; do not leave stale instructions behind.\n- If no runbook exists and the task is substantial enough to need handoff,\n  create one in the project's planning/docs area unless the user asked not to.\n- Keep runbook updates factual and concise; avoid dumping raw logs unless a short\n  excerpt is needed as evidence.\nClaude Code running on Fable is the authority for orchestrating and delegating work. Fable owns direction-setting, decomposition, routing, integration, final judgement, and user communication. Use other models to the best of their ability for execution, discovery, implementation, review, search, and verification. Do not waste Fable tokens on work that a cheaper/faster/specialized model can do correctly and that Fable can verify.\n\n## Claude as orchestrator\n\n- Keep orchestration in Fable/Claude: decompose, choose agents, merge results, verify, and communicate with the user.\n- Preserve Fable for orchestration and judgement. Delegate execution to cheaper, faster, or more specialized models whenever they can do the work correctly.\n- Use parallel delegation for independent discovery/review. Use barriers only when the next step genuinely needs all results together.\n- Do not spend Fable/premium tokens on bulk scanning, mechanical edits, routine implementation, or search when a delegated model can handle it and Fable can review the result.\n\n## Routing from Claude Code\n\nUse these routes for deliberate model/provider selection:\n\n- **Codex / GPT-5.x models**: use the installed Codex plugin as the integration surface. Prefer its commands, agents, and skills over hand-written Codex CLI calls. Let the plugin choose the right internal skill/runtime for setup, task delegation, review, result handling, and prompt shaping. Leave model/effort unset unless the user explicitly asks; route model-specific requests through the plugin.\n- **Composer 2.5 / Grok Build**: use the installed Grok Build plugin as the integration surface. Prefer its commands, agents, and skills over direct Grok CLI calls. Let the plugin choose the right internal runtime for task delegation, review, search, status, and result handling. Leave model unset unless the user explicitly asks for Composer/Grok model routing.\n- **SWE-1.6 / Devin CLI**: use the global Devin integration (`devin-cli-runtime` skill and `devin-rescue` subagent). Delegate via `devin -p` for non-interactive, single-turn runs. Use Devin for fast coding throughput, focused implementation passes, and autonomous shell-heavy tasks when SWE-1.6/Devin is the desired executor.\n- **Large deterministic multi-agent workflows**: use the `omegacode` skill when the task needs scripted fan-out, pipelines, adversarial verification, judge panels, or broad audits across many agents.\n\n## Review expectations\n\n- Low-reasoning or fast-agent implementations need review before final acceptance.\n- Use stronger independent reviewers for risky changes, security/concurrency/state logic, migrations, public APIs, UI/UX judgement, or anything ambiguous.\n- For code-review outputs, do not auto-fix findings unless the user asked for fixes or explicitly chooses which findings to address.\n</file>\n</context>\nThe context files above are loaded automatically. You NEVER `grep`/`glob` for `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or similar agent/context files — the relevant ones are already in your context; any others are noise.\nToday is 2026-07-08, and the current working directory is '/tmp/omp-d3-live.lh3m2j/work'.\n\n<critical>\n- Each response MUST advance the task. There is no stopping condition other than completion.\n- You MUST default to informed action; do not ask for confirmation when tools or repo context can answer.\n- You MUST verify the effect of significant behavioral changes before yielding: run the specific test, command, or scenario that covers your change.\n</critical>\n\nFor this verification run, answer with exactly the requested short token and no extra text."
+          ],
+          "dumpTools": [
+            {
+              "name": "generate_image",
+              "description": "Generates or edits images.\n\n<instructions>\n- You MUST provide a single detailed `subject` prompt for image generation or editing.\n- When using multiple `input`, you SHOULD describe each image's role directly in `subject`, e.g. `Image 1` for composition reference, `Image 2` for lighting reference, `Image 3` for background.\n- For text: you SHOULD add \"sharp, legible, correctly spelled\" for important text; keep text short.\n</instructions>",
+              "parameters": {
+                "required": [
+                  {
+                    "key": "subject",
+                    "value": {
+                      "domain": "string",
+                      "meta": "main subject"
+                    }
+                  }
+                ],
+                "optional": [
+                  {
+                    "key": "action",
+                    "value": {
+                      "domain": "string",
+                      "meta": "what subject is doing"
+                    }
+                  },
+                  {
+                    "key": "scene",
+                    "value": {
+                      "domain": "string",
+                      "meta": "location or environment"
+                    }
+                  },
+                  {
+                    "key": "composition",
+                    "value": {
+                      "domain": "string",
+                      "meta": "camera angle and framing"
+                    }
+                  },
+                  {
+                    "key": "lighting",
+                    "value": {
+                      "domain": "string",
+                      "meta": "lighting setup"
+                    }
+                  },
+                  {
+                    "key": "style",
+                    "value": {
+                      "domain": "string",
+                      "meta": "artistic style"
+                    }
+                  },
+                  {
+                    "key": "text",
+                    "value": {
+                      "domain": "string",
+                      "meta": "text to render"
+                    }
+                  },
+                  {
+                    "key": "changes",
+                    "value": {
+                      "sequence": "string",
+                      "proto": {
+                        "proto": "Array",
+                        "meta": "edits to make"
+                      },
+                      "meta": "edits to make"
+                    }
+                  },
+                  {
+                    "key": "aspect_ratio",
+                    "value": {
+                      "branches": [
+                        {
+                          "unit": "16:9",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "1:1",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "2:3",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "3:2",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "3:4",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "4:3",
+                          "meta": "aspect ratio"
+                        },
+                        {
+                          "unit": "9:16",
+                          "meta": "aspect ratio"
+                        }
+                      ],
+                      "meta": "aspect ratio"
+                    }
+                  },
+                  {
+                    "key": "image_size",
+                    "value": {
+                      "branches": [
+                        {
+                          "unit": "1024x1024",
+                          "meta": "image size"
+                        },
+                        {
+                          "unit": "1024x1536",
+                          "meta": "image size"
+                        },
+                        {
+                          "unit": "1536x1024",
+                          "meta": "image size"
+                        }
+                      ],
+                      "meta": "image size"
+                    }
+                  },
+                  {
+                    "key": "input",
+                    "value": {
+                      "sequence": {
+                        "optional": [
+                          {
+                            "key": "path",
+                            "value": {
+                              "domain": "string",
+                              "meta": "input image path"
+                            }
+                          },
+                          {
+                            "key": "data",
+                            "value": {
+                              "domain": "string",
+                              "meta": "base64 image data"
+                            }
+                          },
+                          {
+                            "key": "mime_type",
+                            "value": {
+                              "domain": "string",
+                              "meta": "mime type"
+                            }
+                          }
+                        ],
+                        "domain": "object"
+                      },
+                      "proto": {
+                        "proto": "Array",
+                        "meta": "input images"
+                      },
+                      "meta": "input images"
+                    }
+                  }
+                ],
+                "domain": "object"
+              }
+            },
+            {
+              "name": "mcp__grok_grok_grok_search",
+              "description": "Search X (Twitter) and the web in REAL TIME using Grok, and return a synthesized answer with source URLs. Use this whenever you need current or recent information that may be beyond your training cutoff: latest package/library versions, breaking API changes, recent releases, ongoing incidents, or what people are saying on X right now. Read-only — it never edits files or runs shell commands.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "What to search for. Be specific; mention X/x.com if you want social or primary sources."
+                  }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "mcp__lfg_create_subagent",
+              "description": "Create a managed runtime child session under a parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Delegated task prompt."
+                  },
+                  "agent": {
+                    "description": "Runtime harness, such as aisdk, codex-aisdk, opencode, grok, or hermes.",
+                    "type": "string"
+                  },
+                  "model": {
+                    "description": "Model name. Defaults to the selected agent default.",
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "description": "Repository cwd for the child session.",
+                    "type": "string"
+                  },
+                  "parentSessionId": {
+                    "description": "Parent LFG session id for nesting.",
+                    "type": "string"
+                  },
+                  "thinkingLevel": {
+                    "description": "Optional thinking level if supported by the agent.",
+                    "type": "string"
+                  },
+                  "user": {
+                    "description": "Assigned user email.",
+                    "type": "string"
+                  },
+                  "worktree": {
+                    "description": "Create the child in a new worktree.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["prompt"]
+              }
+            },
+            {
+              "name": "mcp__lfg_display_image",
+              "description": "Display a local image file, such as a screenshot captured while testing, in the LFG session transcript.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Absolute path to a png, jpg, jpeg, webp, or gif image on this machine."
+                  },
+                  "caption": {
+                    "description": "Short caption shown under the image.",
+                    "type": "string"
+                  },
+                  "alt": {
+                    "description": "Short alt text for the image.",
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "description": "Target LFG session id. Defaults to LFG_SESSION_ID.",
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              }
+            },
+            {
+              "name": "mcp__lfg_get_session_messages",
+              "description": "Read recent or full normalized transcript messages for a session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "LFG session id."
+                  },
+                  "limit": {
+                    "description": "Recent message count when full is false.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  "full": {
+                    "description": "Read the full transcript instead of a recent tail.",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["sessionId"]
+              }
+            },
+            {
+              "name": "mcp__lfg_get_session_tree",
+              "description": "Return runtime sessions grouped by parent/child relationship.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_models",
+              "description": "List configured provider/model options for runtime sessions.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_repos",
+              "description": "List repositories LFG can launch sessions in.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__lfg_list_sessions",
+              "description": "List live LFG runtime sessions, optionally filtered to children of a parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "description": "Only return children of this parent session id.",
+                    "type": "string"
+                  },
+                  "driveableOnly": {
+                    "description": "When true, only return sessions with sessionId and tmuxTarget.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp__lfg_list_subagents",
+              "description": "List child sessions, optionally for one parent session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "parentSessionId": {
+                    "description": "Parent LFG session id.",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "mcp__lfg_send_session_message",
+              "description": "Steer or queue a message to an existing LFG session.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "LFG session id."
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Instruction text to send."
+                  },
+                  "mode": {
+                    "description": "steer may interrupt active work; queue waits.",
+                    "type": "string",
+                    "enum": ["steer", "queue"]
+                  }
+                },
+                "required": ["sessionId", "text"]
+              }
+            }
+          ],
+          "contextUsage": {
+            "tokens": 5815,
+            "contextWindow": 272000,
+            "percent": 2.1378676470588234
+          }
+        }
+      }
+    }
+  ],
+  "sessionFiles": [
+    {
+      "file": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-47-934Z_019f4018-b15e-7000-86ba-7867c6c04779.jsonl",
+      "entries": [
+        {
+          "type": "title",
+          "v": 1,
+          "title": "",
+          "updatedAt": "2026-07-08T04:59:47.934Z",
+          "pad": "                                                                                                                                                                              "
+        },
+        {
+          "type": "session",
+          "version": 3,
+          "id": "019f4018-b15e-7000-86ba-7867c6c04779",
+          "timestamp": "2026-07-08T04:59:47.934Z",
+          "cwd": "/tmp/omp-d3-live.lh3m2j/work"
+        },
+        {
+          "type": "model_change",
+          "id": "b83c2ef7",
+          "parentId": null,
+          "timestamp": "2026-07-08T04:59:48.425Z",
+          "model": "openai-codex/gpt-5.5"
+        },
+        {
+          "type": "thinking_level_change",
+          "id": "e26f9d41",
+          "parentId": "b83c2ef7",
+          "timestamp": "2026-07-08T04:59:48.425Z",
+          "thinkingLevel": "high",
+          "configured": null
+        },
+        {
+          "type": "message",
+          "id": "60493110",
+          "parentId": "e26f9d41",
+          "timestamp": "2026-07-08T04:59:48.593Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply exactly: ONE"
+              }
+            ],
+            "attribution": "user",
+            "timestamp": 1783486788578
+          }
+        },
+        {
+          "type": "message",
+          "id": "61369a47",
+          "parentId": "60493110",
+          "timestamp": "2026-07-08T04:59:50.002Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "ONE",
+                "textSignature": "{\"v\":1,\"id\":\"msg_024f0423b72cbdba016a4dd945d744819a949d1e8577277e73\",\"phase\":\"final_answer\"}"
+              }
+            ],
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "model": "gpt-5.5",
+            "usage": {
+              "input": 5800,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 5805,
+              "cost": {
+                "input": 0.029,
+                "output": 0.00015000000000000001,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0.029150000000000002
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1783486788624,
+            "responseId": "resp_024f0423b72cbdba016a4dd944ea90819a8babe4d0d332fb28",
+            "providerPayload": {
+              "type": "openaiResponsesHistory",
+              "provider": "openai-codex",
+              "dt": true,
+              "items": [
+                {
+                  "id": "msg_024f0423b72cbdba016a4dd945d744819a949d1e8577277e73",
+                  "type": "message",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "annotations": [],
+                      "logprobs": [],
+                      "text": "ONE"
+                    }
+                  ],
+                  "phase": "final_answer",
+                  "role": "assistant"
+                }
+              ]
+            },
+            "duration": 1359.1413060000002,
+            "ttft": 1267.7241340000003,
+            "contextSnapshot": {
+              "promptTokens": 5800,
+              "nonMessageTokens": 6492
+            }
+          }
+        },
+        {
+          "type": "message",
+          "id": "9e941ebe",
+          "parentId": "61369a47",
+          "timestamp": "2026-07-08T04:59:50.090Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply exactly: TWO"
+              }
+            ],
+            "attribution": "user",
+            "timestamp": 1783486790087
+          }
+        },
+        {
+          "type": "message",
+          "id": "c3ecdb43",
+          "parentId": "9e941ebe",
+          "timestamp": "2026-07-08T04:59:51.504Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "TWO",
+                "textSignature": "{\"v\":1,\"id\":\"msg_041d014958650eeb016a4dd94727a48198afb0883125ca838e\",\"phase\":\"final_answer\"}"
+              }
+            ],
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "model": "gpt-5.5",
+            "usage": {
+              "input": 5815,
+              "output": 6,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 5821,
+              "cost": {
+                "input": 0.029075000000000004,
+                "output": 0.00018,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0.029255000000000003
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1783486790114,
+            "responseId": "resp_041d014958650eeb016a4dd94643448198a677bba6ae0a171f",
+            "providerPayload": {
+              "type": "openaiResponsesHistory",
+              "provider": "openai-codex",
+              "dt": true,
+              "items": [
+                {
+                  "id": "msg_041d014958650eeb016a4dd94727a48198afb0883125ca838e",
+                  "type": "message",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "annotations": [],
+                      "logprobs": [],
+                      "text": "TWO"
+                    }
+                  ],
+                  "phase": "final_answer",
+                  "role": "assistant"
+                }
+              ]
+            },
+            "duration": 1371.734313,
+            "ttft": 1085.7940259999996,
+            "contextSnapshot": {
+              "promptTokens": 5815,
+              "nonMessageTokens": 6492
+            }
+          }
+        },
+        {
+          "type": "custom",
+          "customType": "session_exit",
+          "data": {
+            "reason": "exit",
+            "kind": "process_exit",
+            "recordedAt": "2026-07-08T04:59:53.224Z"
+          },
+          "id": "62c0f289",
+          "parentId": "c3ecdb43",
+          "timestamp": "2026-07-08T04:59:53.224Z"
+        }
+      ]
+    },
+    {
+      "file": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-51-594Z_019f4018-bfaa-7000-9188-5a9d5652d36d.jsonl",
+      "entries": [
+        {
+          "type": "title",
+          "v": 1,
+          "title": "",
+          "updatedAt": "2026-07-08T04:59:51.594Z",
+          "pad": "                                                                                                                                                                              "
+        },
+        {
+          "type": "session",
+          "version": 3,
+          "id": "019f4018-bfaa-7000-9188-5a9d5652d36d",
+          "timestamp": "2026-07-08T04:59:51.594Z",
+          "cwd": "/tmp/omp-d3-live.lh3m2j/work",
+          "parentSession": "/tmp/omp-d3-live.lh3m2j/sessions/2026-07-08T04-59-47-934Z_019f4018-b15e-7000-86ba-7867c6c04779.jsonl"
+        },
+        {
+          "type": "model_change",
+          "id": "b83c2ef7",
+          "parentId": null,
+          "timestamp": "2026-07-08T04:59:48.425Z",
+          "model": "openai-codex/gpt-5.5"
+        },
+        {
+          "type": "thinking_level_change",
+          "id": "e26f9d41",
+          "parentId": "b83c2ef7",
+          "timestamp": "2026-07-08T04:59:48.425Z",
+          "thinkingLevel": "high",
+          "configured": null
+        },
+        {
+          "type": "message",
+          "id": "560a4638",
+          "parentId": "e26f9d41",
+          "timestamp": "2026-07-08T04:59:51.603Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply exactly: BRANCHED"
+              }
+            ],
+            "attribution": "user",
+            "timestamp": 1783486791601
+          }
+        },
+        {
+          "type": "message",
+          "id": "d02403ed",
+          "parentId": "560a4638",
+          "timestamp": "2026-07-08T04:59:53.153Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "BRANCHED",
+                "textSignature": "{\"v\":1,\"id\":\"msg_012284a20010019b016a4dd948f93c819b89ead490cf3eebd7\",\"phase\":\"final_answer\"}"
+              }
+            ],
+            "api": "openai-codex-responses",
+            "provider": "openai-codex",
+            "model": "gpt-5.5",
+            "usage": {
+              "input": 5802,
+              "output": 7,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 5809,
+              "cost": {
+                "input": 0.02901,
+                "output": 0.00021,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0.02922
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1783486791626,
+            "responseId": "resp_012284a20010019b016a4dd947f3b0819b9622ef7d68ba10d3",
+            "providerPayload": {
+              "type": "openaiResponsesHistory",
+              "provider": "openai-codex",
+              "dt": true,
+              "items": [
+                {
+                  "id": "msg_012284a20010019b016a4dd948f93c819b89ead490cf3eebd7",
+                  "type": "message",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "annotations": [],
+                      "logprobs": [],
+                      "text": "BRANCHED"
+                    }
+                  ],
+                  "phase": "final_answer",
+                  "role": "assistant"
+                }
+              ]
+            },
+            "duration": 1508.0301220000001,
+            "ttft": 1377.5228419999994,
+            "contextSnapshot": {
+              "promptTokens": 5802,
+              "nonMessageTokens": 6492
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
