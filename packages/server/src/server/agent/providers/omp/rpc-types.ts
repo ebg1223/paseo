@@ -42,6 +42,9 @@ export interface OmpSubagentProgressPayload {
     id: string;
     status: OmpSubagentStatus;
     description?: string;
+    currentTool?: unknown;
+    recentTools?: unknown[];
+    recentOutput?: unknown[];
   };
   sessionFile?: string;
   detached?: boolean;

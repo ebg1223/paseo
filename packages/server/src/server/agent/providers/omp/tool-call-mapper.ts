@@ -1,5 +1,6 @@
 import type { ToolCallDetail } from "../../agent-sdk-types.js";
 import {
+  extractTextFromToolResult,
   mapToolDetail as mapPiToolDetail,
   type PiToolResult,
   type PiTrackedToolCall,
@@ -8,12 +9,17 @@ import {
 export function mapOmpToolDetail(
   toolCall: PiTrackedToolCall,
   result: PiToolResult,
+  context?: {
+    toolCallId: string;
+    mapSubagentDetail?: (baseDetail: ToolCallDetail) => ToolCallDetail;
+  },
 ): ToolCallDetail | null {
   if (toolCall.toolName === "todo") {
     return null;
   }
   if (toolCall.toolName === "task") {
-    return mapOmpTaskDetail(toolCall.args);
+    const detail = mapOmpTaskDetail(toolCall.args, result);
+    return context?.mapSubagentDetail?.(detail) ?? detail;
   }
   if (toolCall.toolName === "edit") {
     return mapOmpEditDetail(toolCall, result);
@@ -24,8 +30,10 @@ export function mapOmpToolDetail(
   return mapPiToolDetail(toolCall, result);
 }
 
-function mapOmpTaskDetail(args: unknown): ToolCallDetail {
+function mapOmpTaskDetail(args: unknown, result: PiToolResult): ToolCallDetail {
   const argRecord = isRecord(args) ? args : {};
+  const resultText = extractTextFromToolResult(result);
+  const childSessionId = readChildSessionId(result);
   return {
     type: "sub_agent",
     subAgentType: firstString(
@@ -40,7 +48,8 @@ function mapOmpTaskDetail(args: unknown): ToolCallDetail {
       argRecord.prompt,
       argRecord.assignment,
     ),
-    log: "",
+    ...(childSessionId ? { childSessionId } : {}),
+    log: resultText?.trim() ?? "",
   };
 }
 
@@ -83,6 +92,16 @@ function resultDetails(result: PiToolResult): Record<string, unknown> | null {
     return null;
   }
   return isRecord(result.details) ? result.details : null;
+}
+
+function readChildSessionId(result: PiToolResult): string | undefined {
+  const details = resultDetails(result);
+  const direct = firstString(details?.sessionFile, details?.session_file, details?.childSessionId);
+  if (direct) {
+    return direct;
+  }
+  const text = extractTextFromToolResult(result);
+  return text?.match(/(?:session|transcript)(?: file)?:\s*(?<path>\/\S+\.jsonl)/i)?.groups?.path;
 }
 
 function readPatchInputPath(args: unknown): string | undefined {

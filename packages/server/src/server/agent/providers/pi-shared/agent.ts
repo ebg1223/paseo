@@ -203,6 +203,9 @@ interface PiPersistenceMetadata {
 export interface PiExtraRuntimeEventContext {
   runtimeSession: PiRuntimeSession;
   emit: (event: AgentStreamEvent) => void;
+  hasActiveToolCall: (toolCallId: string) => boolean;
+  /** Returns false when the call is unknown or its current detail mapping is suppressed. */
+  emitActiveToolCall: (toolCallId: string) => boolean;
   setCommandCache: (commands: AgentSlashCommand[]) => void;
   logger: Logger;
 }
@@ -211,6 +214,11 @@ export interface PiImportSessionHookInput {
   client: PiRpcAgentClient;
   input: ImportProviderSessionInput;
   context: ImportProviderSessionContext;
+}
+
+export interface PiToolDetailContext {
+  toolCallId: string;
+  runtimeSession?: PiRuntimeSession;
 }
 
 export interface PiDialect {
@@ -223,7 +231,11 @@ export interface PiDialect {
     text: string,
     provider: AgentProvider,
   ) => Extract<AgentStreamEvent, { type: "timeline" }> | null;
-  mapToolDetail?: (toolCall: PiTrackedToolCall, result: PiToolResult) => ToolCallDetail | null;
+  mapToolDetail?: (
+    toolCall: PiTrackedToolCall,
+    result: PiToolResult,
+    context: PiToolDetailContext,
+  ) => ToolCallDetail | null;
   resolveToolCallId?: (toolCallId: string, toolCall: PiTrackedToolCall) => string;
   handledBuiltinSlashCommands?: readonly AgentSlashCommand[];
   mapSlashCommands?: (commands: readonly PiRpcSlashCommand[]) => AgentSlashCommand[];
@@ -238,6 +250,7 @@ export interface PiDialect {
     sessionsDir: string;
   }) => string[];
   onSessionStart?: (runtimeSession: PiRuntimeSession, logger: Logger) => void;
+  onSessionInterrupt?: (runtimeSession: PiRuntimeSession) => void;
   onSessionClose?: (runtimeSession: PiRuntimeSession) => void;
   handleExtraRuntimeEvent?: (event: PiRuntimeEvent, context: PiExtraRuntimeEventContext) => boolean;
   onToolExecutionEnd?: (input: {
@@ -1303,7 +1316,11 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
-    await this.runtimeSession.abort();
+    try {
+      await this.runtimeSession.abort();
+    } finally {
+      this.dialect.onSessionInterrupt?.(this.runtimeSession);
+    }
   }
 
   async revertConversation(input: { messageId: string }): Promise<void> {
@@ -1769,6 +1786,14 @@ export class PiRpcAgentSession implements AgentSession {
       this.dialect.handleExtraRuntimeEvent?.(event, {
         runtimeSession: this.runtimeSession,
         emit: (streamEvent) => this.emit(streamEvent),
+        hasActiveToolCall: (toolCallId) => this.activeToolCalls.has(toolCallId),
+        emitActiveToolCall: (toolCallId) => {
+          const toolCall = this.activeToolCalls.get(toolCallId);
+          if (!toolCall) {
+            return false;
+          }
+          return this.emitToolCallEvent(toolCallId, toolCall, "running", null, null);
+        },
         setCommandCache: (commands) => {
           this.commandCache = [...commands];
         },
@@ -2010,11 +2035,11 @@ export class PiRpcAgentSession implements AgentSession {
     status: "running" | "completed" | "failed",
     result: PiToolResult,
     error: unknown,
-  ): void {
+  ): boolean {
     const turnId = this.currentTurnIdForEvent();
-    const detail = this.mapToolDetail(toolCall, result);
+    const detail = this.mapToolDetail(toolCallId, toolCall, result);
     if (!detail) {
-      return;
+      return false;
     }
     const emittedCallId = this.dialect.resolveToolCallId?.(toolCallId, toolCall) ?? toolCallId;
     const baseItem = {
@@ -2031,11 +2056,18 @@ export class PiRpcAgentSession implements AgentSession {
       turnId,
       item,
     });
+    return true;
   }
 
-  private mapToolDetail(toolCall: PiTrackedToolCall, result: PiToolResult): ToolCallDetail | null {
+  private mapToolDetail(
+    toolCallId: string,
+    toolCall: PiTrackedToolCall,
+    result: PiToolResult,
+  ): ToolCallDetail | null {
     const hook = this.dialect.mapToolDetail;
-    return hook ? hook(toolCall, result) : mapToolDetail(toolCall, result);
+    return hook
+      ? hook(toolCall, result, { toolCallId, runtimeSession: this.runtimeSession })
+      : mapToolDetail(toolCall, result);
   }
 
   private completeTurn(turnId: string | undefined, messages: PiAgentMessage[]): void {

@@ -167,4 +167,64 @@ describe("OMP history mapper", () => {
       ]),
     ).resolves.toEqual([]);
   });
+
+  test("replays task tool results as static sub-agent details", async () => {
+    await expect(
+      collectHistory([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "task-1",
+              name: "task",
+              arguments: { agent: "explore", description: "Inspect files" },
+            },
+          ],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "task-1",
+          toolName: "task",
+          content: [{ type: "text", text: "done\ntranscript: /tmp/omp-task/Explore.jsonl" }],
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "tool_call",
+          callId: "task-1",
+          name: "task",
+          status: "running",
+          detail: {
+            type: "sub_agent",
+            subAgentType: "explore",
+            description: "Inspect files",
+            log: "",
+          },
+          error: null,
+        },
+      },
+      {
+        type: "timeline",
+        provider: "omp",
+        item: {
+          type: "tool_call",
+          callId: "task-1",
+          name: "task",
+          status: "completed",
+          detail: {
+            type: "sub_agent",
+            subAgentType: "explore",
+            description: "Inspect files",
+            childSessionId: "/tmp/omp-task/Explore.jsonl",
+            log: "done\ntranscript: /tmp/omp-task/Explore.jsonl",
+          },
+          error: null,
+        },
+      },
+    ]);
+  });
 });

@@ -20,7 +20,11 @@ export interface PiHistoryMapperHooks {
     provider: string,
   ) => Extract<AgentStreamEvent, { type: "timeline" }> | null;
   resolveToolCallId?: (toolCallId: string, toolCall: PiTrackedToolCall) => string;
-  mapToolDetail?: (toolCall: PiTrackedToolCall, result: PiToolResult) => ToolCallDetail | null;
+  mapToolDetail?: (
+    toolCall: PiTrackedToolCall,
+    result: PiToolResult,
+    context: { toolCallId: string },
+  ) => ToolCallDetail | null;
 }
 
 function isTextContentBlock(block: unknown): block is PiTextContent {
@@ -150,7 +154,7 @@ export class PiHistoryMapper {
       if (content.type === "toolCall") {
         const tracked = parseToolArgs(content.name, content.arguments);
         this.pendingToolCalls.set(content.id, tracked);
-        const detail = this.mapToolDetail(tracked, null);
+        const detail = this.mapToolDetail(content.id, tracked, null);
         if (!detail) {
           continue;
         }
@@ -178,7 +182,7 @@ export class PiHistoryMapper {
       this.pendingToolCalls.get(message.toolCallId) ?? parseToolArgs(message.toolName, null);
     this.pendingToolCalls.delete(message.toolCallId);
     const result = parseToolResult({ content: message.content });
-    const detail = this.mapToolDetail(tracked, result);
+    const detail = this.mapToolDetail(message.toolCallId, tracked, result);
     if (!detail) {
       return null;
     }
@@ -222,9 +226,13 @@ export class PiHistoryMapper {
     return this.hooks.resolveToolCallId?.(toolCallId, toolCall) ?? toolCallId;
   }
 
-  private mapToolDetail(toolCall: PiTrackedToolCall, result: PiToolResult): ToolCallDetail | null {
+  private mapToolDetail(
+    toolCallId: string,
+    toolCall: PiTrackedToolCall,
+    result: PiToolResult,
+  ): ToolCallDetail | null {
     const hook = this.hooks.mapToolDetail;
-    return hook ? hook(toolCall, result) : mapToolDetail(toolCall, result);
+    return hook ? hook(toolCall, result, { toolCallId }) : mapToolDetail(toolCall, result);
   }
 }
 

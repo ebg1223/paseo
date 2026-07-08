@@ -65,6 +65,31 @@ describe("OMP tool call mapper", () => {
     expect(mapOmpToolDetail(parseToolArgs("todo", { op: "view" }), null)).toBeNull();
   });
 
+  test("uses task result text and transcript path as the best static replay detail", () => {
+    expect(
+      mapOmpToolDetail(
+        parseToolArgs("task", {
+          agent: "explore",
+          description: "Inspect the target files",
+        }),
+        parseToolResult({
+          content: [
+            {
+              type: "text",
+              text: "done\ntranscript: /tmp/omp-task-static/Explore.jsonl",
+            },
+          ],
+        }),
+      ),
+    ).toEqual({
+      type: "sub_agent",
+      subAgentType: "explore",
+      description: "Inspect the target files",
+      childSessionId: "/tmp/omp-task-static/Explore.jsonl",
+      log: "done\ntranscript: /tmp/omp-task-static/Explore.jsonl",
+    });
+  });
+
   test("falls back to shared unknown detail for unmapped tools", () => {
     expect(mapOmpToolDetail(parseToolArgs("lsp", { op: "hover" }), null)).toEqual({
       type: "unknown",

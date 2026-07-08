@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 
 import type {
   AgentTimelineItem,
+  ToolCallDetail,
   AgentPersistenceHandle,
   AgentSessionConfig,
   AgentStreamEvent,
@@ -10,8 +11,10 @@ import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
 import {
   PiRpcAgentClient as SharedPiRpcAgentClient,
   type PiDialect,
+  type PiToolDetailContext,
   type PiRpcAgentClientOptions,
 } from "../pi-shared/agent.js";
+import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagent-card-tracker.js";
 import type { PiRuntimeSession } from "../pi-shared/runtime.js";
 import {
   mapOmpAvailableCommandsUpdate,
@@ -28,6 +31,7 @@ import type {
   OmpSubagentStatus,
 } from "./rpc-types.js";
 import { OmpSubagentIndex, isTerminalOmpSubagentStatus } from "./subagent-index.js";
+import { mapOmpToolDetail } from "./tool-call-mapper.js";
 import { mapOmpUsage } from "./usage-mapper.js";
 import { OmpVirtualChildSession } from "./virtual-child-session.js";
 
@@ -36,7 +40,9 @@ const OMP_SESSION_DIR = "~/.omp/agent/sessions";
 // Fixture-backed Wave 1 parity targets OMP 16.3.9; runtime logic uses capability probing.
 export const MIN_SUPPORTED_OMP_VERSION = "16.3.9";
 
-export interface OmpRpcAgentClientOptions extends Omit<PiRpcAgentClientOptions, "dialect"> {}
+export interface OmpRpcAgentClientOptions extends Omit<PiRpcAgentClientOptions, "dialect"> {
+  subagentCardScheduler?: OmpSubagentCardScheduler;
+}
 
 export class OmpRpcAgentClient extends SharedPiRpcAgentClient {
   constructor(options: OmpRpcAgentClientOptions) {
@@ -53,7 +59,12 @@ export class OmpRpcAgentClient extends SharedPiRpcAgentClient {
         },
         options.runtimeSettings,
       ),
-      dialect: createOmpDialect(subagentIndex, subagentSessionFilesById, options.logger),
+      dialect: createOmpDialect(
+        subagentIndex,
+        subagentSessionFilesById,
+        options.logger,
+        options.subagentCardScheduler,
+      ),
     });
   }
 }
@@ -62,11 +73,26 @@ function createOmpDialect(
   subagentIndex: OmpSubagentIndex,
   subagentSessionFilesById: Map<string, string>,
   logger: Logger,
+  subagentCardScheduler: OmpSubagentCardScheduler | undefined,
 ): PiDialect {
   const lastTodoItemsBySession = new WeakMap<
     PiRuntimeSession,
     Extract<AgentTimelineItem, { type: "todo" }>
   >();
+  const subagentCardTrackers = new WeakMap<PiRuntimeSession, OmpSubagentCardTracker>();
+  const subagentCardTrackerFor = (runtimeSession: PiRuntimeSession): OmpSubagentCardTracker => {
+    const existing = subagentCardTrackers.get(runtimeSession);
+    if (existing) {
+      return existing;
+    }
+    const tracker = new OmpSubagentCardTracker({ scheduler: subagentCardScheduler });
+    subagentCardTrackers.set(runtimeSession, tracker);
+    return tracker;
+  };
+  const clearSubagentCardTracker = (runtimeSession: PiRuntimeSession): void => {
+    subagentCardTrackers.get(runtimeSession)?.clear();
+    subagentCardTrackers.delete(runtimeSession);
+  };
   return {
     providerId: OMP_PROVIDER,
     label: "OMP",
@@ -77,6 +103,12 @@ function createOmpDialect(
     handledBuiltinSlashCommands: OMP_HANDLED_BUILTIN_SLASH_COMMANDS,
     mapSlashCommands: mapOmpRuntimeSlashCommands,
     mapHydratedTimelineItems: mapOmpTodoState,
+    mapToolDetail: (toolCall, result, context) =>
+      mapOmpToolDetail(toolCall, result, {
+        toolCallId: context.toolCallId,
+        mapSubagentDetail: (baseDetail) =>
+          mapLiveOmpSubagentDetail(baseDetail, context, subagentCardTrackers),
+      }),
     mapUsage: mapOmpUsage,
     filterImportableSessionFiles: filterOmpImportableSessionFiles,
     supportsHandoffCommand: true,
@@ -89,11 +121,23 @@ function createOmpDialect(
     },
     onSessionClose: (runtimeSession) => {
       subagentIndex.clearParent(runtimeSession);
+      clearSubagentCardTracker(runtimeSession);
+    },
+    onSessionInterrupt: (runtimeSession) => {
+      clearSubagentCardTracker(runtimeSession);
     },
     handleExtraRuntimeEvent: (event, context) => {
       if (event.type === "subagent_lifecycle") {
+        const ompEvent = event as Extract<OmpRuntimeEvent, { type: "subagent_lifecycle" }>;
+        const payload = ompEvent.payload;
+        if (shouldTrackSubagentCard(payload.parentToolCallId, context.hasActiveToolCall)) {
+          subagentCardTrackerFor(context.runtimeSession).handleLifecycle(
+            payload,
+            context.emitActiveToolCall,
+          );
+        }
         handleSubagentLifecycle(
-          event as OmpRuntimeEvent,
+          ompEvent,
           context.runtimeSession,
           context.emit,
           subagentIndex,
@@ -102,8 +146,16 @@ function createOmpDialect(
         return true;
       }
       if (event.type === "subagent_progress") {
+        const ompEvent = event as Extract<OmpRuntimeEvent, { type: "subagent_progress" }>;
+        const payload = ompEvent.payload;
+        if (shouldTrackSubagentCard(payload.parentToolCallId, context.hasActiveToolCall)) {
+          subagentCardTrackerFor(context.runtimeSession).handleProgress(
+            payload,
+            context.emitActiveToolCall,
+          );
+        }
         handleSubagentProgress(
-          event as OmpRuntimeEvent,
+          ompEvent,
           context.runtimeSession,
           subagentIndex,
           subagentSessionFilesById,
@@ -143,6 +195,9 @@ function createOmpDialect(
       emit,
       logger: sessionLogger,
     }) => {
+      if (event.toolName === "task") {
+        subagentCardTrackers.get(runtimeSession)?.delete(event.toolCallId);
+      }
       if (event.toolName !== "todo") {
         return;
       }
@@ -210,6 +265,26 @@ function createOmpDialect(
       };
     },
   };
+}
+
+function mapLiveOmpSubagentDetail(
+  baseDetail: ToolCallDetail,
+  context: PiToolDetailContext,
+  trackers: WeakMap<PiRuntimeSession, OmpSubagentCardTracker>,
+): ToolCallDetail {
+  if (!context.runtimeSession) {
+    return baseDetail;
+  }
+  return (
+    trackers.get(context.runtimeSession)?.detailFor(context.toolCallId, baseDetail) ?? baseDetail
+  );
+}
+
+function shouldTrackSubagentCard(
+  parentToolCallId: string | undefined,
+  hasActiveToolCall: (toolCallId: string) => boolean,
+): parentToolCallId is string {
+  return typeof parentToolCallId === "string" && hasActiveToolCall(parentToolCallId);
 }
 
 function handleSubagentLifecycle(

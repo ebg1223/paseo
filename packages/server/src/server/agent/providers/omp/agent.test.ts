@@ -3,11 +3,14 @@ import { describe, expect, test } from "vitest";
 
 import modelsFixture from "./__fixtures__/get_available_models_reasoning.json" with { type: "json" };
 import commandUpdateFixture from "./__fixtures__/available_commands_update.json" with { type: "json" };
+import subagentFramesFixture from "./__fixtures__/subagent_lifecycle_progress.json" with { type: "json" };
 import todoFixture from "./__fixtures__/todo_tool_reminder_state.json" with { type: "json" };
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
 import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 import type { PiModel } from "../pi-shared/rpc-types.js";
 import { OmpRpcAgentClient } from "./agent.js";
+import type { OmpSubagentCardScheduler } from "./subagent-card-tracker.js";
+import type { OmpSubagentLifecyclePayload, OmpSubagentProgressPayload } from "./rpc-types.js";
 
 function createConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSessionConfig {
   return {
@@ -17,19 +20,61 @@ function createConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSession
   };
 }
 
-function createClient(pi = new FakePi()): OmpRpcAgentClient {
+class ManualScheduler implements OmpSubagentCardScheduler {
+  private currentMs = 0;
+  private nextId = 1;
+  private readonly timers = new Map<number, { dueMs: number; callback: () => void }>();
+
+  now(): number {
+    return this.currentMs;
+  }
+
+  setTimeout(callback: () => void, delayMs: number) {
+    const id = this.nextId;
+    this.nextId += 1;
+    this.timers.set(id, { dueMs: this.currentMs + delayMs, callback });
+    return { token: id };
+  }
+
+  clearTimeout(timer: { token: unknown }): void {
+    if (typeof timer.token === "number") {
+      this.timers.delete(timer.token);
+    }
+  }
+
+  advance(ms: number): void {
+    this.currentMs += ms;
+    const dueTimers = [...this.timers.entries()]
+      .filter(([, timer]) => timer.dueMs <= this.currentMs)
+      .sort((left, right) => left[1].dueMs - right[1].dueMs);
+    for (const [id, timer] of dueTimers) {
+      if (this.timers.delete(id)) {
+        timer.callback();
+      }
+    }
+  }
+}
+
+function createClient(
+  pi = new FakePi(),
+  options: { subagentCardScheduler?: OmpSubagentCardScheduler } = {},
+): OmpRpcAgentClient {
   return new OmpRpcAgentClient({
     logger: pino({ level: "silent" }),
     runtime: pi,
+    ...options,
   });
 }
 
-async function createSession(pi = new FakePi()): Promise<{
+async function createSession(
+  pi = new FakePi(),
+  options: { subagentCardScheduler?: OmpSubagentCardScheduler } = {},
+): Promise<{
   pi: FakePi;
   session: AgentSession;
   events: SessionEvents;
 }> {
-  const client = createClient(pi);
+  const client = createClient(pi, options);
   const session = await client.createSession(createConfig());
   const events = new SessionEvents(session);
   return { pi, session, events };
@@ -63,6 +108,13 @@ class SessionEvents {
       }
       return [];
     });
+  }
+
+  childSessionEvents() {
+    return this.events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "child_session" }> =>
+        event.type === "child_session",
+    );
   }
 
   usageEvents() {
@@ -181,6 +233,32 @@ function readCommandUpdateFixture(): { type: "available_commands_update"; [key: 
     ...record,
     type: "available_commands_update",
   };
+}
+
+function readSubagentLifecycleFixture(): OmpSubagentLifecyclePayload {
+  const frame = (subagentFramesFixture as readonly unknown[]).find(
+    (candidate) => isRecord(candidate) && candidate.type === "subagent_lifecycle",
+  );
+  if (!isRecord(frame) || !isRecord(frame.payload)) {
+    throw new Error("Subagent fixture is missing lifecycle frame");
+  }
+  return frame.payload as unknown as OmpSubagentLifecyclePayload;
+}
+
+function readProgressWithRecentToolFixture(): OmpSubagentProgressPayload {
+  const frame = (subagentFramesFixture as readonly unknown[]).find(
+    (candidate) =>
+      isRecord(candidate) &&
+      candidate.type === "subagent_progress" &&
+      isRecord(candidate.payload) &&
+      isRecord(candidate.payload.progress) &&
+      Array.isArray(candidate.payload.progress.recentTools) &&
+      candidate.payload.progress.recentTools.length > 0,
+  );
+  if (!isRecord(frame) || !isRecord(frame.payload)) {
+    throw new Error("Subagent fixture is missing progress frame with recent tools");
+  }
+  return frame.payload as unknown as OmpSubagentProgressPayload;
 }
 
 function fixtureRecord(values: unknown, index: number, label: string): Record<string, unknown> {
@@ -446,6 +524,120 @@ describe("OMP RPC agent", () => {
       "omp-poll:job-c",
       "spawn-1",
       "bash-1",
+    ]);
+  });
+
+  test("folds live OMP subagent progress into the owning task tool call card", async () => {
+    const scheduler = new ManualScheduler();
+    const { pi, events } = await createSession(new FakePi(), {
+      subagentCardScheduler: scheduler,
+    });
+    const fakeSession = pi.latestSession();
+    const lifecycle = readSubagentLifecycleFixture();
+    const progress = readProgressWithRecentToolFixture();
+    const parentToolCallId = lifecycle.parentToolCallId;
+    if (!parentToolCallId) {
+      throw new Error("Subagent lifecycle fixture is missing parentToolCallId");
+    }
+
+    fakeSession.emit({
+      type: "tool_execution_start",
+      toolCallId: parentToolCallId,
+      toolName: "task",
+      args: {
+        agent: "task",
+        description: "Run echo in subagent",
+      },
+    });
+    fakeSession.emit({
+      type: "subagent_lifecycle",
+      payload: lifecycle,
+    });
+    fakeSession.emit({
+      type: "subagent_progress",
+      payload: progress,
+    });
+    fakeSession.emit({
+      type: "tool_execution_end",
+      toolCallId: parentToolCallId,
+      toolName: "task",
+      result: { content: [{ type: "text", text: "done" }] },
+      isError: false,
+    });
+    scheduler.advance(500);
+
+    const taskItems = events
+      .timelineItems()
+      .filter(
+        (item) =>
+          item.type === "tool_call" &&
+          item.callId === parentToolCallId &&
+          item.detail.type === "sub_agent",
+      );
+
+    expect(taskItems).toEqual([
+      {
+        type: "tool_call",
+        callId: parentToolCallId,
+        name: "task",
+        status: "running",
+        detail: {
+          type: "sub_agent",
+          subAgentType: "task",
+          description: "Run echo in subagent",
+          log: "",
+        },
+        error: null,
+      },
+      {
+        type: "tool_call",
+        callId: parentToolCallId,
+        name: "task",
+        status: "running",
+        detail: {
+          type: "sub_agent",
+          subAgentType: "task",
+          description: "Run echo in subagent",
+          childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+          log: "EchoSubagent started",
+        },
+        error: null,
+      },
+      {
+        type: "tool_call",
+        callId: parentToolCallId,
+        name: "task",
+        status: "completed",
+        detail: {
+          type: "sub_agent",
+          subAgentType: "task",
+          description: "Run echo in subagent",
+          childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+          log: "EchoSubagent started\n[bash] echo subagent-hi",
+        },
+        error: null,
+      },
+    ]);
+  });
+
+  test("ignores subagent card updates whose parent task tool call is unknown", async () => {
+    const { pi, events } = await createSession();
+    const lifecycle = readSubagentLifecycleFixture();
+
+    pi.latestSession().emit({
+      type: "subagent_lifecycle",
+      payload: lifecycle,
+    });
+
+    expect(events.timelineItems()).toEqual([]);
+    expect(events.childSessionEvents()).toEqual([
+      {
+        type: "child_session",
+        provider: "omp",
+        childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+        status: "running",
+        title: "Run echo in subagent",
+      },
     ]);
   });
 

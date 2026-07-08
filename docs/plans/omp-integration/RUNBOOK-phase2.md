@@ -52,7 +52,23 @@ Executes [02-v1-parity.md](02-v1-parity.md) on top of the landed D1 extraction
       Review fixes: `/handoff` now sends `customInstructions`, import filtering builds its
       file set once per listing, duplicate consecutive todo cards are suppressed per session,
       and tests cover non-reasoning models plus state-over-stats context usage.
-- [ ] Wave 2 (§1 inline subagent cards, adapter-only).
+- [x] Wave 2 (§1 inline subagent cards, adapter-only) — implemented
+      2026-07-08 UTC on `feat/pi-native-subagents`. Landed: OMP-only
+      `OmpSubagentCardTracker` folds `subagent_lifecycle`/`subagent_progress` into the owning
+      `task` tool call keyed by `parentToolCallId`, keeps one rolling `sub_agent` detail per
+      parent call, aggregates `task.batch` streams with index-prefixed log lines, and throttles
+      live running-card re-emits to one every 500 ms with an injectable scheduler for deterministic
+      tests. The existing phase-3 `OmpSubagentIndex` and `child_session` emission paths are still
+      fed unchanged. Minimal pi-shared seam added: tool-detail hooks receive `toolCallId` plus the
+      live runtime session, extra-runtime handlers can test/re-emit active tool calls, and interrupt
+      cleanup has a dialect hook. Replay can only render static task args/result content from the
+      transcript, so it preserves task type/description and uses result text plus any transcript
+      path as `log`/`childSessionId`; it does not reconstruct live progress frames absent from
+      history. Verification passed: targeted OMP tracker/mapper/history/agent tests, Pi
+      `agent.test.ts`, `npm run typecheck`, `npm run lint`, `npm run format`.
+      Review fixes: task-arg agent type stays stable, sparse batch prefixes use max-index totals,
+      suppressible active-call re-emits return false, tracked details preserve `actions` omission,
+      and orphan lifecycle frames still emit `child_session` events.
 - [ ] Wave 3 (§3 approvals + §4 modes — riskiest; strongest implementer + opus review).
 - [ ] Wave 4 (§9 MCP unconditional + §8 title push-down).
 - [ ] E2E config (`daemon-e2e/agent-configs.ts`: full=`yolo`, ask=`always-ask`) + CI.
@@ -112,3 +128,9 @@ mutating agents). Each wave: implement → targeted tests vs fixtures → typech
 Same as D1: targeted vitest per touched file, typecheck/lint/format via npm scripts,
 full suite via CI push. Fixtures captured from the pinned omp version are the unit-test
 substrate (02-v1-parity.md Testing).
+
+## Manual verify checklist
+
+- live omp: confirm subagent card populates during a real task run (fixture lacks
+  `tool_execution_start`; invariant verified in source only) and that detached subagents outliving
+  their task produce no orphan cards.
