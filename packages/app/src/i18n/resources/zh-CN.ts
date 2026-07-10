@@ -701,11 +701,19 @@ export const zhCN: TranslationResources = {
         tooLarge: "Diff 过大，无法显示",
         unified: "Unified diff",
         split: "Side-by-side diff",
+        switchToUnified: "切换到统一差异视图",
+        switchToSplit: "切换到并排差异视图",
+        showTreeView: "显示文件夹树",
+        showFlatView: "显示平铺文件列表",
+        options: "Diff 选项",
         hideWhitespace: "隐藏空白差异",
+        showWhitespace: "显示空白差异",
         scrollLongLines: "滚动长行",
         wrapLongLines: "自动换行长行",
         collapseAll: "折叠所有文件",
         expandAll: "展开所有文件",
+        collapseAllFolders: "折叠所有文件夹",
+        expandAllFolders: "展开所有文件夹",
         refreshing: "正在刷新",
         refresh: "刷新",
         refreshState: "刷新 git 和 GitHub 状态",
@@ -1034,6 +1042,12 @@ export const zhCN: TranslationResources = {
       },
     },
   },
+  rootError: {
+    kicker: "出现问题",
+    title: "Paseo 遇到了问题。",
+    body: "请重试以重新加载应用。如果问题持续发生，请在报告时附上下面的详细信息。",
+    details: "详情",
+  },
   startup: {
     errorTitle: "出现问题",
     errorDescription: "本地服务器启动失败。如果持续发生，请在 GitHub 报告问题并附上下方日志。",
@@ -1064,7 +1078,8 @@ export const zhCN: TranslationResources = {
     },
   },
   projectPicker: {
-    placeholder: "输入目录路径...",
+    placeholder: "输入以搜索...",
+    browse: "浏览…",
     opening: "正在打开 project...",
     searching: "正在搜索...",
     empty: "开始输入路径",
@@ -1439,6 +1454,10 @@ export const zhCN: TranslationResources = {
         description: "内置终端缓冲区保留的行数",
         accessibilityLabel: "终端回滚行数",
       },
+      autoExpandReasoning: {
+        label: "始终展开推理过程",
+        description: "默认情况下完全展开 AI 的思考和推理过程",
+      },
       language: {
         label: "语言",
         description: "应用语言",
@@ -1519,6 +1538,9 @@ export const zhCN: TranslationResources = {
           ghostty: "Ghostty",
           auto: "系统",
         },
+      },
+      detailLevel: {
+        title: "详细程度",
       },
       fonts: {
         title: "字体",

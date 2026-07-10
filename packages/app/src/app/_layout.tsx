@@ -4,13 +4,7 @@ import { PortalProvider } from "@gorhom/portal";
 import { QueryClientProvider } from "@tanstack/react-query";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
-import {
-  Stack,
-  useGlobalSearchParams,
-  useNavigationContainerRef,
-  usePathname,
-  useRouter,
-} from "expo-router";
+import { Stack, useNavigationContainerRef, usePathname, useRouter } from "expo-router";
 import {
   createContext,
   type ReactNode,
@@ -23,9 +17,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { View } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { Extrapolation, interpolate, runOnJS, useSharedValue } from "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StyleSheet, UnistylesRuntime, useUnistyles } from "react-native-unistyles";
 import { CommandCenter } from "@/components/command-center";
@@ -34,25 +27,19 @@ import { DownloadToast } from "@/components/download-toast";
 import { QuittingOverlay } from "@/components/quitting-overlay";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
 import { LeftSidebar } from "@/components/left-sidebar";
+import { SidebarModelProvider } from "@/components/sidebar/sidebar-model";
 import { CompactExplorerSidebarHost } from "@/components/compact-explorer-sidebar-host";
 import { ProjectPickerModal } from "@/components/project-picker-modal";
 import { ProviderSettingsHost } from "@/components/provider-settings-host";
+import { RootErrorBoundary } from "@/components/root-error-boundary";
 import { WorkspaceSetupDialog } from "@/components/workspace-setup-dialog";
 import { WorkspaceShortcutTargetsSubscriber } from "@/components/workspace-shortcut-targets-subscriber";
 import { FloatingPanelPortalHost } from "@/components/ui/floating-panel-portal";
 import { HostChooserModal, useHostChooser } from "@/hosts/host-chooser";
 import { getIsElectronRuntime, useIsCompactFormFactor } from "@/constants/layout";
 import { isNative, isWeb } from "@/constants/platform";
-import {
-  HorizontalScrollProvider,
-  useHorizontalScrollOptional,
-} from "@/contexts/horizontal-scroll-context";
+import { HorizontalScrollProvider } from "@/contexts/horizontal-scroll-context";
 import { SessionProvider } from "@/contexts/session-context";
-import { ExplorerSidebarAnimationProvider } from "@/contexts/explorer-sidebar-animation-context";
-import {
-  SidebarAnimationProvider,
-  useSidebarAnimation,
-} from "@/contexts/sidebar-animation-context";
 import { SidebarCalloutProvider } from "@/contexts/sidebar-callout-context";
 import { ToastProvider } from "@/contexts/toast-context";
 import { VoiceProvider } from "@/contexts/voice-context";
@@ -81,6 +68,8 @@ import { useCompactWebViewportZoomLock } from "@/hooks/use-compact-web-viewport-
 import { useOpenProject } from "@/hooks/use-open-project";
 import { useAppSettings } from "@/hooks/use-settings";
 import { useStableEvent } from "@/hooks/use-stable-event";
+import { useOpenAgentListGesture } from "@/mobile-panels/gestures";
+import { MobilePanelsProvider } from "@/mobile-panels/provider";
 import { I18nProvider } from "@/i18n/provider";
 import { keyboardActionDispatcher } from "@/keyboard/keyboard-action-dispatcher";
 import { polyfillCrypto } from "@/polyfills/crypto";
@@ -99,13 +88,7 @@ import { usePanelStore } from "@/stores/panel-store";
 import { THEME_TO_UNISTYLES, type ThemeName } from "@/styles/theme";
 import type { HostProfile } from "@/types/host-connection";
 import { toggleDesktopSidebarsWithCheckoutIntent } from "@/utils/desktop-sidebar-toggle";
-import { canOpenLeftSidebarGesture } from "@/utils/sidebar-animation-state";
-import {
-  buildOpenProjectRoute,
-  parseHostAgentRouteFromPathname,
-  parseServerIdFromPathname,
-  parseWorkspaceOpenIntent,
-} from "@/utils/host-routes";
+import { buildOpenProjectRoute, parseServerIdFromPathname } from "@/utils/host-routes";
 import { buildNotificationRoute, resolveNotificationTarget } from "@/utils/notification-routing";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import {
@@ -404,22 +387,16 @@ function QueryProvider({ children }: { children: ReactNode }) {
 
 const rowStyle = { flex: 1, flexDirection: "row" } as const;
 const flexStyle = { flex: 1 } as const;
-const MOBILE_WEB_EDGE_SWIPE_WIDTH = 32;
 const MOBILE_WEB_GESTURE_TOUCH_ACTION = isWeb ? "auto" : "pan-y";
 
 interface AppContainerProps {
   children: ReactNode;
-  selectedAgentId?: string;
   chromeEnabled?: boolean;
 }
 
 const THEME_CYCLE_ORDER: ThemeName[] = ["dark", "zinc", "midnight", "claude", "ghostty", "light"];
 
-function AppContainer({
-  children,
-  selectedAgentId,
-  chromeEnabled: chromeEnabledOverride,
-}: AppContainerProps) {
+function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppContainerProps) {
   const daemons = useHosts();
   const { settings, updateSettings } = useAppSettings();
   const toggleMobileAgentList = usePanelStore((state) => state.toggleMobileAgentList);
@@ -476,26 +453,22 @@ function AppContainer({
 
   const workspaceChrome = (
     <View style={rowStyle}>
-      {!isCompactLayout && chromeEnabled && !isFocusModeEnabled && (
-        <LeftSidebar selectedAgentId={selectedAgentId} />
-      )}
+      {!isCompactLayout && chromeEnabled && !isFocusModeEnabled && <LeftSidebar />}
       {isCompactLayout && chromeEnabled ? (
-        <ExplorerSidebarAnimationProvider>
-          <CompactExplorerSidebarHost enabled={chromeEnabled}>
-            <View style={flexStyle}>{children}</View>
-          </CompactExplorerSidebarHost>
-        </ExplorerSidebarAnimationProvider>
+        <CompactExplorerSidebarHost enabled={chromeEnabled}>
+          <View style={flexStyle}>{children}</View>
+        </CompactExplorerSidebarHost>
       ) : (
         <View style={flexStyle}>{children}</View>
       )}
     </View>
   );
 
-  const content = (
+  const surface = (
     <View style={layoutStyles.surfaceFill}>
       {workspaceChrome}
       <FloatingPanelPortalHost />
-      {isCompactLayout && chromeEnabled && <LeftSidebar selectedAgentId={selectedAgentId} />}
+      {isCompactLayout && chromeEnabled && <LeftSidebar />}
       <DownloadToast />
       <RosettaCalloutSource />
       <UpdateCalloutSource />
@@ -511,11 +484,13 @@ function AppContainer({
     </View>
   );
 
-  if (!isCompactLayout) {
-    return content;
-  }
+  const content = isCompactLayout ? (
+    <MobileGestureWrapper chromeEnabled={chromeEnabled}>{surface}</MobileGestureWrapper>
+  ) : (
+    surface
+  );
 
-  return <MobileGestureWrapper chromeEnabled={chromeEnabled}>{content}</MobileGestureWrapper>;
+  return <SidebarModelProvider>{content}</SidebarModelProvider>;
 }
 
 function MobileGestureWrapper({
@@ -525,127 +500,7 @@ function MobileGestureWrapper({
   children: ReactNode;
   chromeEnabled: boolean;
 }) {
-  const showMobileAgentList = usePanelStore((state) => state.showMobileAgentList);
-  const horizontalScroll = useHorizontalScrollOptional();
-  const {
-    translateX,
-    backdropOpacity,
-    windowWidth,
-    animateToOpen,
-    animateToClose,
-    setOverlayPeek,
-    isGesturing,
-    mobilePanelState,
-    gestureAnimatingRef,
-    openGestureRef,
-  } = useSidebarAnimation();
-  const touchStartX = useSharedValue(0);
-  const touchStartY = useSharedValue(0);
-  const openGestureEnabled = chromeEnabled;
-
-  const handleGestureOpen = useCallback(() => {
-    gestureAnimatingRef.current = true;
-    showMobileAgentList();
-  }, [showMobileAgentList, gestureAnimatingRef]);
-
-  const openGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .withRef(openGestureRef)
-        .enabled(openGestureEnabled)
-        .manualActivation(true)
-        .failOffsetY([-10, 10])
-        .onTouchesDown((event) => {
-          const touch = event.changedTouches[0];
-          if (touch) {
-            touchStartX.value = touch.absoluteX;
-            touchStartY.value = touch.absoluteY;
-          }
-        })
-        .onTouchesMove((event, stateManager) => {
-          const touch = event.changedTouches[0];
-          if (!touch || event.numberOfTouches !== 1) return;
-
-          const deltaX = touch.absoluteX - touchStartX.value;
-          const deltaY = touch.absoluteY - touchStartY.value;
-          const absDeltaX = Math.abs(deltaX);
-          const absDeltaY = Math.abs(deltaY);
-
-          if (!canOpenLeftSidebarGesture(mobilePanelState.value, translateX.value, windowWidth)) {
-            stateManager.fail();
-            return;
-          }
-
-          if (horizontalScroll?.isAnyScrolledRight.value) {
-            stateManager.fail();
-            return;
-          }
-
-          if (isWeb && touchStartX.value > MOBILE_WEB_EDGE_SWIPE_WIDTH) {
-            stateManager.fail();
-            return;
-          }
-
-          if (deltaX <= -10) {
-            stateManager.fail();
-            return;
-          }
-
-          if (absDeltaY > 10 && absDeltaY > absDeltaX) {
-            stateManager.fail();
-            return;
-          }
-
-          if (deltaX > 15 && absDeltaX > absDeltaY) {
-            stateManager.activate();
-          }
-        })
-        .onStart(() => {
-          isGesturing.value = true;
-          // The overlay is display:none while closed; reveal it for the drag.
-          runOnJS(setOverlayPeek)(true);
-        })
-        .onUpdate((event) => {
-          const newTranslateX = Math.min(0, -windowWidth + event.translationX);
-          translateX.value = newTranslateX;
-          backdropOpacity.value = interpolate(
-            newTranslateX,
-            [-windowWidth, 0],
-            [0, 1],
-            Extrapolation.CLAMP,
-          );
-        })
-        .onEnd((event) => {
-          isGesturing.value = false;
-          const shouldOpen = event.translationX > windowWidth / 3 || event.velocityX > 500;
-          if (shouldOpen) {
-            animateToOpen();
-            runOnJS(handleGestureOpen)();
-          } else {
-            animateToClose();
-          }
-        })
-        .onFinalize(() => {
-          isGesturing.value = false;
-          runOnJS(setOverlayPeek)(false);
-        }),
-    [
-      openGestureEnabled,
-      windowWidth,
-      translateX,
-      backdropOpacity,
-      mobilePanelState,
-      animateToOpen,
-      animateToClose,
-      setOverlayPeek,
-      handleGestureOpen,
-      isGesturing,
-      openGestureRef,
-      horizontalScroll?.isAnyScrolledRight,
-      touchStartX,
-      touchStartY,
-    ],
-  );
+  const openGesture = useOpenAgentListGesture(chromeEnabled);
 
   return (
     <GestureDetector gesture={openGesture} touchAction={MOBILE_WEB_GESTURE_TOUCH_ACTION}>
@@ -881,7 +736,6 @@ function OpenProjectListener() {
 
 function AppWithSidebar({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const params = useGlobalSearchParams<{ open?: string | string[] }>();
   const hosts = useHosts();
   const storeReady = useStoreReady();
   const routeServerId = useMemo(() => parseServerIdFromPathname(pathname), [pathname]);
@@ -895,30 +749,7 @@ function AppWithSidebar({ children }: { children: ReactNode }) {
       pathname === "/schedules" ||
       routeHasKnownHost);
 
-  // Parse selectedAgentKey directly from pathname
-  // useLocalSearchParams doesn't update when navigating between same-pattern routes
-  const selectedAgentKey = useMemo(() => {
-    const workspaceMatch = pathname.match(/^\/h\/([^/]+)\/workspace\/[^/]+(?:\/|$)/);
-    const workspaceServerId = workspaceMatch?.[1]?.trim() ?? "";
-    const openValue = Array.isArray(params.open) ? params.open[0] : params.open;
-    const openIntent = parseWorkspaceOpenIntent(openValue);
-    if (workspaceServerId && openIntent?.kind === "agent") {
-      const agentId = openIntent.agentId.trim();
-      return agentId ? `${workspaceServerId}:${agentId}` : undefined;
-    }
-
-    const match = parseHostAgentRouteFromPathname(pathname);
-    return match ? `${match.serverId}:${match.agentId}` : undefined;
-  }, [params.open, pathname]);
-
-  return (
-    <AppContainer
-      selectedAgentId={shouldShowAppChrome ? selectedAgentKey : undefined}
-      chromeEnabled={shouldShowAppChrome}
-    >
-      {children}
-    </AppContainer>
-  );
+  return <AppContainer chromeEnabled={shouldShowAppChrome}>{children}</AppContainer>;
 }
 
 function FaviconStatusSync() {
@@ -973,7 +804,7 @@ function WorkspaceRouteNavigationBridge() {
 
 function AppShell() {
   return (
-    <SidebarAnimationProvider>
+    <MobilePanelsProvider>
       <HorizontalScrollProvider>
         <OpenProjectListener />
         <AppWithSidebar>
@@ -981,7 +812,7 @@ function AppShell() {
           <RootStack />
         </AppWithSidebar>
       </HorizontalScrollProvider>
-    </SidebarAnimationProvider>
+    </MobilePanelsProvider>
   );
 }
 
@@ -998,31 +829,27 @@ function RuntimeProviders({ children }: { children: ReactNode }) {
   );
 }
 
-// PortalProvider must stay inside normal app-wide context providers here.
+// PortalProvider must stay inside normal app-wide context providers.
 // `@gorhom/portal` renders portaled children at the host's location in the
 // tree, so any context a portaled sheet might consume (QueryClient, theme,
-// auth, settings, …) must wrap PortalProvider — not be wrapped by it.
+// auth, settings, ...) must wrap PortalProvider, not be wrapped by it.
 // BottomSheetModalProvider is the exception: Gorhom modals consume portal
 // context and need one shared provider for sibling sheets to stack.
 function RootProviders({ children }: { children: ReactNode }) {
   return (
-    <QueryProvider>
-      <I18nProvider>
-        <SafeAreaProvider>
-          <KeyboardProvider>
-            <KeyboardShiftProvider>
-              <PortalProvider>
-                <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
-              </PortalProvider>
-            </KeyboardShiftProvider>
-          </KeyboardProvider>
-        </SafeAreaProvider>
-      </I18nProvider>
-    </QueryProvider>
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <KeyboardShiftProvider>
+          <PortalProvider>
+            <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
+          </PortalProvider>
+        </KeyboardShiftProvider>
+      </KeyboardProvider>
+    </SafeAreaProvider>
   );
 }
 
-export default function RootLayout() {
+function RootAppTree() {
   return (
     <GestureHandlerRootView style={flexStyle}>
       <View style={layoutStyles.surfaceFill}>
@@ -1033,6 +860,18 @@ export default function RootLayout() {
         </RootProviders>
       </View>
     </GestureHandlerRootView>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <QueryProvider>
+      <I18nProvider>
+        <RootErrorBoundary>
+          <RootAppTree />
+        </RootErrorBoundary>
+      </I18nProvider>
+    </QueryProvider>
   );
 }
 

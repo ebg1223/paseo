@@ -714,11 +714,19 @@ export const en = {
         tooLarge: "Diff too large to display",
         unified: "Unified diff",
         split: "Side-by-side diff",
+        switchToUnified: "Switch to unified diff",
+        switchToSplit: "Switch to side-by-side diff",
+        showTreeView: "Show folder tree",
+        showFlatView: "Show flat file list",
+        options: "Diff options",
         hideWhitespace: "Hide whitespace",
+        showWhitespace: "Show whitespace",
         scrollLongLines: "Scroll long lines",
         wrapLongLines: "Wrap long lines",
         collapseAll: "Collapse all files",
         expandAll: "Expand all files",
+        collapseAllFolders: "Collapse all folders",
+        expandAllFolders: "Expand all folders",
         refreshing: "Refreshing",
         refresh: "Refresh",
         refreshState: "Refresh git and GitHub state",
@@ -1055,6 +1063,12 @@ export const en = {
       },
     },
   },
+  rootError: {
+    kicker: "Something went wrong",
+    title: "Paseo ran into a problem.",
+    body: "Try again to reload the app. If this keeps happening, include the details below when you report it.",
+    details: "Details",
+  },
   startup: {
     errorTitle: "Something went wrong",
     errorDescription:
@@ -1086,7 +1100,8 @@ export const en = {
     },
   },
   projectPicker: {
-    placeholder: "Type a directory path...",
+    placeholder: "Type to search...",
+    browse: "Browse…",
     opening: "Opening project...",
     searching: "Searching...",
     empty: "Start typing a path",
@@ -1464,6 +1479,10 @@ export const en = {
         description: "Lines kept in the built-in terminal buffer",
         accessibilityLabel: "Terminal scrollback lines",
       },
+      autoExpandReasoning: {
+        label: "Always expand reasoning",
+        description: "Show agent thinking and chain-of-thought blocks fully expanded by default",
+      },
       language: {
         label: "Language",
         description: "App language",
@@ -1544,6 +1563,9 @@ export const en = {
           ghostty: "Ghostty",
           auto: "System",
         },
+      },
+      detailLevel: {
+        title: "Detail level",
       },
       fonts: {
         title: "Fonts",
