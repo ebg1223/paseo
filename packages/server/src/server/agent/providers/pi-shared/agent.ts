@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve as resolvePath } from "node:path";
 import type { Logger } from "pino";
 import { z } from "zod";
 
@@ -649,14 +649,69 @@ function toPiMcpConfig(config: McpServerConfig): PiMcpServerConfig {
   };
 }
 
-function createPiMcpConfigFile(servers: Record<string, McpServerConfig>): PiMcpConfigFile {
-  const dir = mkdtempSync(join(tmpdir(), "paseo-pi-mcp-"));
-  const filePath = join(dir, "mcp.json");
-  const mcpServers: Record<string, PiMcpServerConfig> = {};
+function resolvePiAgentDir(env: Record<string, string> | undefined): string {
+  const configured = env?.PI_CODING_AGENT_DIR?.trim() || process.env.PI_CODING_AGENT_DIR?.trim();
+  if (!configured) {
+    return join(homedir(), ".pi", "agent");
+  }
+  if (configured === "~") {
+    return homedir();
+  }
+  if (configured.startsWith("~/")) {
+    return resolvePath(homedir(), configured.slice(2));
+  }
+  return resolvePath(configured);
+}
+
+function readPiGlobalMcpConfig(env: Record<string, string> | undefined): Record<string, unknown> {
+  const globalConfigPath = join(resolvePiAgentDir(env), "mcp.json");
+  if (!existsSync(globalConfigPath)) {
+    return {};
+  }
+
+  let globalConfig: unknown;
+  try {
+    globalConfig = JSON.parse(readFileSync(globalConfigPath, "utf8")) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Failed to parse Pi MCP config: ${globalConfigPath}`, { cause: error });
+    }
+    throw error;
+  }
+  if (!isRecord(globalConfig)) {
+    throw new Error(`Pi MCP config must contain a JSON object: ${globalConfigPath}`);
+  }
+  return globalConfig;
+}
+
+function createPiMcpConfigFile(
+  servers: Record<string, McpServerConfig>,
+  options?: {
+    piGlobalConfigEnv?: Record<string, string>;
+  },
+): PiMcpConfigFile {
+  const globalConfig = options?.piGlobalConfigEnv
+    ? readPiGlobalMcpConfig(options.piGlobalConfigEnv)
+    : {};
+  let configuredServers: Record<string, unknown> = {};
+  if (isRecord(globalConfig.mcpServers)) {
+    configuredServers = globalConfig.mcpServers;
+  } else if (isRecord(globalConfig["mcp-servers"])) {
+    configuredServers = globalConfig["mcp-servers"];
+  }
+  const mcpServers: Record<string, unknown> = { ...configuredServers };
   for (const [name, serverConfig] of Object.entries(servers)) {
     mcpServers[name] = toPiMcpConfig(serverConfig);
   }
-  writeFileSync(filePath, `${JSON.stringify({ mcpServers }, null, 2)}\n`, "utf8");
+
+  const dir = mkdtempSync(join(tmpdir(), "paseo-pi-mcp-"));
+  const filePath = join(dir, "mcp.json");
+  const mergedConfig: Record<string, unknown> = { ...globalConfig, mcpServers };
+  delete mergedConfig["mcp-servers"];
+  writeFileSync(filePath, `${JSON.stringify(mergedConfig, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return {
     path: filePath,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
@@ -2267,7 +2322,11 @@ export class PiRpcAgentClient implements AgentClient {
     config: AgentSessionConfig,
     launchContext?: AgentLaunchContext,
   ): Promise<AgentSession> {
-    const mcpConfig = await this.prepareMcpConfig(config.cwd, config.mcpServers);
+    const mcpEnv = {
+      ...this.runtimeSettings?.env,
+      ...launchContext?.env,
+    };
+    const mcpConfig = await this.prepareMcpConfig(config.cwd, config.mcpServers, mcpEnv);
     const paseoExtension = createPiPaseoExtensionFile();
     const launchMode = resolveDialectLaunchMode(this.dialect, config.modeId);
     let runtimeSession: PiRuntimeSession;
@@ -2329,7 +2388,15 @@ export class PiRpcAgentClient implements AgentClient {
     const persistenceMetadata = parsePersistenceMetadata(handle.metadata);
     const resumeConfig = buildResumeConfig(persistenceMetadata, overrides, this.provider);
 
-    const mcpConfig = await this.prepareMcpConfig(resumeConfig.cwd, resumeConfig.config.mcpServers);
+    const mcpEnv = {
+      ...this.runtimeSettings?.env,
+      ...launchContext?.env,
+    };
+    const mcpConfig = await this.prepareMcpConfig(
+      resumeConfig.cwd,
+      resumeConfig.config.mcpServers,
+      mcpEnv,
+    );
     const paseoExtension = createPiPaseoExtensionFile();
     const launchMode = resolveDialectLaunchMode(this.dialect, resumeConfig.modeId);
     let runtimeSession: PiRuntimeSession;
@@ -2337,6 +2404,7 @@ export class PiRpcAgentClient implements AgentClient {
       runtimeSession = await this.runtime.startSession({
         cwd: resumeConfig.cwd,
         protocolMode: this.dialect.protocolMode,
+        env: launchContext?.env,
         session: sessionFile,
         model: resumeConfig.model,
         thinkingOptionId: normalizePiThinkingOption(resumeConfig.thinkingOptionId) ?? undefined,
@@ -2465,6 +2533,7 @@ export class PiRpcAgentClient implements AgentClient {
   private async prepareMcpConfig(
     cwd: string,
     servers: Record<string, McpServerConfig> | undefined,
+    env: Record<string, string> | undefined,
   ): Promise<PiMcpConfigFile | null> {
     if (!servers || Object.keys(servers).length === 0) {
       return null;
@@ -2472,10 +2541,10 @@ export class PiRpcAgentClient implements AgentClient {
     if (this.dialect.supportsMcpServers === true) {
       return createPiMcpConfigFile(servers);
     }
-    if (!(await this.detectMcpAdapter(cwd))) {
+    if (!(await this.detectMcpAdapter(cwd, env))) {
       return null;
     }
-    return createPiMcpConfigFile(servers);
+    return createPiMcpConfigFile(servers, { piGlobalConfigEnv: env });
   }
 
   private async configureNativePaseoTools(
@@ -2498,8 +2567,8 @@ export class PiRpcAgentClient implements AgentClient {
     });
   }
 
-  private async detectMcpAdapter(cwd: string): Promise<boolean> {
-    const runtimeSession = await this.runtime.startSession({ cwd }).catch((error) => {
+  private async detectMcpAdapter(cwd: string, env?: Record<string, string>): Promise<boolean> {
+    const runtimeSession = await this.runtime.startSession({ cwd, env }).catch((error) => {
       this.logger.debug({ err: error, cwd }, "Pi MCP adapter probe failed to start");
       return null;
     });
