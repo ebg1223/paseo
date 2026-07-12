@@ -7,6 +7,7 @@ import type {
 import type {
   PiAgentMessage,
   PiModel,
+  PiPromptAck,
   PiRpcSlashCommand,
   PiRuntimeEvent,
   PiSessionState,
@@ -122,6 +123,8 @@ export class FakePiSession implements PiRuntimeSession {
   setSessionNameError: Error | null = null;
   compactError: Error | null = null;
   emitCompactEnd = true;
+  getStateError: Error | null = null;
+  promptAck: PiPromptAck = {};
   state: PiSessionState;
 
   private readonly subscribers = new Set<(event: PiRuntimeEvent) => void>();
@@ -151,10 +154,11 @@ export class FakePiSession implements PiRuntimeSession {
   async prompt(
     message: string,
     images?: Array<{ type: "image"; data: string; mimeType: string }>,
-  ): Promise<void> {
+  ): Promise<PiPromptAck> {
     this.prompts.push({ message, imageCount: images?.length ?? 0 });
     this.handleTreeNavigationCommand(message);
     this.handleEntryCaptureCommand(message);
+    return this.promptAck;
   }
 
   async compact(customInstructions?: string): Promise<void> {
@@ -181,6 +185,9 @@ export class FakePiSession implements PiRuntimeSession {
   }
 
   async getState(): Promise<PiSessionState> {
+    if (this.getStateError) {
+      throw this.getStateError;
+    }
     return this.state;
   }
 

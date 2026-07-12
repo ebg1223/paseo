@@ -14,6 +14,7 @@ import {
 import type {
   PiAgentMessage,
   PiModel,
+  PiPromptAck,
   PiRpcCommand,
   PiRpcResponse,
   PiRpcSlashCommand,
@@ -135,8 +136,19 @@ class PiCliRuntimeSession implements PiRuntimeSession {
   async prompt(
     message: string,
     images?: Array<{ type: "image"; data: string; mimeType: string }>,
-  ): Promise<void> {
-    await this.request({ type: "prompt", message, ...(images?.length ? { images } : {}) });
+  ): Promise<PiPromptAck> {
+    const data = await this.request({
+      type: "prompt",
+      message,
+      ...(images?.length ? { images } : {}),
+    });
+    if (typeof data === "object" && data !== null && !Array.isArray(data)) {
+      const { agentInvoked } = data as Record<string, unknown>;
+      if (typeof agentInvoked === "boolean") {
+        return { agentInvoked };
+      }
+    }
+    return {};
   }
 
   async compact(customInstructions?: string): Promise<void> {
