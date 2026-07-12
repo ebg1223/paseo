@@ -16,9 +16,11 @@ Merge commit `234db395` incorporates Paseo `upstream/main` through `c05e337c`. T
 - No OMP remediation finding was fixed or made obsolete by the merge.
 - Upstream shutdown registration tracking now prevents new or reconnecting sessions from surviving daemon shutdown. It does not make provider-child import atomic with parent archive, so Phase 1.5 remains required.
 - Upstream Pi MCP config preservation was ported into the extracted `pi-shared` implementation during conflict resolution. Pi now merges its global `mcp.json`, preserves runtime environment during probe/resume, and writes the generated config with mode `0600`. OMP's native MCP path remains separate. This behavior is merged and needs regression coverage, not another implementation phase.
+- Upstream text-only Pi image prompt handling was ported into `pi-shared` in `0adf038c`; the merged upstream tests now pass against the extracted adapter.
 - Current unstaged work parses an immediate prompt acknowledgement and buffers local command output, but it still uses `setImmediate` plus `get_state.isStreaming` when the acknowledgement is absent. It does not consume or correlate OMP's authoritative `prompt_result` frame, so Phase 2.1 remains required.
 - Initial and pushed OMP command mappings already preserve `input.hint` as `argumentHint`. Phase 2.5 is now a regression-only gate rather than an implementation task.
 - Upstream agent-stream/app changes do not add provider-child ownership labels, retained-child composer gating, multiple batch-child links, OMP `open_url`, or native OMP history/rewind.
+- Post-merge focused verification: 211 tests passed across `agent-manager`, provider-child import, Pi, OMP adapter, and OMP subagent suites.
 
 ## Constraint conflict
 
