@@ -1,6 +1,6 @@
 # OMP integration remediation runbook
 
-Status: proposed remediation plan for `feat/pi-native-subagents` after the 2026-07-11 integration review.
+Status: proposed remediation plan for `feat/pi-native-subagents` after the 2026-07-11 integration review and the 2026-07-12 merge of Paseo `upstream/main` at `c05e337c`.
 
 Scope:
 
@@ -8,6 +8,17 @@ Scope:
 - Paseo changes stay within `providers/omp`, `providers/pi-shared`, and `providers/pi` unless a small generic provider-child seam is required.
 - No new wire or app surface unless an existing generic surface cannot express the behavior safely.
 - Do not enable OMP by default or call the integration fully first-class until the real-provider gates in this runbook pass.
+
+## Upstream revalidation
+
+Merge commit `234db395` incorporates Paseo `upstream/main` through `c05e337c`. The relevant upstream changes were rechecked against every finding in this runbook.
+
+- No OMP remediation finding was fixed or made obsolete by the merge.
+- Upstream shutdown registration tracking now prevents new or reconnecting sessions from surviving daemon shutdown. It does not make provider-child import atomic with parent archive, so Phase 1.5 remains required.
+- Upstream Pi MCP config preservation was ported into the extracted `pi-shared` implementation during conflict resolution. Pi now merges its global `mcp.json`, preserves runtime environment during probe/resume, and writes the generated config with mode `0600`. OMP's native MCP path remains separate. This behavior is merged and needs regression coverage, not another implementation phase.
+- Current unstaged work parses an immediate prompt acknowledgement and buffers local command output, but it still uses `setImmediate` plus `get_state.isStreaming` when the acknowledgement is absent. It does not consume or correlate OMP's authoritative `prompt_result` frame, so Phase 2.1 remains required.
+- Initial and pushed OMP command mappings already preserve `input.hint` as `argumentHint`. Phase 2.5 is now a regression-only gate rather than an implementation task.
+- Upstream agent-stream/app changes do not add provider-child ownership labels, retained-child composer gating, multiple batch-child links, OMP `open_url`, or native OMP history/rewind.
 
 ## Constraint conflict
 
@@ -244,9 +255,9 @@ Cover destructive second lines, blank lines, whitespace, CRLF, and command text 
 
 `open_url` is a fire-and-forget UI event, not a permission. Add an OMP dialect side-effect hook that emits an existing compatible Markdown timeline row containing the URL, `launchUrl`, and instructions. Never open the URL on the daemon host; it must reach the web/mobile client.
 
-## 2.5 Preserve command hints
+## 2.5 Retain command-hint regression coverage
 
-Make initial `get_available_commands` and later `available_commands_update` map `input.hint` identically to `argumentHint`.
+Initial `get_available_commands` and later `available_commands_update` already map `input.hint` to `argumentHint`. Keep the existing tests and add this behavior to the real OMP E2E matrix; no production change is currently required.
 
 ## 2.6 Correct OMP diagnostics
 
@@ -453,7 +464,7 @@ After behavioral smoke tests pass:
 | OAuth `open_url`                   |                                    2 |
 | `prompt_result`                    |                                    2 |
 | Follow-up and steer                |                                    2 |
-| Command hints                      |                                    2 |
+| Command hints                      |       verified; regression-only gate |
 | Diagnostics                        |                                    2 |
 | Missing history roles              |                                    3 |
 | Child entry IDs                    |                                    3 |
