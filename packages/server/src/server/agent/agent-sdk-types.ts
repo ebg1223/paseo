@@ -1,6 +1,7 @@
 import type { Options as ClaudeAgentOptions } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentProviderNotice } from "@getpaseo/protocol/agent-types";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
+import type { ProviderSubagentInputEvent } from "./provider-subagents/store.js";
 import type { PaseoToolCatalog } from "./tools/types.js";
 
 export type { AgentProviderNotice };
@@ -437,6 +438,11 @@ export type AgentStreamEvent =
       childSessionId: string;
       status: "running" | "completed" | "failed" | "aborted";
       title?: string;
+    }
+  | {
+      type: "provider_subagent";
+      provider: AgentProvider;
+      event: ProviderSubagentInputEvent;
     };
 
 export function getAgentStreamEventTurnId(event: AgentStreamEvent): string | undefined {
@@ -552,6 +558,7 @@ export interface ImportedProviderSession {
   config: AgentSessionConfig;
   persistence: AgentPersistenceHandle;
   timeline: ImportedTimelineEntry[];
+  providerSubagentEvents?: Extract<AgentStreamEvent, { type: "provider_subagent" }>[];
 }
 
 export interface AgentSessionConfig {

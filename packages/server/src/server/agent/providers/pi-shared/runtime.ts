@@ -18,6 +18,7 @@ export interface PiRuntimeLaunch {
   thinkingOptionId?: string;
   modeId?: string;
   session?: string;
+  noSession?: boolean;
   systemPrompt?: string;
   mcpConfigPath?: string;
   extensionPaths?: string[];
@@ -32,6 +33,7 @@ export interface PiStartSessionInput {
   thinkingOptionId?: string;
   modeId?: string;
   session?: string;
+  noSession?: boolean;
   systemPrompt?: string;
   mcpConfigPath?: string;
   extensionPaths?: string[];
@@ -98,6 +100,7 @@ export function buildPiLaunch(input: {
     protocolMode,
     modeId: input.session.modeId,
     session: input.session.session,
+    noSession: input.session.noSession,
     systemPrompt,
     mcpConfigPath: input.session.mcpConfigPath,
     extensionPaths: input.session.extensionPaths,
@@ -123,7 +126,9 @@ function appendPiLaunchArgs(
   if (session.thinkingOptionId) {
     argv.push("--thinking", session.thinkingOptionId);
   }
-  if (session.session) {
+  if (session.noSession) {
+    argv.push("--no-session");
+  } else if (session.session) {
     argv.push("--session", session.session);
   }
   if (systemPrompt) {

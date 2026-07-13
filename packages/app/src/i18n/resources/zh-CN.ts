@@ -769,6 +769,9 @@ export const zhCN: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "已置顶",
+    },
     host: {
       noHost: "没有 Host",
       switchTitle: "切换 Host",
@@ -777,9 +780,24 @@ export const zhCN: TranslationResources = {
     actions: {
       addProject: "添加 project",
       newWorkspace: "新建工作区",
+      hosts: "Hosts",
       home: "首页",
       settings: "设置",
       closeSidebar: "关闭侧边栏",
+    },
+    help: {
+      trigger: "帮助与支持",
+      troubleshoot: "问题排查",
+      diagnostics: "运行诊断",
+      diagnosticsDescription: "收集应用和已连接 Host 的详细信息",
+      shortcuts: "键盘快捷键",
+      shortcutsDescription: "查看可用的键盘快捷键",
+      reportIssue: "报告问题",
+      discord: "Discord",
+      discordDescription: "适合快速求助和讨论",
+      github: "创建 GitHub Issue",
+      githubDescription: "报告可复现的 bug",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "历史",
@@ -827,6 +845,8 @@ export const zhCN: TranslationResources = {
         copyPath: "复制路径",
         copyBranchName: "复制分支名称",
         rename: "重命名 workspace",
+        pin: "置顶",
+        unpin: "取消置顶",
         archive: "归档",
         archiveWorkspace: "归档工作区",
         hideFromSidebar: "从侧边栏隐藏",

@@ -786,6 +786,9 @@ export const ja: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "固定済み",
+    },
     host: {
       noHost: "ホストなし",
       switchTitle: "ホストを切り替え",
@@ -794,9 +797,24 @@ export const ja: TranslationResources = {
     actions: {
       addProject: "プロジェクトを追加",
       newWorkspace: "新しいワークスペース",
+      hosts: "ホスト",
       home: "ホーム",
       settings: "設定",
       closeSidebar: "サイドバーを閉じる",
+    },
+    help: {
+      trigger: "ヘルプとサポート",
+      troubleshoot: "トラブルシューティング",
+      diagnostics: "診断を実行",
+      diagnosticsDescription: "アプリと接続中のホストの詳細を収集",
+      shortcuts: "キーボードショートカット",
+      shortcutsDescription: "利用可能なキーボードショートカットを表示",
+      reportIssue: "問題を報告",
+      discord: "Discord",
+      discordDescription: "すばやいサポートや相談に最適",
+      github: "GitHub Issueを作成",
+      githubDescription: "再現可能なバグを報告",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "履歴",
@@ -846,6 +864,8 @@ export const ja: TranslationResources = {
         copyPath: "パスをコピー",
         copyBranchName: "ブランチ名をコピー",
         rename: "ワークスペースの名前を変更",
+        pin: "上部に固定",
+        unpin: "固定解除",
         archive: "アーカイブ",
         archiveWorkspace: "ワークスペースをアーカイブ",
         hideFromSidebar: "サイドバーから非表示",

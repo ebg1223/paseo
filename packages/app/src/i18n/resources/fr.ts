@@ -800,6 +800,9 @@ export const fr: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "Épinglés",
+    },
     host: {
       noHost: "Aucun hôte",
       switchTitle: "Changer d'hôte",
@@ -808,9 +811,24 @@ export const fr: TranslationResources = {
     actions: {
       addProject: "Ajouter un projet",
       newWorkspace: "Nouvel espace de travail",
+      hosts: "Hôtes",
       home: "Maison",
       settings: "Paramètres",
       closeSidebar: "Fermer la barre latérale",
+    },
+    help: {
+      trigger: "Aide et assistance",
+      troubleshoot: "Dépannage",
+      diagnostics: "Lancer le diagnostic",
+      diagnosticsDescription: "Collecter les détails de l’app et des hôtes connectés",
+      shortcuts: "Raccourcis clavier",
+      shortcutsDescription: "Afficher les raccourcis clavier disponibles",
+      reportIssue: "Signaler un problème",
+      discord: "Discord",
+      discordDescription: "Idéal pour obtenir une aide rapide et échanger",
+      github: "Créer un ticket GitHub",
+      githubDescription: "Signaler un bug reproductible",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "Historique",
@@ -860,6 +878,8 @@ export const fr: TranslationResources = {
         copyPath: "Copier le chemin",
         copyBranchName: "Copier le nom de la branche",
         rename: "Renommer l'espace de travail",
+        pin: "Épingler en haut",
+        unpin: "Désépingler",
         archive: "Archive",
         archiveWorkspace: "Archiver l’espace de travail",
         hideFromSidebar: "Masquer de la barre latérale",

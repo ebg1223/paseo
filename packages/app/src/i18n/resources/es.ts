@@ -801,6 +801,9 @@ export const es: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "Anclados",
+    },
     host: {
       noHost: "Sin anfitrión",
       switchTitle: "Cambiar de anfitrión",
@@ -809,9 +812,24 @@ export const es: TranslationResources = {
     actions: {
       addProject: "Agregar proyecto",
       newWorkspace: "Nuevo espacio de trabajo",
+      hosts: "Hosts",
       home: "Hogar",
       settings: "Ajustes",
       closeSidebar: "Cerrar barra lateral",
+    },
+    help: {
+      trigger: "Ayuda y soporte",
+      troubleshoot: "Solucionar problemas",
+      diagnostics: "Ejecutar diagnóstico",
+      diagnosticsDescription: "Recopila datos de la app y los hosts conectados",
+      shortcuts: "Atajos de teclado",
+      shortcutsDescription: "Ver los atajos de teclado disponibles",
+      reportIssue: "Informar de un problema",
+      discord: "Discord",
+      discordDescription: "La mejor opción para ayuda rápida y conversación",
+      github: "Crear incidencia en GitHub",
+      githubDescription: "Informar de un error reproducible",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "Historial",
@@ -861,6 +879,8 @@ export const es: TranslationResources = {
         copyPath: "Copiar ruta",
         copyBranchName: "Copiar nombre de sucursal",
         rename: "Cambiar nombre del espacio de trabajo",
+        pin: "Anclar arriba",
+        unpin: "Desanclar",
         archive: "Archivo",
         archiveWorkspace: "Archivar espacio de trabajo",
         hideFromSidebar: "Ocultar de la barra lateral",

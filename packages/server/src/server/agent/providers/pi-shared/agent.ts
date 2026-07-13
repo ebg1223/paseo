@@ -1310,6 +1310,7 @@ export class PiRpcAgentSession implements AgentSession {
   private activeAskUserDialog: ActiveAskUserDialog | null = null;
   private pendingCombinedAskUserResponse: PendingCombinedAskUserResponse | null = null;
   private activeTurnId: string | null = null;
+  private activeAssistantMessageId: string | null = null;
   private activeTurnStarted = false;
   private activeNoTurnPromptText: string | null = null;
   private readonly pendingNoTurnOutputs: Array<{ turnId: string; message: string }> = [];
@@ -1391,6 +1392,7 @@ export class PiRpcAgentSession implements AgentSession {
     const payload = convertPromptInput(prompt, { model: this.state.model });
     const turnId = randomUUID();
     this.activeTurnId = turnId;
+    this.activeAssistantMessageId = null;
     this.activeTurnStarted = false;
     this.clearNoTurnBuffers();
     this.activeNoTurnPromptText = payload.text;
@@ -1407,17 +1409,18 @@ export class PiRpcAgentSession implements AgentSession {
           await this.completePromptIfHandledWithoutTurn(turnId);
         }
       } catch (error) {
-        const failedTurnId = this.activeTurnId ?? turnId;
-        if (this.activeTurnId === turnId) {
-          this.activeTurnId = null;
-          this.activeTurnStarted = false;
-          this.clearNoTurnBuffers();
+        if (this.activeTurnId !== turnId) {
+          return;
         }
+        this.activeTurnId = null;
+        this.activeTurnStarted = false;
+        this.activeAssistantMessageId = null;
+        this.clearNoTurnBuffers();
         if (isPiRequestAbortError(error)) {
           this.emit({
             type: "turn_canceled",
             provider: this.provider,
-            turnId: failedTurnId,
+            turnId,
             reason: toDiagnosticErrorMessage(error),
           });
           return;
@@ -1425,7 +1428,7 @@ export class PiRpcAgentSession implements AgentSession {
         this.emit({
           type: "turn_failed",
           provider: this.provider,
-          turnId: failedTurnId,
+          turnId,
           error: toDiagnosticErrorMessage(error),
         });
       }
@@ -1537,10 +1540,23 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
+    const turnId = this.activeTurnId;
     try {
       await this.runtimeSession.abort();
     } finally {
       this.dialect.onSessionInterrupt?.(this.runtimeSession);
+    }
+    if (turnId && this.activeTurnId === turnId) {
+      this.activeTurnId = null;
+      this.activeTurnStarted = false;
+      this.activeAssistantMessageId = null;
+      this.clearNoTurnBuffers();
+      this.emit({
+        type: "turn_canceled",
+        provider: this.provider,
+        reason: "interrupted",
+        turnId,
+      });
     }
   }
 
@@ -2177,6 +2193,7 @@ export class PiRpcAgentSession implements AgentSession {
         });
         return;
       case "message_start":
+        this.handleMessageStart(event);
         return;
       case "message_end":
         this.handleMessageEnd(event, turnId);
@@ -2300,6 +2317,8 @@ export class PiRpcAgentSession implements AgentSession {
       return;
     }
     if (event.assistantMessageEvent.type === "text_delta") {
+      // Pi-compatible runtimes may emit updates without a preceding message_start.
+      this.activeAssistantMessageId ??= event.message.responseId || randomUUID();
       this.emit({
         type: "timeline",
         provider: this.provider,
@@ -2307,6 +2326,7 @@ export class PiRpcAgentSession implements AgentSession {
         item: {
           type: "assistant_message",
           text: event.assistantMessageEvent.delta ?? "",
+          messageId: this.activeAssistantMessageId,
         },
       });
       return;
@@ -2324,10 +2344,20 @@ export class PiRpcAgentSession implements AgentSession {
     }
   }
 
+  private handleMessageStart(event: Extract<PiAgentSessionEvent, { type: "message_start" }>): void {
+    if (event.message.role === "assistant") {
+      this.activeAssistantMessageId = event.message.responseId || null;
+    }
+  }
+
   private handleMessageEnd(
     event: Extract<PiAgentSessionEvent, { type: "message_end" }>,
     turnId: string | undefined,
   ): void {
+    if (event.message.role === "assistant") {
+      this.activeAssistantMessageId = null;
+      return;
+    }
     if (event.message.role === "custom") {
       const text = getUserMessageText(event.message.content);
       const mappedEvent = text ? this.dialect.mapCustomMessage?.(text, this.provider) : null;
@@ -2407,6 +2437,7 @@ export class PiRpcAgentSession implements AgentSession {
 
   private completeTurn(turnId: string | undefined, messages: PiAgentMessage[]): void {
     this.activeTurnId = null;
+    this.activeAssistantMessageId = null;
     this.activeTurnStarted = false;
     this.clearNoTurnBuffers();
     const errorMessage = latestPiErrorMessage(messages);
@@ -2494,6 +2525,7 @@ export class PiRpcAgentClient implements AgentClient {
         model: config.model,
         thinkingOptionId:
           normalizePiThinkingOption(config.thinkingOptionId) ?? DEFAULT_PI_THINKING_LEVEL,
+        noSession: config.internal === true,
         ...(launchMode.modeId ? { modeId: launchMode.modeId } : {}),
         ...(launchMode.extraArgs ? { extraArgs: launchMode.extraArgs } : {}),
         systemPrompt: composeSystemPromptParts(

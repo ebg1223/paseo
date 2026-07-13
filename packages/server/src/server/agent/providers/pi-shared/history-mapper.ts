@@ -54,6 +54,7 @@ export function getUserMessageText(content: string | (PiTextContent | PiImageCon
 export class PiHistoryMapper {
   private readonly pendingToolCalls = new Map<string, PiTrackedToolCall>();
   private userIndex = 0;
+  private assistantIndex = 0;
 
   constructor(
     private readonly provider: string,
@@ -134,12 +135,15 @@ export class PiHistoryMapper {
     message: Extract<PiAgentMessage, { role: "assistant" }>,
   ): AgentStreamEvent[] {
     const events: AgentStreamEvent[] = [];
+    this.assistantIndex += 1;
+    const messageId =
+      message.responseId || `${this.provider}-history-assistant-${this.assistantIndex}`;
     for (const content of message.content) {
       if (content.type === "text" && content.text) {
         events.push({
           type: "timeline",
           provider: this.provider,
-          item: { type: "assistant_message", text: content.text },
+          item: { type: "assistant_message", text: content.text, messageId },
         });
         continue;
       }
