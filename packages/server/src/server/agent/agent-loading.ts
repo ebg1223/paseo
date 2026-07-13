@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { getProviderChildOwnershipFromLabels } from "@getpaseo/protocol/agent-labels";
 
 import type { AgentProvider } from "./agent-sdk-types.js";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
@@ -49,6 +50,14 @@ export async function ensureAgentLoaded(
       throw new Error(`Agent not found: ${agentId}`);
     }
 
+    const ownership = getProviderChildOwnershipFromLabels(record.labels);
+    if (ownership?.owner === "provider") {
+      throw new Error("Provider-owned child sessions cannot be loaded");
+    }
+    if (ownership?.owner === "none") {
+      throw new Error(ownership.reason);
+    }
+
     const validProviders = deps.validProviders ?? deps.agentManager.getRegisteredProviderIds();
     if (!isStoredAgentProviderAvailable(record, validProviders)) {
       throw new Error(`Agent ${agentId} references unavailable provider '${record.provider}'`);
@@ -62,7 +71,11 @@ export async function ensureAgentLoaded(
         handle,
         buildConfigOverrides(record),
         agentId,
-        extractTimestamps(record),
+        {
+          ...extractTimestamps(record),
+          labels: record.labels,
+          workspaceId: record.workspaceId,
+        },
       );
       deps.logger.info({ agentId, provider: record.provider }, "Agent resumed from persistence");
     } else {

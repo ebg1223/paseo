@@ -15,18 +15,19 @@ Adapter-scoped; implements an existing daemon contract.
 - Host tools appear to the omp model as first-class tools (better prompting surface than
   namespaced MCP tools).
 
-Phase 2's unconditional `--mcp-config` path already gives omp agents Paseo orchestration; this
-phase upgrades the transport. Ship order matters: keep MCP as the fallback until this soaks,
-then the capability flag flips per-adapter, not per-config.
+The native host-tool transport is now the sole Paseo orchestration path for OMP. There is no
+generated Pi extension or MCP fallback; `supportsNativePaseoTools` selects the adapter-owned
+catalog transport.
 
 ## Upstream surface (reference)
 
 `oh-my-pi/docs/rpc.md` "host tools" + `rpc-types.ts`:
 
 - Host registers: `set_host_tools [{name, description, parameters (JSON Schema), ...}]`.
-- omp calls: outbound frame `host_tool_call {id, callId, name, args}`; optional progressive
-  `host_tool_update`; host answers `host_tool_result {callId, result: AgentToolResult}`;
-  cancellation via `host_tool_cancel`.
+- OMP calls: outbound frame
+  `host_tool_call {id, toolCallId, toolName, arguments}`; optional progressive
+  `host_tool_update`; the host answers `host_tool_result {id, result: AgentToolResult}`;
+  cancellation arrives as `host_tool_cancel {id, targetId}`.
 - Also available, not in scope: `set_host_uri_schemes` (virtual filesystems) — noted for a
   possible future "attach Paseo-managed context" feature; do not build now.
 
@@ -52,6 +53,10 @@ then the capability flag flips per-adapter, not per-config.
 - System-prompt disambiguation (from Phase 2 §9) becomes more important here: task tool =
   in-process, host `create_agent` = independent Paseo agents. One paragraph in the appended
   system prompt, maintained alongside the tool catalog descriptions.
+- OMP must not arm Paseo caller finish notifications. Those notifications are delivered as a
+  synthetic user prompt and interrupt the still-active OMP RPC turn. The OMP serializer advertises
+  `notifyOnFinish: false`, the router enforces it for `create_agent` and `send_agent_prompt`, and
+  callers use the catalog's `wait_for_agent` host tool instead.
 
 ## Testing
 

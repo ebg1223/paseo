@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { getProviderChildOwnershipFromLabels } from "@getpaseo/protocol/agent-labels";
 
 import type { AgentPromptInput, AgentRunOptions } from "./agent-sdk-types.js";
 import type { AgentManager, ManagedAgent } from "./agent-manager.js";
@@ -176,6 +177,13 @@ export async function sendPromptToAgent(
   const unarchive = params.unarchive ?? true;
 
   const record = await params.agentStorage.get(params.agentId);
+  const ownership = getProviderChildOwnershipFromLabels(record?.labels);
+  if (ownership?.owner === "provider") {
+    throw new Error("Provider-owned child sessions cannot be prompted");
+  }
+  if (ownership?.owner === "none") {
+    throw new Error(ownership.reason);
+  }
   if (record?.archivedAt) {
     if (!unarchive) {
       return { outOfBand: false };

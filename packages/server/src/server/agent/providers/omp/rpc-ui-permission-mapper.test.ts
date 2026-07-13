@@ -109,6 +109,28 @@ describe("OMP rpc-ui permission mapper", () => {
     ]);
   });
 
+  test("preserves destructive multiline CRLF bash commands exactly", () => {
+    const title = "Allow tool: bash\r\nCommand: printf first\r\n\r\n  rm -rf /tmp/example\r\n";
+    const classification = classifyOmpRpcUiPermissionRequest({
+      type: "extension_ui_request",
+      id: "multiline-bash",
+      method: "select",
+      title,
+      options: ["Approve", "Deny"],
+    });
+    if (classification.kind !== "tool") {
+      throw new Error("Expected multiline bash approval");
+    }
+
+    expect(classification.request.detail).toEqual({
+      type: "shell",
+      command: "printf first\r\n\r\n  rm -rf /tmp/example\r\n",
+    });
+    expect(classification.request.metadata?.toolArgs).toEqual({
+      command: "printf first\r\n\r\n  rm -rf /tmp/example\r\n",
+    });
+  });
+
   test("keeps approval classification false-positive guards exact", () => {
     const lookalike: ExtensionUiRequestEvent = {
       type: "extension_ui_request",

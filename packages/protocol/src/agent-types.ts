@@ -270,6 +270,11 @@ export type ToolCallDetail =
       subAgentType?: string;
       description?: string;
       childSessionId?: string;
+      children?: Array<{
+        sessionId: string;
+        label: string;
+        status: "pending" | "running" | "completed" | "failed" | "aborted";
+      }>;
       log: string;
       actions?: Array<{
         index: number;

@@ -23,6 +23,7 @@ import {
   type AgentProvider,
   type AgentRunOptions,
   type AgentRunResult,
+  type AgentRewindResult,
   type AgentRuntimeInfo,
   type AgentSession,
   type AgentSessionConfig,
@@ -67,7 +68,7 @@ import { materializeProviderImage } from "../provider-image-output.js";
 import { PiCliRuntime } from "./cli-runtime.js";
 import { revertPiConversation } from "./rewind.js";
 import { listPiImportableSessions, readPiImportSessionConfig } from "./session-descriptor.js";
-import type { PiRuntime, PiRuntimeSession } from "./runtime.js";
+import type { PiRuntime, PiRuntimeSession, PiStartSessionInput } from "./runtime.js";
 import type {
   PiAgentSessionEvent,
   PiAgentMessage,
@@ -207,6 +208,7 @@ interface PiPersistenceMetadata {
 
 export interface PiExtraRuntimeEventContext {
   runtimeSession: PiRuntimeSession;
+  cwd: string;
   paseoTools?: PaseoToolCatalog;
   emit: (event: AgentStreamEvent) => void;
   hasActiveToolCall: (toolCallId: string) => boolean;
@@ -243,6 +245,22 @@ export interface PiDialect {
     extraArgs?: string[];
   };
   setModeNotice?: (modeId: string) => AgentProviderNotice;
+  usePaseoExtension?: boolean;
+  streamHistory?: (input: {
+    runtimeSession: PiRuntimeSession;
+    state: PiSessionState;
+    provider: AgentProvider;
+  }) => AsyncIterable<AgentStreamEvent>;
+  rewindConversation?: (input: {
+    runtimeSession: PiRuntimeSession;
+    state: PiSessionState;
+    messageId: string;
+  }) => Promise<void | AgentRewindResult>;
+  resolveUserMessageId?: (input: {
+    runtimeSession: PiRuntimeSession;
+    state: PiSessionState;
+    text: string;
+  }) => Promise<string | undefined>;
   defaultSessionDir?: string;
   mapCustomMessage?: (
     text: string,
@@ -273,8 +291,19 @@ export interface PiDialect {
     logger: Logger;
   }) => Promise<void>;
   onSessionInterrupt?: (runtimeSession: PiRuntimeSession) => void;
-  onSessionClose?: (runtimeSession: PiRuntimeSession) => void;
+  beforeSessionClose?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
+  onSessionProcessExit?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
+  onSessionClose?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
   handleExtraRuntimeEvent?: (event: PiRuntimeEvent, context: PiExtraRuntimeEventContext) => boolean;
+  promptResultIsAuthoritative?: boolean;
+  sendOutOfBandPrompt?: (
+    runtimeSession: PiRuntimeSession,
+    kind: "steer" | "follow_up",
+    message: string,
+  ) => void;
+  mapExtensionUiSideEffect?: (
+    event: Extract<PiRuntimeEvent, { type: "extension_ui_request" }>,
+  ) => AgentTimelineItem | null;
   handleUnknownRuntimeEvent?: (
     event: PiRuntimeEvent,
     context: {
@@ -656,6 +685,43 @@ function buildResumeConfig(
       systemPrompt: overrideConfig.systemPrompt ?? metadata.systemPrompt,
     },
   };
+}
+
+function buildResumeStartInput(input: {
+  resumeConfig: PiResumeConfig;
+  sessionFile: string;
+  launchContext: AgentLaunchContext | undefined;
+  dialect: PiDialect;
+  launchMode: { modeId: string | null; extraArgs?: string[] };
+  mcpConfig: PiMcpConfigFile | null;
+  paseoExtension: PiTempFile | null;
+}): PiStartSessionInput {
+  return {
+    cwd: input.resumeConfig.cwd,
+    protocolMode: input.dialect.protocolMode,
+    env: input.launchContext?.env,
+    session: input.sessionFile,
+    model: input.resumeConfig.model,
+    thinkingOptionId: normalizePiThinkingOption(input.resumeConfig.thinkingOptionId) ?? undefined,
+    ...(input.launchMode.modeId ? { modeId: input.launchMode.modeId } : {}),
+    ...(input.launchMode.extraArgs ? { extraArgs: input.launchMode.extraArgs } : {}),
+    systemPrompt: composeSystemPromptParts(
+      input.resumeConfig.config.systemPrompt,
+      input.resumeConfig.config.daemonAppendSystemPrompt,
+      input.dialect.appendSystemPrompt,
+    ),
+    mcpConfigPath: input.mcpConfig?.path,
+    extensionPaths: input.paseoExtension ? [input.paseoExtension.path] : undefined,
+  };
+}
+
+function readNativeMessageId(
+  message: PiAgentMessage & { id?: unknown; entryId?: unknown },
+): string | undefined {
+  if (typeof message.id === "string") {
+    return message.id;
+  }
+  return typeof message.entryId === "string" ? message.entryId : undefined;
 }
 
 function toPiMcpConfig(config: McpServerConfig): PiMcpServerConfig {
@@ -1314,6 +1380,8 @@ export class PiRpcAgentSession implements AgentSession {
   private activeTurnStarted = false;
   private activeNoTurnPromptText: string | null = null;
   private readonly pendingNoTurnOutputs: Array<{ turnId: string; message: string }> = [];
+  private activePromptRequestId: string | null = null;
+  private readonly pendingPromptResults = new Map<string, boolean>();
   private lastKnownThinkingOptionId: string | null;
   currentLeafOverrideId: string | null | undefined;
   private readonly capturedUserEntries: PiCapturedEntry[] = [];
@@ -1394,6 +1462,7 @@ export class PiRpcAgentSession implements AgentSession {
     this.activeTurnId = turnId;
     this.activeAssistantMessageId = null;
     this.activeTurnStarted = false;
+    this.activePromptRequestId = null;
     this.clearNoTurnBuffers();
     this.activeNoTurnPromptText = payload.text;
     const shouldProbeForNoTurnPrompt = this.parseSlashCommandInput(payload.text) !== null;
@@ -1401,11 +1470,23 @@ export class PiRpcAgentSession implements AgentSession {
     void (async () => {
       try {
         const ack = await this.runtimeSession.prompt(payload.text, payload.images);
-        if (ack.agentInvoked === false) {
+        this.activePromptRequestId = ack.requestId ?? null;
+        const correlatedResult = ack.requestId
+          ? this.pendingPromptResults.get(ack.requestId)
+          : undefined;
+        if (ack.requestId) {
+          this.pendingPromptResults.delete(ack.requestId);
+        }
+        const agentInvoked = correlatedResult ?? ack.agentInvoked;
+        if (agentInvoked === false) {
           await this.completeNoTurnPrompt(turnId);
           return;
         }
-        if (ack.agentInvoked === undefined && shouldProbeForNoTurnPrompt) {
+        if (
+          !this.dialect.promptResultIsAuthoritative &&
+          agentInvoked === undefined &&
+          shouldProbeForNoTurnPrompt
+        ) {
           await this.completePromptIfHandledWithoutTurn(turnId);
         }
       } catch (error) {
@@ -1445,13 +1526,21 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    await this.requestEntryCapture("history");
-    yield* streamPiHistory(
-      this.provider,
-      await this.runtimeSession.getMessages(),
-      this.capturedUserEntries,
-      this.dialect,
-    );
+    if (this.dialect.streamHistory) {
+      yield* this.dialect.streamHistory({
+        runtimeSession: this.runtimeSession,
+        state: this.state,
+        provider: this.provider,
+      });
+    } else {
+      await this.requestEntryCapture("history");
+      yield* streamPiHistory(
+        this.provider,
+        await this.runtimeSession.getMessages(),
+        this.capturedUserEntries,
+        this.dialect,
+      );
+    }
     for (const item of this.dialect.mapHydratedTimelineItems?.(this.state) ?? []) {
       yield {
         type: "timeline",
@@ -1560,10 +1649,21 @@ export class PiRpcAgentSession implements AgentSession {
     }
   }
 
-  async revertConversation(input: { messageId: string }): Promise<void> {
-    // D3(omp-native-branch): keep extension-backed rewind shared for this extraction only.
+  async revertConversation(input: { messageId: string }): Promise<void | AgentRewindResult> {
     if (this.activeTurnId) {
-      throw new Error("Cannot rewind the Pi conversation while a Pi turn is active");
+      throw new Error(
+        `Cannot rewind the ${this.dialect.label} conversation while a turn is active`,
+      );
+    }
+    if (this.dialect.rewindConversation) {
+      const result = await this.dialect.rewindConversation({
+        runtimeSession: this.runtimeSession,
+        state: this.state,
+        messageId: input.messageId,
+      });
+      await this.refreshState();
+      this.activeToolCalls.clear();
+      return result;
     }
     await this.refreshState().catch(() => undefined);
     await this.requestEntryCapture("rewind");
@@ -1577,7 +1677,6 @@ export class PiRpcAgentSession implements AgentSession {
         navigateTree: (treeEntryId) => this.runPiTreeExtensionCommand(treeEntryId),
       },
     });
-    // Pi keeps all tree nodes, so selecting the previous leaf later reverses this rewind.
     this.currentLeafOverrideId = targetEntry.parentId;
     this.activeToolCalls.clear();
   }
@@ -1596,9 +1695,10 @@ export class PiRpcAgentSession implements AgentSession {
     }
     this.closed = true;
     try {
+      await this.dialect.beforeSessionClose?.(this.runtimeSession);
       await this.runtimeSession.close();
     } finally {
-      this.dialect.onSessionClose?.(this.runtimeSession);
+      await this.dialect.onSessionClose?.(this.runtimeSession);
       this.rejectAllExtensionResults(new Error("Pi session closed"));
       this.cleanup?.();
     }
@@ -1637,6 +1737,24 @@ export class PiRpcAgentSession implements AgentSession {
       return {
         run: async ({ emit }) => {
           await this.executeAutoCompactCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (
+      this.dialect.sendOutOfBandPrompt &&
+      (commandName === "steer" || commandName === "follow-up")
+    ) {
+      const message = parsed.args?.trim();
+      if (!message) {
+        return null;
+      }
+      return {
+        run: async () => {
+          this.dialect.sendOutOfBandPrompt!(
+            this.runtimeSession,
+            commandName === "steer" ? "steer" : "follow_up",
+            message,
+          );
         },
       };
     }
@@ -1725,6 +1843,7 @@ export class PiRpcAgentSession implements AgentSession {
 
   private clearNoTurnBuffers(): void {
     this.activeNoTurnPromptText = null;
+    this.activePromptRequestId = null;
     this.pendingNoTurnOutputs.splice(0, this.pendingNoTurnOutputs.length);
   }
 
@@ -2038,6 +2157,17 @@ export class PiRpcAgentSession implements AgentSession {
       this.recordNoTurnNotification(message);
     }
 
+    const sideEffectItem = this.dialect.mapExtensionUiSideEffect?.(event);
+    if (sideEffectItem) {
+      this.emit({
+        type: "timeline",
+        provider: this.provider,
+        turnId: this.currentTurnIdForEvent(),
+        item: sideEffectItem,
+      });
+      return;
+    }
+
     if (this.respondToCombinedAskUserFollowUp(event)) {
       return;
     }
@@ -2124,9 +2254,29 @@ export class PiRpcAgentSession implements AgentSession {
       this.handleCommandOutput("text" in event ? event.text : undefined);
       return;
     }
+    if (event.type === "prompt_result") {
+      const requestId = optionalString("id" in event ? event.id : undefined);
+      const agentInvoked =
+        "agentInvoked" in event && typeof event.agentInvoked === "boolean"
+          ? event.agentInvoked
+          : undefined;
+      if (requestId && agentInvoked !== undefined) {
+        if (
+          requestId === this.activePromptRequestId &&
+          agentInvoked === false &&
+          this.activeTurnId
+        ) {
+          void this.completeNoTurnPrompt(this.activeTurnId);
+        } else if (this.activePromptRequestId === null) {
+          this.pendingPromptResults.set(requestId, agentInvoked);
+        }
+      }
+      return;
+    }
     if (
       this.dialect.handleExtraRuntimeEvent?.(event, {
         runtimeSession: this.runtimeSession,
+        cwd: this.config.cwd,
         paseoTools: this.paseoTools,
         emit: (streamEvent) => this.emit(streamEvent),
         hasActiveToolCall: (toolCallId) => this.activeToolCalls.has(toolCallId),
@@ -2153,7 +2303,13 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   private handleProcessExit(error: string): void {
-    this.dialect.onSessionClose?.(this.runtimeSession);
+    void (async () => {
+      try {
+        await this.dialect.onSessionProcessExit?.(this.runtimeSession);
+      } finally {
+        await this.dialect.onSessionClose?.(this.runtimeSession);
+      }
+    })();
     this.rejectAllExtensionResults(new Error(error));
     if (!this.activeTurnId) {
       return;
@@ -2382,6 +2538,41 @@ export class PiRpcAgentSession implements AgentSession {
     if (!text) {
       return;
     }
+    const nativeMessage = event.message as PiAgentMessage & { id?: unknown; entryId?: unknown };
+    const messageId = readNativeMessageId(nativeMessage);
+    const emitUserMessage = (resolvedMessageId?: string): void => {
+      this.emit({
+        type: "timeline",
+        provider: this.provider,
+        turnId,
+        item: {
+          type: "user_message",
+          text,
+          ...(resolvedMessageId ? { messageId: resolvedMessageId } : {}),
+        },
+      });
+    };
+    if (this.dialect.usePaseoExtension === false) {
+      if (messageId || !this.dialect.resolveUserMessageId) {
+        emitUserMessage(messageId);
+        return;
+      }
+      void this.dialect
+        .resolveUserMessageId({
+          runtimeSession: this.runtimeSession,
+          state: this.state,
+          text,
+        })
+        .then(emitUserMessage)
+        .catch((error: unknown) => {
+          this.logger.debug(
+            { err: error, sessionFile: this.state.sessionFile },
+            `${this.dialect.label} native user message ID lookup failed`,
+          );
+          emitUserMessage();
+        });
+      return;
+    }
     this.pendingUserMessages.push({ text, turnId });
     void this.requestEntryCapture("message_end").catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -2515,7 +2706,8 @@ export class PiRpcAgentClient implements AgentClient {
       ...launchContext?.env,
     };
     const mcpConfig = await this.prepareMcpConfig(config.cwd, config.mcpServers, mcpEnv);
-    const paseoExtension = createPiPaseoExtensionFile();
+    const paseoExtension =
+      this.dialect.usePaseoExtension === false ? null : createPiPaseoExtensionFile();
     const launchMode = resolveDialectLaunchMode(this.dialect, config.modeId);
     let runtimeSession: PiRuntimeSession;
     try {
@@ -2535,12 +2727,12 @@ export class PiRpcAgentClient implements AgentClient {
         ),
         env: launchContext?.env,
         mcpConfigPath: mcpConfig?.path,
-        extensionPaths: [paseoExtension.path],
+        extensionPaths: paseoExtension ? [paseoExtension.path] : undefined,
       });
       await this.configureNativePaseoTools(runtimeSession, launchContext?.paseoTools);
     } catch (error) {
       mcpConfig?.cleanup();
-      paseoExtension.cleanup();
+      paseoExtension?.cleanup();
       throw error;
     }
     try {
@@ -2552,14 +2744,14 @@ export class PiRpcAgentClient implements AgentClient {
         dialect: this.dialect,
         currentModeId: launchMode.modeId,
         logger: this.logger,
-        cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension.cleanup]),
+        cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension?.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
         paseoTools: launchContext?.paseoTools,
       });
     } catch (error) {
       await runtimeSession.close().catch(() => undefined);
       mcpConfig?.cleanup();
-      paseoExtension.cleanup();
+      paseoExtension?.cleanup();
       throw error;
     }
   }
@@ -2586,31 +2778,26 @@ export class PiRpcAgentClient implements AgentClient {
       resumeConfig.config.mcpServers,
       mcpEnv,
     );
-    const paseoExtension = createPiPaseoExtensionFile();
+    const paseoExtension =
+      this.dialect.usePaseoExtension === false ? null : createPiPaseoExtensionFile();
     const launchMode = resolveDialectLaunchMode(this.dialect, resumeConfig.modeId);
     let runtimeSession: PiRuntimeSession;
     try {
-      runtimeSession = await this.runtime.startSession({
-        cwd: resumeConfig.cwd,
-        protocolMode: this.dialect.protocolMode,
-        env: launchContext?.env,
-        session: sessionFile,
-        model: resumeConfig.model,
-        thinkingOptionId: normalizePiThinkingOption(resumeConfig.thinkingOptionId) ?? undefined,
-        ...(launchMode.modeId ? { modeId: launchMode.modeId } : {}),
-        ...(launchMode.extraArgs ? { extraArgs: launchMode.extraArgs } : {}),
-        systemPrompt: composeSystemPromptParts(
-          resumeConfig.config.systemPrompt,
-          resumeConfig.config.daemonAppendSystemPrompt,
-          this.dialect.appendSystemPrompt,
-        ),
-        mcpConfigPath: mcpConfig?.path,
-        extensionPaths: [paseoExtension.path],
-      });
+      runtimeSession = await this.runtime.startSession(
+        buildResumeStartInput({
+          resumeConfig,
+          sessionFile,
+          launchContext,
+          dialect: this.dialect,
+          launchMode,
+          mcpConfig,
+          paseoExtension,
+        }),
+      );
       await this.configureNativePaseoTools(runtimeSession, launchContext?.paseoTools);
     } catch (error) {
       mcpConfig?.cleanup();
-      paseoExtension.cleanup();
+      paseoExtension?.cleanup();
       throw error;
     }
     try {
@@ -2622,14 +2809,14 @@ export class PiRpcAgentClient implements AgentClient {
         dialect: this.dialect,
         currentModeId: launchMode.modeId,
         logger: this.logger,
-        cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension.cleanup]),
+        cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension?.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
         paseoTools: launchContext?.paseoTools,
       });
     } catch (error) {
       await runtimeSession.close().catch(() => undefined);
       mcpConfig?.cleanup();
-      paseoExtension.cleanup();
+      paseoExtension?.cleanup();
       throw error;
     }
   }

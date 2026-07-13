@@ -18,7 +18,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { useIsCompactFormFactor } from "@/constants/layout";
+import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
 import { useShallow } from "zustand/shallow";
 import {
   ArrowUp,
@@ -33,7 +33,6 @@ import {
   Paperclip,
 } from "lucide-react-native";
 import Animated from "react-native-reanimated";
-import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
 import {
   AgentControls,
   DraftAgentControls,
@@ -196,16 +195,30 @@ function buildRealtimeVoiceButtonStyle(
   );
 }
 
+const EMPTY_AGENT_STATE = {
+  status: null,
+  contextWindowMaxTokens: null,
+  contextWindowUsedTokens: null,
+  totalCostUsd: null,
+  model: null,
+  provider: null,
+  providerChildOwnership: null,
+} as const;
+
 function buildAgentStateSelector(serverId: string, agentId: string) {
   return (state: ReturnType<typeof useSessionStore.getState>) => {
-    const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
+    const agent = state.sessions[serverId]?.agents?.get(agentId);
+    if (!agent) {
+      return EMPTY_AGENT_STATE;
+    }
     return {
-      status: agent?.status ?? null,
-      contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
-      contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
-      model: agent?.model ?? null,
-      provider: agent?.provider ?? null,
+      status: agent.status,
+      contextWindowMaxTokens: agent.lastUsage?.contextWindowMaxTokens ?? null,
+      contextWindowUsedTokens: agent.lastUsage?.contextWindowUsedTokens ?? null,
+      totalCostUsd: agent.lastUsage?.totalCostUsd ?? null,
+      model: agent.model,
+      provider: agent.provider,
+      providerChildOwnership: agent.providerChildOwnership,
     };
   };
 }
@@ -467,6 +480,7 @@ interface DispatchComposerKeyboardActionArgs {
   isPaneFocused: boolean;
   messageInputRef: { current: MessageInputRef | null };
   isAgentRunning: boolean;
+  canInterrupt: boolean;
   isCancellingAgent: boolean;
   isConnected: boolean;
   handleCancelAgent: () => void;
@@ -479,6 +493,7 @@ function dispatchComposerKeyboardAction(args: DispatchComposerKeyboardActionArgs
     isPaneFocused,
     messageInputRef,
     isAgentRunning,
+    canInterrupt,
     isCancellingAgent,
     isConnected,
     handleCancelAgent,
@@ -487,6 +502,7 @@ function dispatchComposerKeyboardAction(args: DispatchComposerKeyboardActionArgs
   if (!isPaneFocused) return false;
 
   if (action.id === "agent.interrupt") {
+    if (!canInterrupt) return false;
     if (messageInputRef.current?.runKeyboardAction("dictation-cancel")) return true;
     if (!isAgentRunning || isCancellingAgent || !isConnected) return false;
     handleCancelAgent();
@@ -856,25 +872,27 @@ function ComposerCancelButton({
 
 interface ComposerCancelButtonSlotProps extends ComposerCancelButtonProps {
   isAgentRunning: boolean;
+  canInterrupt: boolean;
   hasSendableContent: boolean;
   isProcessing: boolean;
 }
 
 function ComposerCancelButtonSlot({
   isAgentRunning,
+  canInterrupt,
   hasSendableContent,
   isProcessing,
   ...rest
 }: ComposerCancelButtonSlotProps) {
-  if (!isAgentRunning || hasSendableContent || isProcessing) return null;
+  if (!canInterrupt || !isAgentRunning || hasSendableContent || isProcessing) return null;
   return <ComposerCancelButton {...rest} />;
 }
 
 interface ComposerVoiceModeButtonProps {
   buttonIconSize: number;
   handleToggleRealtimeVoice: () => void;
-  isConnected: boolean;
   isVoiceSwitching: boolean;
+  voiceButtonDisabled: boolean;
   realtimeVoiceButtonStyle: (
     state: PressableStateCallbackType & { hovered?: boolean },
   ) => (object | undefined)[];
@@ -886,6 +904,7 @@ interface ComposerRightControlsSlotProps extends ComposerVoiceModeButtonProps {
   isVoiceModeForAgent: boolean;
   hasAgent: boolean;
   isAgentRunning: boolean;
+  canInterrupt: boolean;
   hasSendableContent: boolean;
   isProcessing: boolean;
   isCompact: boolean;
@@ -896,6 +915,7 @@ function ComposerRightControlsSlot({
   isVoiceModeForAgent,
   hasAgent,
   isAgentRunning,
+  canInterrupt,
   hasSendableContent,
   isProcessing,
   isCompact,
@@ -905,7 +925,8 @@ function ComposerRightControlsSlot({
   const hideVoiceForCompactInput = isCompact && hasSendableContent;
   const showVoiceModeButton =
     !isVoiceModeForAgent && hasAgent && !isAgentRunning && !hideVoiceForCompactInput;
-  const shouldShowCancelButton = isAgentRunning && !hasSendableContent && !isProcessing;
+  const shouldShowCancelButton =
+    canInterrupt && isAgentRunning && !hasSendableContent && !isProcessing;
   if (!showVoiceModeButton && !shouldShowCancelButton) return null;
   return (
     <View style={styles.rightControls}>
@@ -918,8 +939,8 @@ function ComposerRightControlsSlot({
 function ComposerVoiceModeButton({
   buttonIconSize,
   handleToggleRealtimeVoice,
-  isConnected,
   isVoiceSwitching,
+  voiceButtonDisabled,
   realtimeVoiceButtonStyle,
   voiceToggleKeys,
   t,
@@ -939,7 +960,7 @@ function ComposerVoiceModeButton({
     <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
       <TooltipTrigger
         onPress={handleToggleRealtimeVoice}
-        disabled={!isConnected || isVoiceSwitching}
+        disabled={voiceButtonDisabled}
         accessibilityLabel={t("composer.voice.enableVoiceMode")}
         accessibilityRole="button"
         style={realtimeVoiceButtonStyle}
@@ -1214,10 +1235,21 @@ export function Composer({
         attachments: sendAttachments,
         encodeImages,
         stream,
+        canPrompt:
+          agentState.providerChildOwnership?.owner !== "provider" &&
+          agentState.providerChildOwnership?.owner !== "none",
       });
       onAttentionPromptSend?.();
     };
-  }, [client, onAttentionPromptSend, serverId, setAgentStreamTail, setAgentStreamHead, t]);
+  }, [
+    agentState.providerChildOwnership,
+    client,
+    onAttentionPromptSend,
+    serverId,
+    setAgentStreamTail,
+    setAgentStreamHead,
+    t,
+  ]);
 
   useEffect(() => {
     onSubmitMessageRef.current = onSubmitMessage;
@@ -1225,6 +1257,9 @@ export function Composer({
 
   const isAgentRunning = agentState.status === "running";
   const hasAgent = agentState.status !== null;
+  const canInterruptAgent =
+    agentState.providerChildOwnership?.owner !== "provider" &&
+    agentState.providerChildOwnership?.owner !== "none";
 
   const queueWriter = useMemo<QueueWriter>(
     () => ({
@@ -1466,11 +1501,12 @@ export function Composer({
       isAgentRunning,
       isCancellingAgent,
       isConnected,
+      canInterrupt: canInterruptAgent,
     });
     if (!didCancel) return;
     setIsCancellingAgent(true);
     messageInputRef.current?.focus();
-  }, [client, isAgentRunning, isCancellingAgent, isConnected]);
+  }, [canInterruptAgent, client, isAgentRunning, isCancellingAgent, isConnected]);
 
   const focusMessageInputForKeyboardAction = useCallback(() => {
     focusMessageInputWithPlatformStrategy(messageInputRef);
@@ -1483,12 +1519,14 @@ export function Composer({
         isPaneFocused,
         messageInputRef,
         isAgentRunning,
+        canInterrupt: canInterruptAgent,
         isCancellingAgent,
         isConnected,
         handleCancelAgent,
         focusMessageInputForKeyboardAction,
       }),
     [
+      canInterruptAgent,
       focusMessageInputForKeyboardAction,
       handleCancelAgent,
       isAgentRunning,
@@ -1597,7 +1635,7 @@ export function Composer({
   );
 
   const isVoiceSwitching = voice?.isVoiceSwitching ?? false;
-  const voiceButtonDisabled = !isConnected || isVoiceSwitching;
+  const voiceButtonDisabled = !isConnected || isVoiceSwitching || !canInterruptAgent;
   const realtimeVoiceButtonStyle = useCallback(
     (state: PressableStateCallbackType & { hovered?: boolean }) =>
       buildRealtimeVoiceButtonStyle(state.hovered, voiceButtonDisabled, isCompactLayout),
@@ -1608,6 +1646,7 @@ export function Composer({
     () => (
       <ComposerCancelButtonSlot
         isAgentRunning={isAgentRunning}
+        canInterrupt={canInterruptAgent}
         hasSendableContent={hasSendableContent}
         isProcessing={isProcessing}
         buttonIconSize={buttonIconSize}
@@ -1620,6 +1659,7 @@ export function Composer({
       />
     ),
     [
+      canInterruptAgent,
       agentInterruptKeys,
       buttonIconSize,
       cancelButtonStyle,
@@ -1639,13 +1679,14 @@ export function Composer({
         isVoiceModeForAgent={isVoiceModeForAgent}
         hasAgent={hasAgent}
         isAgentRunning={isAgentRunning}
+        canInterrupt={canInterruptAgent}
         hasSendableContent={hasSendableContent}
         isProcessing={isProcessing}
         isCompact={isCompactLayout}
         buttonIconSize={buttonIconSize}
         handleToggleRealtimeVoice={handleToggleRealtimeVoice}
-        isConnected={isConnected}
         isVoiceSwitching={isVoiceSwitching}
+        voiceButtonDisabled={voiceButtonDisabled}
         realtimeVoiceButtonStyle={realtimeVoiceButtonStyle}
         voiceToggleKeys={voiceToggleKeys}
         t={t}
@@ -1653,17 +1694,18 @@ export function Composer({
       />
     ),
     [
+      canInterruptAgent,
       buttonIconSize,
       cancelButton,
       handleToggleRealtimeVoice,
       hasAgent,
       hasSendableContent,
       isAgentRunning,
-      isConnected,
       isCompactLayout,
       isProcessing,
       isVoiceModeForAgent,
       isVoiceSwitching,
+      voiceButtonDisabled,
       realtimeVoiceButtonStyle,
       t,
       voiceToggleKeys,
@@ -1895,7 +1937,8 @@ export function Composer({
   );
 
   const messageInputAutoFocus = autoFocus && isDesktopWebBreakpoint;
-  const submitLoadingPressHandler = isAgentRunning ? handleCancelAgent : undefined;
+  const submitLoadingPressHandler =
+    isAgentRunning && canInterruptAgent ? handleCancelAgent : undefined;
   const sendErrorNode = useMemo(
     () => (sendError ? <Text style={styles.sendErrorText}>{sendError}</Text> : null),
     [sendError],
@@ -1939,7 +1982,13 @@ export function Composer({
                 submitButtonAccessibilityLabel={submitButtonAccessibilityLabel}
                 submitButtonTestID={submitButtonTestID}
                 submitIcon={submitIcon}
-                isSubmitDisabled={isSubmitBusy}
+                isSubmitDisabled={
+                  isSubmitBusy ||
+                  !(
+                    agentState.providerChildOwnership?.owner !== "provider" &&
+                    agentState.providerChildOwnership?.owner !== "none"
+                  )
+                }
                 isSubmitLoading={isSubmitBusy}
                 preserveHeightOnSubmit={submitBehavior === "preserve-and-lock"}
                 attachments={selectedAttachments}
@@ -1952,7 +2001,13 @@ export function Composer({
                 placeholder={messagePlaceholder}
                 autoFocus={messageInputAutoFocus}
                 autoFocusKey={`${serverId}:${agentId}`}
-                disabled={isSubmitLoading}
+                disabled={
+                  isSubmitLoading ||
+                  !(
+                    agentState.providerChildOwnership?.owner !== "provider" &&
+                    agentState.providerChildOwnership?.owner !== "none"
+                  )
+                }
                 isPaneFocused={isPaneFocused}
                 leftContent={leftContent}
                 beforeVoiceContent={beforeVoiceContent}

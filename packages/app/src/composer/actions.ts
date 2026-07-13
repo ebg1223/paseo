@@ -142,9 +142,11 @@ export interface CancelComposerAgentInput {
   isAgentRunning: boolean;
   isCancellingAgent: boolean;
   isConnected: boolean;
+  canInterrupt?: boolean;
 }
 
 export function cancelComposerAgent(input: CancelComposerAgentInput): boolean {
+  if (input.canInterrupt === false) return false;
   if (!input.isAgentRunning || input.isCancellingAgent) return false;
   if (!input.isConnected || !input.client) return false;
   void input.client.cancelAgent(input.agentId);
@@ -159,12 +161,16 @@ export interface DispatchComposerAgentMessageInput {
   encodeImages: (
     images: AttachmentMetadata[],
   ) => Promise<Array<{ data: string; mimeType: string }> | undefined>;
+  canPrompt?: boolean;
   stream: AgentStreamWriter;
 }
 
 export async function dispatchComposerAgentMessage(
   input: DispatchComposerAgentMessageInput,
 ): Promise<void> {
+  if (input.canPrompt === false) {
+    throw new Error("This child session cannot be prompted");
+  }
   const wirePayload = splitComposerAttachmentsForSubmit(input.attachments);
   const messageId = generateMessageId();
   const userMessage = buildOptimisticUserMessage({

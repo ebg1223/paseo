@@ -21,6 +21,18 @@ export const OMP_HANDLED_BUILTIN_SLASH_COMMANDS: readonly AgentSlashCommand[] = 
     argumentHint: "[instructions]",
     kind: "command",
   },
+  {
+    name: "steer",
+    description: "Steer the active OMP turn",
+    argumentHint: "<message>",
+    kind: "command",
+  },
+  {
+    name: "follow-up",
+    description: "Queue a follow-up message for OMP",
+    argumentHint: "<message>",
+    kind: "command",
+  },
 ];
 
 export function mapOmpSlashCommands(commands: readonly OmpAvailableCommand[]): AgentSlashCommand[] {
@@ -47,6 +59,7 @@ export function mapOmpRuntimeSlashCommands(
       name: command.name,
       ...(command.description ? { description: command.description } : {}),
       source: command.source,
+      ...(command.input ? { input: command.input } : {}),
     })),
   );
 }

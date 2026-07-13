@@ -162,6 +162,38 @@ describe("shared messages tool_call schema", () => {
     }
   });
 
+  it("keeps sub-agent children optional and parses ordered batch children", () => {
+    const detail = {
+      type: "sub_agent",
+      log: "",
+      children: [
+        {
+          sessionId: "/tmp/first.jsonl",
+          label: "task — Inspect",
+          status: "running",
+        },
+        {
+          sessionId: "/tmp/second.jsonl",
+          label: "task — Inspect",
+          status: "completed",
+        },
+      ],
+    };
+    const parsed = AgentTimelineItemPayloadSchema.parse({
+      type: "tool_call",
+      callId: "call_batch",
+      name: "batch",
+      status: "running",
+      error: null,
+      detail,
+    });
+    expect(
+      parsed.type === "tool_call" && parsed.detail.type === "sub_agent"
+        ? parsed.detail.children
+        : null,
+    ).toEqual(detail.children);
+  });
+
   it("parses plain_text detail with icon and rejects unknown icon names", () => {
     const parsed = AgentTimelineItemPayloadSchema.parse({
       type: "tool_call",

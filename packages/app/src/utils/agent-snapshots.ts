@@ -1,6 +1,9 @@
 import type { AgentSnapshotPayload } from "@getpaseo/protocol/messages";
 import type { AgentPermissionRequest } from "@getpaseo/protocol/agent-types";
-import { getParentAgentIdFromLabels } from "@getpaseo/protocol/agent-labels";
+import {
+  getParentAgentIdFromLabels,
+  getProviderChildOwnershipFromLabels,
+} from "@getpaseo/protocol/agent-labels";
 
 export function derivePendingPermissionKey(
   agentId: string,
@@ -27,6 +30,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     : null;
   const archivedAt = snapshot.archivedAt ? new Date(snapshot.archivedAt) : null;
   const parentAgentId = getParentAgentIdFromLabels(snapshot.labels);
+  const providerChildOwnership = getProviderChildOwnershipFromLabels(snapshot.labels);
 
   return {
     serverId,
@@ -56,6 +60,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
     attentionTimestamp,
     archivedAt,
     parentAgentId,
+    providerChildOwnership,
     labels: snapshot.labels,
   };
 }

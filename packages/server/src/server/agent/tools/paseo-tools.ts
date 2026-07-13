@@ -1498,6 +1498,36 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
   );
 
   registerTool(
+    "wait_for_agent",
+    {
+      title: "Wait for agent",
+      description:
+        "Wait until an agent's current run finishes, fails, is canceled, or needs permission. Returns immediately when the agent is already inactive.",
+      inputSchema: {
+        agentId: z.string(),
+      },
+      outputSchema: {
+        status: AgentStatusEnum,
+        lastMessage: z.string().nullable().optional(),
+        permission: AgentPermissionRequestPayloadSchema.nullable().optional(),
+      },
+    },
+    async ({ agentId }, context) => {
+      const result = await waitForAgentWithTimeout(agentManager, agentId, {
+        signal: context?.signal,
+      });
+      return {
+        content: [],
+        structuredContent: ensureValidJson({
+          status: result.status,
+          lastMessage: result.lastMessage,
+          permission: sanitizePermissionRequest(result.permission),
+        }),
+      };
+    },
+  );
+
+  registerTool(
     "get_agent_status",
     {
       title: "Get agent status",

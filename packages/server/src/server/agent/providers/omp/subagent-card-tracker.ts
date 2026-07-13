@@ -24,6 +24,8 @@ interface OmpSubagentLogLine {
 interface OmpSubagentCardItem {
   index: number;
   description?: string;
+  agent?: string;
+  status?: "pending" | "running" | "completed" | "failed" | "aborted";
   childSessionId?: string;
   lines: OmpSubagentLogLine[];
   lineKeys: Set<string>;
@@ -72,7 +74,9 @@ export class OmpSubagentCardTracker {
     this.stateFor(parentToolCallId).emitToolCall = emitToolCall;
     const item = this.upsertItem(parentToolCallId, {
       index: payload.index,
+      agent: payload.agent,
       description: payload.description,
+      status: payload.status === "started" ? "running" : payload.status,
       childSessionId: payload.sessionFile,
     });
     this.appendLine(
@@ -94,7 +98,9 @@ export class OmpSubagentCardTracker {
     this.stateFor(parentToolCallId).emitToolCall = emitToolCall;
     const item = this.upsertItem(parentToolCallId, {
       index: payload.index,
+      agent: payload.agent,
       description: payload.progress.description,
+      status: payload.progress.status,
       childSessionId: payload.sessionFile,
     });
 
@@ -139,6 +145,21 @@ export class OmpSubagentCardTracker {
       return baseDetail;
     }
 
+    let children = baseDetail.children;
+    if (items.some((item) => item.childSessionId)) {
+      children = items.flatMap((item) =>
+        item.childSessionId
+          ? [
+              {
+                sessionId: item.childSessionId,
+                label: buildChildLabel(item.agent, item.description),
+                status: item.status ?? "running",
+              },
+            ]
+          : [],
+      );
+    }
+
     const detail: ToolCallDetail = {
       type: "sub_agent",
       ...(baseDetail.subAgentType ? { subAgentType: baseDetail.subAgentType } : {}),
@@ -148,6 +169,7 @@ export class OmpSubagentCardTracker {
       ...((firstItem.childSessionId ?? baseDetail.childSessionId)
         ? { childSessionId: firstItem.childSessionId ?? baseDetail.childSessionId }
         : {}),
+      ...(children ? { children } : {}),
       log: buildLog(items, baseDetail.log),
     };
     return baseDetail.actions ? { ...detail, actions: baseDetail.actions } : detail;
@@ -179,6 +201,8 @@ export class OmpSubagentCardTracker {
     parentToolCallId: string,
     input: {
       index: number;
+      agent?: string;
+      status?: "pending" | "running" | "completed" | "failed" | "aborted";
       description?: string;
       childSessionId?: string;
     },
@@ -186,6 +210,8 @@ export class OmpSubagentCardTracker {
     const state = this.stateFor(parentToolCallId);
     const existing = state.items.get(input.index);
     if (existing) {
+      existing.agent = readTrimmedString(input.agent) ?? existing.agent;
+      existing.status = input.status ?? existing.status;
       existing.description = readTrimmedString(input.description) ?? existing.description;
       existing.childSessionId = readTrimmedString(input.childSessionId) ?? existing.childSessionId;
       return existing;
@@ -195,6 +221,8 @@ export class OmpSubagentCardTracker {
       index: input.index,
       lines: [],
       lineKeys: new Set<string>(),
+      ...(readTrimmedString(input.agent) ? { agent: readTrimmedString(input.agent) } : {}),
+      ...(input.status ? { status: input.status } : {}),
       ...(readTrimmedString(input.description)
         ? { description: readTrimmedString(input.description) }
         : {}),
@@ -276,6 +304,15 @@ function buildLog(items: OmpSubagentCardItem[], fallback: string): string {
     return item.lines.map((line) => `${prefix}${line.text}`);
   });
   return lines.length > 0 ? lines.join("\n") : fallback;
+}
+
+function buildChildLabel(agent: string | undefined, description: string | undefined): string {
+  const normalizedAgent = readTrimmedString(agent);
+  const normalizedDescription = readTrimmedString(description);
+  if (normalizedAgent && normalizedDescription) {
+    return `${normalizedAgent} — ${normalizedDescription}`;
+  }
+  return normalizedAgent ?? normalizedDescription ?? "Subagent";
 }
 
 function summarizeTool(tool: Record<string, unknown> | null): OmpSubagentLogLine | null {

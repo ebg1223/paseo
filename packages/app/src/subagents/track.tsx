@@ -181,7 +181,9 @@ function SubagentsTrackRow({
                 rowId={row.id}
                 displayLabel={displayLabel}
                 visible={actionsVisible}
-                onDetachPress={onDetachSubagent ? handleDetachPress : undefined}
+                onDetachPress={
+                  onDetachSubagent && row.canDetach !== false ? handleDetachPress : undefined
+                }
                 onArchivePress={handleArchivePress}
               />
             ) : null}

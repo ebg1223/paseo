@@ -30,11 +30,13 @@ describe("OMP slash command mapper", () => {
     ).toBeNull();
   });
 
-  test("adds OMP-only handoff to handled built-ins", () => {
+  test("adds OMP-only out-of-band commands to handled built-ins", () => {
     expect(mapOmpSlashCommands([]).map((command) => command.name)).toEqual([
       "compact",
       "autocompact",
       "handoff",
+      "steer",
+      "follow-up",
     ]);
   });
 });

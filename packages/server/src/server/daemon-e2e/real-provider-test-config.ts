@@ -26,9 +26,8 @@ const CLAUDE_REAL_TEST_MODEL = "haiku";
 const CODEX_REAL_TEST_MODEL = "~openai/gpt-latest";
 const OPENCODE_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
 const PI_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
-// omp is a pi fork sharing pi's OpenRouter model plumbing (D1 kept the model
-// transform in pi-shared), so it uses the same real-test model.
-const OMP_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
+const OMP_OPENROUTER_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
+const OMP_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-5.6-sol";
 
 const availabilityCache = new Map<RealProvider, Promise<boolean>>();
 
@@ -62,7 +61,7 @@ export function getRealProviderConfig(provider: RealProvider): RealProviderConfi
     case "omp":
       return {
         provider,
-        model: OMP_REAL_TEST_MODEL,
+        model: getOmpRealTestModel(),
         thinkingOptionId: "medium",
         modeId: "full",
       };
@@ -70,6 +69,10 @@ export function getRealProviderConfig(provider: RealProvider): RealProviderConfi
 }
 
 export function getRealProviderRuntimeSettings(provider: RealProvider): ProviderRuntimeSettings {
+  if (provider === "omp") {
+    const apiKey = getOpenRouterApiKeyOrNull();
+    return apiKey ? { env: { OPENROUTER_API_KEY: apiKey } } : {};
+  }
   const apiKey = getOpenRouterApiKey();
   switch (provider) {
     case "claude":
@@ -106,7 +109,6 @@ export function getRealProviderRuntimeSettings(provider: RealProvider): Provider
       };
     }
     case "pi":
-    case "omp":
       return {
         env: {
           OPENROUTER_API_KEY: apiKey,
@@ -161,6 +163,14 @@ export function canRunRealProvider(provider: RealProvider): Promise<boolean> {
 
   availabilityCache.set(provider, availability);
   return availability;
+}
+
+function getOmpRealTestModel(): string {
+  const configured = process.env.OMP_REAL_TEST_MODEL?.trim();
+  if (configured) {
+    return configured;
+  }
+  return getOpenRouterApiKeyOrNull() ? OMP_OPENROUTER_REAL_TEST_MODEL : OMP_CODEX_REAL_TEST_MODEL;
 }
 
 function getOpenRouterApiKey(): string {

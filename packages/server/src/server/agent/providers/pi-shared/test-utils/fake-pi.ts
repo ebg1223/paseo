@@ -125,6 +125,8 @@ export class FakePiSession implements PiRuntimeSession {
   emitCompactEnd = true;
   getStateError: Error | null = null;
   promptAck: PiPromptAck = {};
+  branchResponse: { text?: string; cancelled?: boolean } = { text: "" };
+  readonly branchRequests: string[] = [];
   state: PiSessionState;
 
   private readonly subscribers = new Set<(event: PiRuntimeEvent) => void>();
@@ -313,6 +315,11 @@ export class FakePiSession implements PiRuntimeSession {
           ...(typeof command.sessionFile === "string" ? { sessionFile: command.sessionFile } : {}),
           ...(typeof command.fromByte === "number" ? { fromByte: command.fromByte } : {}),
         });
+      case "branch": {
+        const entryId = typeof command.entryId === "string" ? command.entryId : "";
+        this.branchRequests.push(entryId);
+        return this.branchResponse;
+      }
       case "handoff":
         this.handoffRequests.push(
           typeof command.customInstructions === "string"

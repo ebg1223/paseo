@@ -271,6 +271,17 @@ describe("PiCliRuntime", () => {
     await expect(state).rejects.toThrow("boom");
   });
 
+  test("rejects pending commands when the Pi session closes", async () => {
+    const child = createPiChild();
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    const state = session.getState();
+    const rejection = expect(state).rejects.toThrow("Pi RPC session is closed");
+    await session.close();
+
+    await rejection;
+  });
+
   test("disposes the Pi process", async () => {
     const child = createPiChild();
     const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });

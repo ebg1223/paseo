@@ -1,6 +1,7 @@
 import type { Options as ClaudeAgentOptions } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentProviderNotice } from "@getpaseo/protocol/agent-types";
 import type { AgentAttachment } from "@getpaseo/protocol/messages";
+import type { ProviderChildOwnership } from "@getpaseo/protocol/agent-labels";
 import type { ProviderSubagentInputEvent } from "./provider-subagents/store.js";
 import type { PaseoToolCatalog } from "./tools/types.js";
 
@@ -301,6 +302,11 @@ export type ToolCallDetail =
       subAgentType?: string;
       description?: string;
       childSessionId?: string;
+      children?: Array<{
+        sessionId: string;
+        label: string;
+        status: "pending" | "running" | "completed" | "failed" | "aborted";
+      }>;
       log: string;
       actions?: Array<{
         index: number;
@@ -429,15 +435,19 @@ export type AgentStreamEvent =
       timestamp: string;
     }
   // Internal (never crosses the wire): a provider-native subagent surfaced by
-  // the parent session. The manager reacts by upserting a child agent record
-  // (labels[paseo.parent-agent-id]) keyed on childSessionId as the provider
-  // handle. Providers whose subagents write their own session files emit this.
+  // the parent session. The manager upserts a child agent record keyed on the
+  // provider handle and persists ownership through agent labels.
   | {
       type: "child_session";
       provider: AgentProvider;
       childSessionId: string;
       status: "running" | "completed" | "failed" | "aborted";
+      ownership: ProviderChildOwnership;
       title?: string;
+      nativeChildId?: string;
+      parentChildSessionId?: string;
+      parentToolCallId?: string;
+      childIndex?: number;
     }
   | {
       type: "provider_subagent";
@@ -558,6 +568,7 @@ export interface ImportedProviderSession {
   config: AgentSessionConfig;
   persistence: AgentPersistenceHandle;
   timeline: ImportedTimelineEntry[];
+  ownership?: ProviderChildOwnership;
   providerSubagentEvents?: Extract<AgentStreamEvent, { type: "provider_subagent" }>[];
 }
 
@@ -621,6 +632,10 @@ export interface AgentPermissionResult {
   followUpPrompt?: AgentPromptInput;
 }
 
+export interface AgentRewindResult {
+  restoredPrompt?: string;
+}
+
 export interface AgentSession {
   readonly provider: AgentProvider;
   readonly id: string | null;
@@ -646,9 +661,9 @@ export interface AgentSession {
   setModel?(modelId: string | null): Promise<void>;
   setThinkingOption?(thinkingOptionId: string | null): Promise<void | AgentProviderNotice>;
   setFeature?(featureId: string, value: unknown): Promise<void>;
-  revertConversation?(input: { messageId: string }): Promise<void>;
-  revertFiles?(input: { messageId: string }): Promise<void>;
-  revertBoth?(input: { messageId: string }): Promise<void>;
+  revertConversation?(input: { messageId: string }): Promise<void | AgentRewindResult>;
+  revertFiles?(input: { messageId: string }): Promise<void | AgentRewindResult>;
+  revertBoth?(input: { messageId: string }): Promise<void | AgentRewindResult>;
   notifyTitleChanged?(title: string): void | Promise<void>;
   /**
    * Out-of-band prompt handler. When non-null, the manager runs the returned

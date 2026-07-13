@@ -137,18 +137,19 @@ class PiCliRuntimeSession implements PiRuntimeSession {
     message: string,
     images?: Array<{ type: "image"; data: string; mimeType: string }>,
   ): Promise<PiPromptAck> {
-    const data = await this.request({
+    const { id: requestId, promise } = this.startRequest({
       type: "prompt",
       message,
       ...(images?.length ? { images } : {}),
     });
+    const data = await promise;
     if (typeof data === "object" && data !== null && !Array.isArray(data)) {
       const { agentInvoked } = data as Record<string, unknown>;
       if (typeof agentInvoked === "boolean") {
-        return { agentInvoked };
+        return { requestId, agentInvoked };
       }
     }
-    return {};
+    return { requestId };
   }
 
   async compact(customInstructions?: string): Promise<void> {
@@ -246,7 +247,7 @@ class PiCliRuntimeSession implements PiRuntimeSession {
 
   async close(): Promise<void> {
     if (this.disposed) return;
-    this.disposed = true;
+    this.failAll(new Error("Pi RPC session is closed"));
     try {
       this.child.stdin.end();
     } catch {
@@ -271,12 +272,22 @@ class PiCliRuntimeSession implements PiRuntimeSession {
   }
 
   request(command: PiRpcCommand, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<unknown> {
+    return this.startRequest(command, timeoutMs).promise;
+  }
+
+  private startRequest(
+    command: PiRpcCommand,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  ): { id: string; promise: Promise<unknown> } {
     if (this.disposed) {
-      return Promise.reject(new Error("Pi RPC session is closed"));
+      return {
+        id: "",
+        promise: Promise.reject(new Error("Pi RPC session is closed")),
+      };
     }
     const id = `req_${this.nextRequestId}`;
     this.nextRequestId += 1;
-    return new Promise((resolve, reject) => {
+    const promise = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
@@ -286,6 +297,7 @@ class PiCliRuntimeSession implements PiRuntimeSession {
       this.pending.set(id, { resolve, reject, timer });
       this.writeJsonLine({ ...command, id });
     });
+    return { id, promise };
   }
 
   private writeJsonLine(value: unknown): void {

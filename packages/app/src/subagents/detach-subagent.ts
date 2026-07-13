@@ -3,6 +3,7 @@ import type { ConfirmDialogInput } from "@/utils/confirm-dialog";
 
 export interface ResolveDetachSubagentDialogInput {
   title: Agent["title"] | null | undefined;
+  providerChildOwnership?: Agent["providerChildOwnership"];
 }
 
 function resolveSubagentLabel(title: Agent["title"] | null | undefined): string | null {
@@ -17,6 +18,13 @@ function resolveSubagentLabel(title: Agent["title"] | null | undefined): string 
     return null;
   }
   return normalized;
+}
+
+export function canDetachSubagent(
+  subagent: Pick<Agent, "providerChildOwnership"> | null | undefined,
+): boolean {
+  const ownership = subagent?.providerChildOwnership;
+  return ownership == null || ownership.owner === "paseo";
 }
 
 export function resolveDetachSubagentDialog(
@@ -51,6 +59,16 @@ export async function requestDetachSubagent(
   deps: DetachSubagentDeps,
 ): Promise<void> {
   const subagent = deps.getSubagent(input.subagentId);
+  if (!canDetachSubagent(subagent)) {
+    deps.reportError(
+      new Error(
+        subagent?.providerChildOwnership?.owner === "none"
+          ? subagent.providerChildOwnership.reason
+          : "Provider-owned child sessions cannot be detached",
+      ),
+    );
+    return;
+  }
   const confirmed = await deps.confirm(
     resolveDetachSubagentDialog({
       title: subagent?.title,

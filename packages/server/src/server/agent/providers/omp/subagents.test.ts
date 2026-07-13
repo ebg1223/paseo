@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pino from "pino";
@@ -202,12 +202,16 @@ function expectOmpHookedTranscript(
 function writeImportableSessionFile(): string {
   const root = mkdtempSync(path.join(tmpdir(), "paseo-pi-subagent-import-"));
   const cwd = path.join(root, "workspace");
+  mkdirSync(cwd, { recursive: true });
   const sessionsDir = path.join(root, "sessions");
   mkdirSync(sessionsDir, { recursive: true });
   const sessionFile = path.join(sessionsDir, "subagent.jsonl");
   writeFileSync(
     sessionFile,
-    `${JSON.stringify({ type: "session", version: 3, id: "subagent", cwd })}\n`,
+    [
+      JSON.stringify({ type: "session", version: 3, id: "subagent", cwd }),
+      JSON.stringify({ type: "session_init", isolated: false, resumable: true }),
+    ].join("\n") + "\n",
     "utf8",
   );
   return sessionFile;
@@ -252,6 +256,7 @@ describe("Pi native subagents", () => {
         status: "started",
         sessionFile,
         index: 0,
+        detached: false,
       },
     });
     pi.latestSession().emit({
@@ -263,6 +268,7 @@ describe("Pi native subagents", () => {
         status: "completed",
         sessionFile,
         index: 0,
+        detached: false,
       },
     });
 
@@ -272,14 +278,22 @@ describe("Pi native subagents", () => {
         provider: "omp",
         childSessionId: sessionFile,
         status: "running",
-        title: "Explore implementation",
+        ownership: { owner: "provider" },
+        nativeChildId: "subagent-1",
+        parentToolCallId: undefined,
+        childIndex: 0,
+        title: "pi-subagent-1",
       },
       {
         type: "child_session",
         provider: "omp",
         childSessionId: sessionFile,
         status: "completed",
-        title: "Explore implementation",
+        ownership: { owner: "provider" },
+        nativeChildId: "subagent-1",
+        parentToolCallId: undefined,
+        childIndex: 0,
+        title: "pi-subagent-1",
       },
     ]);
   });
@@ -313,6 +327,11 @@ describe("Pi native subagents", () => {
       provider: "omp",
       childSessionId: sessionFile,
       status: "completed",
+      ownership: { owner: "provider" },
+      nativeChildId: "subagent-2",
+      parentToolCallId: undefined,
+      childIndex: 0,
+      title: "pi-subagent-2",
     });
   });
 
@@ -340,6 +359,37 @@ describe("Pi native subagents", () => {
 
     expect(events.childSessionEvents()).toEqual([]);
   });
+  test("does not guess a missing session file across ambiguous parent tool calls", async () => {
+    const { pi, events } = await createParentSession();
+    const runtime = pi.latestSession();
+    for (const [parentToolCallId, sessionFile] of [
+      ["task-a", "/tmp/ambiguous-a.jsonl"],
+      ["task-b", "/tmp/ambiguous-b.jsonl"],
+    ] as const) {
+      runtime.emit({
+        type: "subagent_lifecycle",
+        payload: {
+          id: "shared-child",
+          agent: "explore",
+          status: "started",
+          sessionFile,
+          parentToolCallId,
+          index: 0,
+        },
+      });
+    }
+    const before = events.childSessionEvents().length;
+    runtime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "shared-child",
+        agent: "explore",
+        status: "completed",
+        index: 0,
+      },
+    });
+    expect(events.childSessionEvents()).toHaveLength(before);
+  });
 
   test("continues when a plain Pi runtime rejects subagent subscription", async () => {
     const pi = new FakePi();
@@ -352,7 +402,7 @@ describe("Pi native subagents", () => {
     expect(pi.latestSession().subagentSubscriptionRequests).toEqual(["progress"]);
   });
 
-  test("imports live subagents as virtual sessions and promotes after terminal lifecycle", async () => {
+  test("retains provider ownership after terminal lifecycle", async () => {
     const { pi, client } = await createParentSession();
     const parentRuntime = pi.latestSession();
     const sessionFile = "/tmp/pi-live-subagent.jsonl";
@@ -476,17 +526,21 @@ describe("Pi native subagents", () => {
       virtualEvents.nextTimelineItem(
         (item) => item.type === "assistant_message" && item.text === "done",
       ),
-    ).resolves.toEqual({ type: "assistant_message", text: "done" });
+    ).resolves.toEqual({
+      type: "assistant_message",
+      text: "done",
+      messageId: "omp-history-assistant-2",
+    });
     await expect(imported.session.getRuntimeInfo()).resolves.toMatchObject({ provider: "omp" });
-    expect(pi.recordedLaunches).toHaveLength(2);
-    expect(pi.recordedLaunches[1]).toMatchObject({ session: sessionFile });
+    expect(pi.recordedLaunches).toHaveLength(1);
     expect(virtualEvents.turnEvents()).toEqual([
       { type: "turn_started", provider: "omp" },
       { type: "turn_completed", provider: "omp" },
     ]);
 
-    await imported.session.startTurn("after promotion");
-    expect(pi.latestSession().prompts).toEqual([{ message: "after promotion", imageCount: 0 }]);
+    await expect(imported.session.startTurn("still retained")).rejects.toThrow(
+      "driven by its parent",
+    );
   });
 
   test("reports resolved model updates for live virtual subagents", async () => {
@@ -788,21 +842,272 @@ describe("Pi native subagents", () => {
       { sessionFile, fromByte: 0 },
     ]);
     expect(lateSubscriberEvents.timelineItems()).toEqual([
-      { type: "assistant_message", text: "buffered update" },
+      {
+        type: "assistant_message",
+        text: "buffered update",
+        messageId: "omp-history-assistant-1",
+      },
     ]);
   });
 
-  test("imports unknown handles through the normal resume path", async () => {
+  test("awaits final hydration and cancels a running virtual child when its parent exits", async () => {
+    const { pi, client, session: parent } = await createParentSession();
+    const runtime = pi.latestSession();
+    const sessionFile = writeImportableSessionFile();
+    const cwd = path.join(path.dirname(path.dirname(sessionFile)), "workspace");
+    runtime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "released-running",
+        agent: "explore",
+        status: "started",
+        sessionFile,
+        index: 0,
+      },
+    });
+    runtime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 10,
+      reset: false,
+      messages: [{ role: "assistant", content: [{ type: "text", text: "initial" }] }],
+    });
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd },
+      { config: createConfig({ cwd }), storedConfig: createConfig({ cwd }) },
+    );
+    const childEvents = new SessionEvents(imported.session);
+    runtime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 10,
+      nextByte: 20,
+      reset: false,
+      messages: [{ role: "assistant", content: [{ type: "text", text: "final" }] }],
+    });
+
+    await parent.close();
+
+    expect(childEvents.timelineItems()).toContainEqual({
+      type: "assistant_message",
+      text: "final",
+      messageId: "omp-history-assistant-2",
+    });
+    expect(childEvents.turnEvents()).toContainEqual({
+      type: "turn_canceled",
+      provider: "omp",
+      reason: "OMP parent session exited",
+    });
+  });
+
+  test("releases once when process exit races explicit close", async () => {
+    const { pi, client, session: parent } = await createParentSession();
+    const runtime = pi.latestSession();
+    const sessionFile = writeImportableSessionFile();
+    const cwd = path.join(path.dirname(path.dirname(sessionFile)), "workspace");
+    const parentEvents = new SessionEvents(parent);
+    runtime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "crashed-running",
+        agent: "explore",
+        status: "started",
+        sessionFile,
+        index: 0,
+      },
+    });
+    runtime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 0,
+      nextByte: 10,
+      reset: false,
+      messages: [],
+    });
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd },
+      { config: createConfig({ cwd }), storedConfig: createConfig({ cwd }) },
+    );
+    const childEvents = new SessionEvents(imported.session);
+    runtime.queueSubagentMessages({
+      sessionFile,
+      fromByte: 10,
+      nextByte: 20,
+      reset: false,
+      messages: [{ role: "assistant", content: [{ type: "text", text: "crash-final" }] }],
+    });
+
+    runtime.emit({ type: "process_exit", error: "OMP crashed" });
+    await expect(
+      childEvents.nextEvent((event) => event.type === "turn_canceled"),
+    ).resolves.toMatchObject({ reason: "OMP parent session exited" });
+    await parent.close();
+
+    expect(childEvents.timelineItems()).toContainEqual({
+      type: "assistant_message",
+      text: "crash-final",
+      messageId: "omp-history-assistant-1",
+    });
+    expect(
+      parentEvents
+        .childSessionEvents()
+        .filter(
+          (event) =>
+            event.type === "child_session" &&
+            event.childSessionId === sessionFile &&
+            event.ownership.owner !== "provider",
+        ),
+    ).toHaveLength(1);
+  });
+
+  test("keeps discovered historical descendants read-only and titles them by session name", async () => {
+    const { pi, client, session: parent } = await createParentSession();
+    const runtime = pi.latestSession();
+    const parentFile = writeImportableSessionFile();
+    const cwd = path.join(path.dirname(path.dirname(parentFile)), "workspace");
+    const childDirectory = parentFile.slice(0, -".jsonl".length);
+    mkdirSync(childDirectory);
+    const historicalFile = path.join(childDirectory, "NativeChild.jsonl");
+    writeFileSync(
+      historicalFile,
+      [
+        JSON.stringify({ type: "session", version: 3, id: "historical", cwd }),
+        JSON.stringify({ type: "session_init", isolated: false, resumable: true }),
+        JSON.stringify({
+          type: "message",
+          id: "historical-message",
+          message: { role: "assistant", content: [{ type: "text", text: "historical answer" }] },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    const parentEvents = new SessionEvents(parent);
+    runtime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "live-parent",
+        agent: "explore",
+        status: "started",
+        sessionFile: parentFile,
+        index: 0,
+      },
+    });
+
+    await parent.close();
+    const historicalEvent = parentEvents
+      .childSessionEvents()
+      .find((event) => event.childSessionId === historicalFile);
+    expect(historicalEvent).toEqual({
+      type: "child_session",
+      provider: "omp",
+      childSessionId: historicalFile,
+      parentChildSessionId: parentFile,
+      nativeChildId: "historical",
+      status: "completed",
+      ownership: {
+        owner: "none",
+        resumable: false,
+        reason: "historical child transcripts are read-only",
+      },
+      title: "NativeChild",
+    });
+    const launchesBeforeImport = pi.recordedLaunches.length;
+
+    const imported = await client.importSession(
+      { providerHandleId: historicalFile, cwd },
+      { config: createConfig({ cwd }), storedConfig: createConfig({ cwd }) },
+    );
+
+    expect(pi.recordedLaunches).toHaveLength(launchesBeforeImport);
+    expect(imported.session.constructor.name).toBe("OmpReleasedSession");
+    expect(imported.ownership).toEqual({
+      owner: "none",
+      resumable: false,
+      reason: "historical child transcripts are read-only",
+    });
+    expect(imported.timeline).toContainEqual(
+      expect.objectContaining({
+        item: {
+          type: "assistant_message",
+          text: "historical answer",
+          messageId: "omp-history-assistant-1",
+        },
+      }),
+    );
+    await expect(imported.session.startTurn("must remain historical")).rejects.toThrow("read-only");
+  });
+
+  test("resumes released disk handles with the same native persistence handle", async () => {
     const pi = new FakePi();
     const client = createClient(pi);
     const sessionFile = writeImportableSessionFile();
+    const cwd = path.join(path.dirname(path.dirname(sessionFile)), "workspace");
 
-    await client.importSession(
-      { providerHandleId: sessionFile, cwd: TEST_CWD },
-      { config: createConfig(), storedConfig: createConfig() },
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd },
+      { config: createConfig({ cwd }), storedConfig: createConfig({ cwd }) },
     );
 
     expect(pi.recordedLaunches).toHaveLength(1);
-    expect(pi.recordedLaunches[0]).toMatchObject({ session: sessionFile });
+    expect(pi.recordedLaunches[0]?.session).toBe(sessionFile);
+    expect(imported.persistence.nativeHandle).toBe(sessionFile);
+    expect(imported.session.describePersistence()?.nativeHandle).toBe(sessionFile);
+    expect(imported.ownership).toEqual({ owner: "paseo", resumable: true });
+    await expect(imported.session.startTurn("follow up")).resolves.toEqual({
+      turnId: expect.any(String),
+    });
+    expect(pi.latestSession().prompts).toEqual([{ message: "follow up", imageCount: 0 }]);
+  });
+
+  test("keeps isolated released history readable and rejects prompting", async () => {
+    const pi = new FakePi();
+    const client = createClient(pi);
+    const sessionFile = writeImportableSessionFile();
+    const cwd = path.join(path.dirname(path.dirname(sessionFile)), "workspace");
+    const content = readFileSync(sessionFile, "utf8")
+      .replace(
+        JSON.stringify({ type: "session_init", isolated: false, resumable: true }),
+        JSON.stringify({ type: "session_init", isolated: true, resumable: false }),
+      )
+      .concat(
+        `${JSON.stringify({
+          type: "message",
+          id: "isolated-message",
+          message: { role: "assistant", content: [{ type: "text", text: "archived answer" }] },
+        })}\n`,
+      );
+    writeFileSync(sessionFile, content, "utf8");
+
+    const imported = await client.importSession(
+      { providerHandleId: sessionFile, cwd },
+      { config: createConfig({ cwd }), storedConfig: createConfig({ cwd }) },
+    );
+    expect(imported.timeline).toContainEqual(
+      expect.objectContaining({
+        item: {
+          type: "assistant_message",
+          text: "archived answer",
+          messageId: "omp-history-assistant-1",
+        },
+      }),
+    );
+
+    expect(pi.recordedLaunches).toHaveLength(0);
+    await expect(imported.session.startTurn("must not resume")).rejects.toThrow("read-only");
+    expect(
+      (await collectStreamHistory(imported.session)).filter((event) => event.type === "timeline"),
+    ).toContainEqual(
+      expect.objectContaining({
+        item: {
+          type: "assistant_message",
+          text: "archived answer",
+          messageId: "omp-history-assistant-1",
+        },
+      }),
+    );
+    expect(imported.persistence.nativeHandle).toBe(sessionFile);
+    expect(imported.ownership).toEqual({
+      owner: "none",
+      resumable: false,
+      reason: "session is isolated or non-resumable",
+    });
   });
 });

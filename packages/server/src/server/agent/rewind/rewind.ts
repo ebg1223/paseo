@@ -1,4 +1,4 @@
-import type { AgentSession } from "../agent-sdk-types.js";
+import type { AgentRewindResult, AgentSession } from "../agent-sdk-types.js";
 
 export type RewindMode = "conversation" | "files" | "both";
 
@@ -12,25 +12,22 @@ export class RewindCapabilityError extends Error {
 export async function invokeRewindCapability(
   session: AgentSession,
   input: { messageId: string; mode: RewindMode },
-): Promise<void> {
+): Promise<void | AgentRewindResult> {
   switch (input.mode) {
     case "conversation":
       if (!session.capabilities.supportsRewindConversation || !session.revertConversation) {
         throw new RewindCapabilityError(input.mode);
       }
-      await session.revertConversation({ messageId: input.messageId });
-      return;
+      return await session.revertConversation({ messageId: input.messageId });
     case "files":
       if (!session.capabilities.supportsRewindFiles || !session.revertFiles) {
         throw new RewindCapabilityError(input.mode);
       }
-      await session.revertFiles({ messageId: input.messageId });
-      return;
+      return await session.revertFiles({ messageId: input.messageId });
     case "both":
       if (!session.capabilities.supportsRewindBoth || !session.revertBoth) {
         throw new RewindCapabilityError(input.mode);
       }
-      await session.revertBoth({ messageId: input.messageId });
-      return;
+      return await session.revertBoth({ messageId: input.messageId });
   }
 }

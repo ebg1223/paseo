@@ -456,8 +456,6 @@ describe("OMP RPC agent", () => {
       "medium",
       "--append-system-prompt",
       OMP_PASEO_MCP_SYSTEM_PROMPT,
-      "--extension",
-      launch?.extensionPaths?.[0],
     ]);
     await expect(session.getAvailableModes()).resolves.toEqual(OMP_MODES);
     await expect(session.getCurrentMode()).resolves.toBe("ask");
@@ -502,8 +500,6 @@ describe("OMP RPC agent", () => {
       "medium",
       "--append-system-prompt",
       OMP_PASEO_MCP_SYSTEM_PROMPT,
-      "--extension",
-      launch?.extensionPaths?.[0],
     ]);
   });
 
@@ -559,8 +555,6 @@ describe("OMP RPC agent", () => {
       OMP_PASEO_MCP_SYSTEM_PROMPT,
       "--mcp-config",
       launch?.mcpConfigPath,
-      "--extension",
-      launch?.extensionPaths?.[0],
     ]);
     expect(session.capabilities.supportsMcpServers).toBe(true);
 
@@ -659,7 +653,7 @@ describe("OMP RPC agent", () => {
     await waitFor(() => fakeSession.rawFrames.length === 2);
     expect(calls).toEqual([
       {
-        input: { initialPrompt: "Inspect the bug" },
+        input: { initialPrompt: "Inspect the bug", notifyOnFinish: false },
         signal: expect.any(AbortSignal),
       },
     ]);
@@ -1191,6 +1185,67 @@ describe("OMP RPC agent", () => {
     ]);
   });
 
+  test("correlates prompt_result IDs and flushes buffered output before completion", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    fakeSession.promptAck = { requestId: "prompt-1" };
+
+    await session.startTurn("/local command");
+    await waitFor(() => fakeSession.prompts.length === 1);
+    fakeSession.emit({ type: "command_output", text: "first\n" });
+    fakeSession.emit({ type: "prompt_result", id: "stale", agentInvoked: false });
+    await Promise.resolve();
+    expect(events.timelineAndCompletionEvents()).toEqual([]);
+
+    fakeSession.emit({ type: "command_output", text: "second\n" });
+    fakeSession.emit({ type: "prompt_result", id: "prompt-1", agentInvoked: false });
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+
+    expect(events.timelineAndCompletionEvents()).toEqual([
+      { type: "timeline", item: { type: "user_message", text: "/local command" } },
+      { type: "timeline", item: { type: "assistant_message", text: "first" } },
+      { type: "timeline", item: { type: "assistant_message", text: "second" } },
+      { type: "turn_completed" },
+    ]);
+  });
+
+  test("sends steer and follow-up out-of-band without starting a turn", async () => {
+    const { pi, session } = await createSession();
+    const steer = session.tryHandleOutOfBand?.("/steer correct the active work");
+    const followUp = session.tryHandleOutOfBand?.("/follow-up verify the result");
+    if (!steer || !followUp) {
+      throw new Error("Expected OMP out-of-band handlers");
+    }
+
+    await steer.run({ emit: () => undefined });
+    await followUp.run({ emit: () => undefined });
+
+    expect(pi.latestSession().prompts).toEqual([]);
+    expect(pi.latestSession().rawFrames).toEqual([
+      { type: "steer", message: "correct the active work" },
+      { type: "follow_up", message: "verify the result" },
+    ]);
+  });
+
+  test("persists open_url as client-visible Markdown without requesting permission", async () => {
+    const { pi, events } = await createSession();
+    pi.latestSession().emit({
+      type: "extension_ui_request",
+      id: "oauth",
+      method: "open_url",
+      url: "https://auth.example/start",
+      launchUrl: "https://auth.example/launch",
+      instructions: "Complete sign-in in your browser.",
+    });
+
+    expect(events.timelineItems()).toContainEqual({
+      type: "assistant_message",
+      text: "[Open URL](https://auth.example/start)\nURL: https://auth.example/start\nLaunch URL: https://auth.example/launch\n\nComplete sign-in in your browser.",
+    });
+  });
+
   test("coalesces live subagent poll calls by target set", async () => {
     const { pi, events } = await createSession();
     const fakeSession = pi.latestSession();
@@ -1325,6 +1380,13 @@ describe("OMP RPC agent", () => {
           subAgentType: "task",
           description: "Run echo in subagent",
           childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+          children: [
+            {
+              sessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+              label: "task — Run echo in subagent",
+              status: "running",
+            },
+          ],
           log: "EchoSubagent started",
         },
         error: null,
@@ -1339,6 +1401,13 @@ describe("OMP RPC agent", () => {
           subAgentType: "task",
           description: "Run echo in subagent",
           childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+          children: [
+            {
+              sessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+              label: "task — Run echo in subagent",
+              status: "running",
+            },
+          ],
           log: "EchoSubagent started\n[bash] echo subagent-hi",
         },
         error: null,
@@ -1346,9 +1415,9 @@ describe("OMP RPC agent", () => {
     ]);
   });
 
-  test("ignores subagent card updates whose parent task tool call is unknown", async () => {
+  test("uses the native session name as title instead of the lifecycle UUID", async () => {
     const { pi, events } = await createSession();
-    const lifecycle = readSubagentLifecycleFixture();
+    const lifecycle = { ...readSubagentLifecycleFixture(), id: "019f5ce9-affa-7000-test" };
 
     pi.latestSession().emit({
       type: "subagent_lifecycle",
@@ -1362,7 +1431,11 @@ describe("OMP RPC agent", () => {
         provider: "omp",
         childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
         status: "running",
-        title: "Run echo in subagent",
+        ownership: { owner: "provider" },
+        nativeChildId: lifecycle.id,
+        parentToolCallId: lifecycle.parentToolCallId,
+        childIndex: lifecycle.index,
+        title: "EchoSubagent",
       },
     ]);
   });

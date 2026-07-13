@@ -342,4 +342,21 @@ describe("selectSubagentsForParent", () => {
       ),
     );
   });
+  it("marks provider-owned children as non-detachable", () => {
+    setAgents([
+      makeAgent({
+        id: "child",
+        parentAgentId: "parent",
+        providerChildOwnership: { owner: "provider" },
+      }),
+    ]);
+
+    const rows = selectSubagentsForParent(
+      useSessionStore.getState(),
+      { serverId: SERVER_ID, parentAgentId: "parent" },
+      EMPTY_PENDING_ARCHIVE_IDS,
+    );
+
+    expect(rows[0]?.canDetach).toBe(false);
+  });
 });

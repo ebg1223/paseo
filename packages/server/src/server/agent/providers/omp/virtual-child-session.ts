@@ -1,3 +1,6 @@
+import { access, readFile, readdir } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import path from "node:path";
 import type { Logger } from "pino";
 
 import type {
@@ -24,6 +27,7 @@ import type {
 import { PiHistoryMapper, streamPiHistory } from "../pi-shared/history-mapper.js";
 import type { PiRuntimeSession } from "../pi-shared/runtime.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import { streamOmpHistory } from "./history.js";
 import type { OmpSubagentMessagesResult } from "./rpc-types.js";
 import { asOmpRuntimeSession } from "./runtime.js";
 import type {
@@ -77,6 +81,10 @@ export class OmpVirtualChildSession implements AgentSession {
   private promotionError: Error | null = null;
   private hasAttachedSubscriber = false;
   private lastReportedLiveModel: string | null = null;
+  private released = false;
+  private turnEnded = false;
+  private resumable = false;
+  private nonResumableReason = "Pi subagent is still owned by its parent session";
 
   constructor(options: OmpVirtualChildSessionOptions) {
     this.provider = options.provider;
@@ -94,15 +102,18 @@ export class OmpVirtualChildSession implements AgentSession {
 
     const initialEvents = this.mapNewEvents(options.initialMessages.messages, { reset: false });
     this.initialTimeline = collectTimeline(initialEvents);
-    this.unsubscribeIndex = options.index.subscribe(options.sessionFile, (event) => {
-      this.handleIndexEvent(event);
-    });
-    if (options.index.get(options.sessionFile)) {
+    this.unsubscribeIndex = options.index.subscribe(
+      options.parentRuntime,
+      options.sessionFile,
+      (event) => this.handleIndexEvent(event),
+    );
+    if (
+      options.index.getForParent(options.parentRuntime, options.sessionFile)?.ownership ===
+      "provider"
+    ) {
       this.emit({ type: "turn_started", provider: this.provider });
     } else {
-      // The subagent went terminal between the import-time liveness check and
-      // this subscription; no index event will arrive, so promote directly.
-      void this.promoteAfterTerminal();
+      void this.handleRelease();
     }
   }
 
@@ -117,11 +128,10 @@ export class OmpVirtualChildSession implements AgentSession {
   getInitialTimeline(): ImportedTimelineEntry[] {
     return this.initialTimeline;
   }
-
   async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
-    const delegate = await this.promotedDelegate();
-    if (delegate) {
-      return await delegate.run(prompt, options);
+    await this.promoteAfterRelease();
+    if (this.delegate) {
+      return await this.delegate.run(prompt, options);
     }
     throw this.readOnlyError();
   }
@@ -130,9 +140,9 @@ export class OmpVirtualChildSession implements AgentSession {
     prompt: AgentPromptInput,
     options?: AgentRunOptions,
   ): Promise<{ turnId: string }> {
-    const delegate = await this.promotedDelegate();
-    if (delegate) {
-      return await delegate.startTurn(prompt, options);
+    await this.promoteAfterRelease();
+    if (this.delegate) {
+      return await this.delegate.startTurn(prompt, options);
     }
     throw this.readOnlyError();
   }
@@ -153,9 +163,12 @@ export class OmpVirtualChildSession implements AgentSession {
   }
 
   async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
-    const delegate = await this.promotedDelegate();
-    if (delegate) {
-      yield* delegate.streamHistory();
+    if (this.delegate) {
+      yield* this.delegate.streamHistory();
+      return;
+    }
+    if (this.released) {
+      yield* streamOmpHistory({ sessionFile: this.sessionFile, provider: this.provider });
       return;
     }
     const result = await asOmpRuntimeSession(this.parentRuntime).getSubagentMessages({
@@ -299,19 +312,51 @@ export class OmpVirtualChildSession implements AgentSession {
     return this.delegate?.tryHandleOutOfBand?.(prompt) ?? null;
   }
 
-  private handleIndexEvent(event: OmpSubagentIndexEvent): void {
+  private handleIndexEvent(event: OmpSubagentIndexEvent): void | Promise<void> {
     if (event.type === "progress") {
       this.reportLiveModelIfChanged(event.entry.model ?? null);
       void this.queueFetch();
       return;
     }
-    // Close the turn before promotion so the child never keeps a stale
-    // spinner if resuming the standalone session fails.
-    this.emitTurnEnd(event.status);
-    void this.promoteAfterTerminal();
+    if (event.type === "released") {
+      return this.handleRelease(event.entry.releaseClassification);
+    }
+    void this.finishTerminal(event.status);
+  }
+
+  private async finishTerminal(status: OmpTerminalSubagentStatus): Promise<void> {
+    await this.queueFetch();
+    if (!this.closed) {
+      this.emitTurnEnd(status);
+    }
+  }
+
+  private async handleRelease(classification?: {
+    resumable: boolean;
+    reason: string;
+  }): Promise<void> {
+    if (this.released) {
+      return;
+    }
+    await this.queueFetch();
+    const resolvedClassification =
+      classification ?? (await classifyReleasedOmpChild(this.sessionFile, this.config.cwd));
+    this.released = true;
+    this.resumable = resolvedClassification.resumable;
+    this.nonResumableReason = resolvedClassification.reason;
+    if (!this.closed && !this.turnEnded) {
+      this.turnEnded = true;
+      this.emit({
+        type: "turn_canceled",
+        provider: this.provider,
+        reason: "OMP parent session exited",
+      });
+    }
+    this.unsubscribeIndex();
   }
 
   private emitTurnEnd(status: OmpTerminalSubagentStatus): void {
+    this.turnEnded = true;
     if (status === "failed") {
       this.emit({ type: "turn_failed", provider: this.provider, error: "Pi subagent failed" });
       return;
@@ -355,17 +400,20 @@ export class OmpVirtualChildSession implements AgentSession {
     this.emitMappedEvents(this.mapNewEvents(result.messages, { reset: result.reset }));
   }
 
-  private async promoteAfterTerminal(): Promise<void> {
-    if (this.promotionPromise) {
-      await this.promotionPromise;
+  private async promoteAfterRelease(): Promise<void> {
+    if (!this.released || !this.resumable || this.delegate) {
       return;
     }
-    this.promotionPromise = this.promoteOnce();
+    if (!this.promotionPromise) {
+      this.promotionPromise = this.promoteOnce();
+    }
     await this.promotionPromise;
   }
 
   private async promoteOnce(): Promise<void> {
-    await this.queueFetch();
+    if (!this.released || !this.resumable) {
+      return;
+    }
     if (this.closed || this.delegate) {
       return;
     }
@@ -389,10 +437,10 @@ export class OmpVirtualChildSession implements AgentSession {
   }
 
   private async promotedDelegate(): Promise<AgentSession | null> {
-    if (this.promotionPromise) {
-      await this.promotionPromise;
+    if (this.delegate) {
+      return this.delegate;
     }
-    return this.delegate;
+    return null;
   }
 
   private mapNewEvents(
@@ -426,12 +474,18 @@ export class OmpVirtualChildSession implements AgentSession {
   }
 
   private readOnlyError(): Error {
+    if (!this.released) {
+      return new Error("Pi subagent is driven by its parent session until it finishes");
+    }
+    if (!this.resumable) {
+      return new Error(`Pi subagent is read-only: ${this.nonResumableReason}`);
+    }
     if (this.promotionError) {
       return new Error(
-        `Pi subagent finished, but Paseo could not resume it as a standalone session: ${this.promotionError.message}`,
+        `Pi subagent was released, but Paseo could not resume it: ${this.promotionError.message}`,
       );
     }
-    return new Error("Pi subagent is driven by its parent session until it finishes");
+    return new Error("Pi subagent is released and can be resumed by sending a prompt");
   }
 
   private liveRuntimeInfo(): AgentRuntimeInfo {
@@ -477,4 +531,132 @@ function collectTimeline(events: readonly AgentStreamEvent[]): ImportedTimelineE
       },
     ];
   });
+}
+
+export async function classifyReleasedOmpChild(
+  sessionFile: string,
+  expectedCwd?: string,
+): Promise<{ resumable: boolean; reason: string }> {
+  let content: string;
+  try {
+    content = await readFile(sessionFile, "utf8");
+  } catch {
+    return { resumable: false, reason: "session transcript is missing" };
+  }
+  const records = content
+    .split("\n")
+    .slice(0, 2_000)
+    .flatMap((line) => {
+      try {
+        const value = JSON.parse(line) as unknown;
+        return value && typeof value === "object" && !Array.isArray(value)
+          ? [value as Record<string, unknown>]
+          : [];
+      } catch {
+        return [];
+      }
+    });
+  const header = records.find(
+    (record) =>
+      record.type === "session" && typeof record.id === "string" && typeof record.cwd === "string",
+  );
+  const init = records.find((record) => record.type === "session_init");
+  if (!header || !init) {
+    return { resumable: false, reason: "session transcript has no resumable contract" };
+  }
+  if (init.isolated === true || init.resumable === false) {
+    return { resumable: false, reason: "session is isolated or non-resumable" };
+  }
+  const cwd = header.cwd as string;
+  if (expectedCwd && cwd !== expectedCwd) {
+    return { resumable: false, reason: "session uses an isolated workspace" };
+  }
+  try {
+    await access(cwd);
+  } catch {
+    return { resumable: false, reason: "session workspace is missing" };
+  }
+  return { resumable: true, reason: "" };
+}
+
+export interface ReleasedOmpHistoricalChild {
+  sessionFile: string;
+  parentSessionFile: string;
+  nativeChildId: string;
+  ownership: { owner: "none"; resumable: false; reason: string };
+}
+
+export async function discoverReleasedOmpHistoricalChildren(
+  parentSessionFile: string,
+  expectedCwd?: string,
+): Promise<ReleasedOmpHistoricalChild[]> {
+  const root = parentSessionFile.slice(0, -path.extname(parentSessionFile).length);
+  const parentDescriptor = await readReleasedDescriptor(parentSessionFile);
+  const classifiedCwd = expectedCwd ?? parentDescriptor?.cwd;
+  const discovered: ReleasedOmpHistoricalChild[] = [];
+  const visit = async (directory: string, parentFile: string): Promise<void> => {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        continue;
+      }
+      if (!entry.isFile() || path.extname(entry.name) !== ".jsonl") {
+        continue;
+      }
+      const descriptor = await readReleasedDescriptor(entryPath);
+      if (!descriptor) {
+        continue;
+      }
+      const classification = await classifyReleasedOmpChild(entryPath, classifiedCwd);
+      discovered.push({
+        sessionFile: entryPath,
+        parentSessionFile: parentFile,
+        nativeChildId: descriptor.id,
+        ownership: {
+          owner: "none",
+          resumable: false,
+          reason: classification.reason || "historical child transcripts are read-only",
+        },
+      });
+      const nestedRoot = entryPath.slice(0, -path.extname(entryPath).length);
+      await visit(nestedRoot, entryPath);
+    }
+  };
+  await visit(root, parentSessionFile);
+  return discovered;
+}
+
+async function readReleasedDescriptor(
+  sessionFile: string,
+): Promise<{ id: string; cwd: string } | null> {
+  let content: string;
+  try {
+    content = await readFile(sessionFile, "utf8");
+  } catch {
+    return null;
+  }
+  for (const line of content.split("\n").slice(0, 2_000)) {
+    try {
+      const value = JSON.parse(line) as Record<string, unknown>;
+      if (
+        value.type === "session" &&
+        typeof value.id === "string" &&
+        typeof value.cwd === "string"
+      ) {
+        return { id: value.id, cwd: value.cwd };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }

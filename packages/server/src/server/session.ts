@@ -2869,7 +2869,7 @@ export class Session {
     msg: Extract<SessionInboundMessage, { type: "agent.rewind.request" }>,
   ): Promise<void> {
     try {
-      await this.agentManager.rewind(msg.agentId, msg.messageId, msg.mode);
+      const result = await this.agentManager.rewind(msg.agentId, msg.messageId, msg.mode);
       this.emit({
         type: "agent.rewind.response",
         payload: {
@@ -2877,6 +2877,9 @@ export class Session {
           agentId: msg.agentId,
           ok: true,
           error: null,
+          ...(result?.restoredPrompt !== undefined
+            ? { restoredPrompt: result.restoredPrompt }
+            : {}),
         },
       });
     } catch (error) {

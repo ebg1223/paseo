@@ -33,7 +33,7 @@ export function useRewindAgentMutation(input: UseRewindAgentMutationInput): {
       if (!input.client || !input.agentId || !input.messageId) {
         throw new Error(t("common.errors.daemonClientUnavailable"));
       }
-      await input.client.rewindAgent(input.agentId, input.messageId, mode);
+      const result = await input.client.rewindAgent(input.agentId, input.messageId, mode);
       if (mode !== "files") {
         if (input.serverId) {
           const session = useSessionStore.getState().sessions[input.serverId];
@@ -53,12 +53,13 @@ export function useRewindAgentMutation(input: UseRewindAgentMutationInput): {
           ...(cursor ? { cursor: { epoch: cursor.epoch, seq: cursor.endSeq } } : {}),
         });
       }
+      return result.restoredPrompt;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (restoredPrompt, variables) => {
       if (!shouldRestoreComposerForRewindMode(variables.mode)) {
         return;
       }
-      composerRestore?.restoreTextIfComposerEmpty(variables.rewoundText);
+      composerRestore?.restoreTextIfComposerEmpty(restoredPrompt ?? variables.rewoundText);
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : t("rewind.errors.failed"));

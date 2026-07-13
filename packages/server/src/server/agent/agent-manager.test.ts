@@ -3271,6 +3271,48 @@ test("detachAgent removes the parent label from a stored-only agent", async () =
   expect((await storage.get(child.id))?.labels).toEqual({ role: "reviewer" });
 });
 
+test.each([
+  [
+    "live",
+    { "paseo.provider-child-owner": "provider", "paseo.provider-child-resumable": "false" },
+    "Provider-owned child sessions cannot be detached",
+  ],
+  [
+    "stored",
+    {
+      "paseo.provider-child-owner": "none",
+      "paseo.provider-child-resumable": "false",
+      "paseo.provider-child-reason": "Provider exited",
+    },
+    "Provider exited",
+  ],
+])(
+  "detachAgent rejects %s restricted child ownership",
+  async (location, ownershipLabels, message) => {
+    const workdir = mkdtempSync(join(tmpdir(), "agent-manager-detach-ownership-"));
+    const storage = new AgentStorage(join(workdir, "agents"), logger);
+    const manager = new AgentManager({
+      clients: { codex: new TestAgentClient() },
+      registry: storage,
+      logger,
+    });
+    const child = await manager.createAgent(
+      { provider: "codex", cwd: workdir, title: "Restricted child" },
+      undefined,
+      {
+        labels: { [PARENT_AGENT_ID_LABEL]: "parent", ...ownershipLabels },
+        workspaceId: undefined,
+      },
+    );
+    if (location === "stored") {
+      await manager.closeAgent(child.id);
+    }
+
+    await expect(manager.detachAgent(child.id)).rejects.toThrow(message);
+    expect((await storage.get(child.id))?.labels?.[PARENT_AGENT_ID_LABEL]).toBe("parent");
+  },
+);
+
 test("archiveAgent does not cascade to a detached former child", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-detach-cascade-"));
   const storagePath = join(workdir, "agents");

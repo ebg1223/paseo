@@ -7,6 +7,7 @@ export interface PiImageContent {
 }
 
 export interface PiPromptAck {
+  requestId?: string;
   agentInvoked?: boolean;
 }
 
@@ -118,6 +119,7 @@ export interface PiRpcSlashCommand {
   description?: string;
   source: "extension" | "prompt" | "skill";
   sourceInfo?: Record<string, unknown>;
+  input?: { hint?: string };
 }
 
 export type PiRpcCommand =

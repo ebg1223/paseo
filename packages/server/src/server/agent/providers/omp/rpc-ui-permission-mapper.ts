@@ -109,17 +109,18 @@ function parseToolApprovalDescriptor(
     return null;
   }
 
-  const lines = title.split(/\r?\n/);
-  const firstLine = lines[0]?.trim();
-  if (!firstLine?.startsWith(TOOL_TITLE_PREFIX)) {
+  const firstLineBreak = title.search(/\r?\n/);
+  const firstLine = (firstLineBreak < 0 ? title : title.slice(0, firstLineBreak)).trim();
+  if (!firstLine.startsWith(TOOL_TITLE_PREFIX)) {
     return null;
   }
   const rawToolName = firstLine.slice(TOOL_TITLE_PREFIX.length).trim();
-  const bodyLines = lines.slice(1);
+  const body = firstLineBreak < 0 ? "" : title.slice(firstLineBreak).replace(/^\r?\n/, "");
+  const bodyLines = body.split(/\r?\n/);
 
   switch (rawToolName) {
     case "bash":
-      return parseBashApproval(bodyLines);
+      return parseBashApproval(body);
     case "edit":
       return parseEditApproval(bodyLines);
     case "write":
@@ -129,8 +130,9 @@ function parseToolApprovalDescriptor(
   }
 }
 
-function parseBashApproval(lines: string[]): ToolApprovalDescriptor | null {
-  const command = readPrefixedValue(lines, "Command:");
+function parseBashApproval(body: string): ToolApprovalDescriptor | null {
+  const match = /(?:^|\r?\n)[\t ]*Command:[\t ]?(.*)$/s.exec(body);
+  const command = match?.[1];
   if (!command) {
     return null;
   }

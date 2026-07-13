@@ -30,6 +30,7 @@ export interface RecordedRewind {
 export class FakeRewindSession implements AgentSession {
   readonly provider: AgentProvider = "claude";
   readonly id = "fake-rewind-session";
+  persistenceSessionId = "fake-rewind-session";
   readonly capabilities = REWIND_TEST_CAPABILITIES;
   readonly recordedRewinds: RecordedRewind[] = [];
   aborted = false;
@@ -42,7 +43,7 @@ export class FakeRewindSession implements AgentSession {
   constructor(private readonly waitBeforeHistory?: () => Promise<void>) {}
 
   async run(): Promise<AgentRunResult> {
-    return { sessionId: this.id, finalText: "", timeline: [] };
+    return { sessionId: this.persistenceSessionId, finalText: "", timeline: [] };
   }
 
   async startTurn(): Promise<{ turnId: string }> {
@@ -68,7 +69,7 @@ export class FakeRewindSession implements AgentSession {
   }
 
   async getRuntimeInfo() {
-    return { provider: this.provider, sessionId: this.id };
+    return { provider: this.provider, sessionId: this.persistenceSessionId };
   }
 
   async getAvailableModes() {
@@ -91,7 +92,7 @@ export class FakeRewindSession implements AgentSession {
   ): Promise<void> {}
 
   describePersistence(): AgentPersistenceHandle {
-    return { provider: this.provider, sessionId: this.id };
+    return { provider: this.provider, sessionId: this.persistenceSessionId };
   }
 
   async interrupt(): Promise<void> {
@@ -107,6 +108,7 @@ export class FakeRewindSession implements AgentSession {
 
   async revertConversation(input: { messageId: string }): Promise<void> {
     this.recordedRewinds.push({ mode: "conversation", messageId: input.messageId });
+    this.persistenceSessionId = "rewound-session";
   }
 
   async revertFiles(input: { messageId: string }): Promise<void> {
@@ -115,6 +117,7 @@ export class FakeRewindSession implements AgentSession {
 
   async revertBoth(input: { messageId: string }): Promise<void> {
     this.recordedRewinds.push({ mode: "both", messageId: input.messageId });
+    this.persistenceSessionId = "rewound-session";
   }
 
   private emit(event: AgentStreamEvent): void {

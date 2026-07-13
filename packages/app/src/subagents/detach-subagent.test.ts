@@ -150,4 +150,23 @@ describe("requestDetachSubagent", () => {
     expect(env.recordedErrors).toEqual([error]);
     expect(env.recordedOpens).toEqual([]);
   });
+  it("blocks provider-owned children before confirmation", async () => {
+    const env = createFakeEnv({
+      confirmResult: true,
+      initialSubagents: [
+        {
+          id: "child-agent",
+          snapshot: { title: "Review branch", providerChildOwnership: { owner: "provider" } },
+        },
+      ],
+    });
+
+    await requestDetachSubagent({ serverId: "server-1", subagentId: "child-agent" }, env.deps);
+
+    expect(env.recordedConfirmInputs).toEqual([]);
+    expect(env.recordedDetaches).toEqual([]);
+    expect(env.recordedErrors[0]).toEqual(
+      new Error("Provider-owned child sessions cannot be detached"),
+    );
+  });
 });

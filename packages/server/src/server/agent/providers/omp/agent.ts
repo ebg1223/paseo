@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, extname, join, resolve } from "node:path";
 import type { Logger } from "pino";
 import { z } from "zod";
 import { OMP_MODES } from "@getpaseo/protocol/provider-manifest";
@@ -8,8 +11,13 @@ import type {
   AgentPersistenceHandle,
   AgentSessionConfig,
   AgentStreamEvent,
+  ImportedTimelineEntry,
 } from "../../agent-sdk-types.js";
 import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
+import {
+  checkProviderLaunchAvailable,
+  resolveProviderLaunch,
+} from "../../provider-launch-config.js";
 import {
   PiProviderParamsSchema,
   PiRpcAgentClient as SharedPiRpcAgentClient,
@@ -25,8 +33,10 @@ import {
   OMP_HANDLED_BUILTIN_SLASH_COMMANDS,
 } from "./commands.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import { streamOmpHistory } from "./history.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
 import { filterOmpImportableSessionFiles } from "./session-import-filter.js";
+import { OmpReleasedSession } from "./released-session.js";
 import { asOmpRuntimeSession } from "./runtime.js";
 import { mapOmpRuntimeEventToTimelineItem } from "./event-mapper.js";
 import {
@@ -42,11 +52,21 @@ import type {
 import { OmpSubagentIndex, isTerminalOmpSubagentStatus } from "./subagent-index.js";
 import { mapOmpToolDetail } from "./tool-call-mapper.js";
 import { mapOmpUsage } from "./usage-mapper.js";
-import { OmpVirtualChildSession } from "./virtual-child-session.js";
+import {
+  OmpVirtualChildSession,
+  classifyReleasedOmpChild,
+  discoverReleasedOmpHistoricalChildren,
+} from "./virtual-child-session.js";
 import {
   buildOmpRpcUiPermissionResponse,
   mapOmpRpcUiPermissionRequest,
 } from "./rpc-ui-permission-mapper.js";
+import {
+  buildBinaryDiagnosticRows,
+  buildCommandResolutionDiagnosticRows,
+  formatProviderDiagnostic,
+  formatProviderDiagnosticError,
+} from "../diagnostic-utils.js";
 
 const OMP_PROVIDER = "omp";
 const OMP_SESSION_DIR = "~/.omp/agent/sessions";
@@ -112,33 +132,158 @@ export interface OmpRpcAgentClientOptions extends Omit<PiRpcAgentClientOptions, 
   subagentCardScheduler?: OmpSubagentCardScheduler;
 }
 
+export interface OmpDiagnosticPaths {
+  profile: string;
+  configRoot: string;
+  agentDir: string;
+  agentDb: string;
+  xdgDataRoot: string;
+  xdgStateRoot: string;
+  xdgCacheRoot: string;
+}
+
+export function resolveOmpDiagnosticPaths(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): OmpDiagnosticPaths {
+  const rawProfile = env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE;
+  const normalizedProfile = rawProfile?.trim();
+  const profile =
+    normalizedProfile && normalizedProfile !== "default" ? normalizedProfile : "default";
+  const baseConfigRoot = join(home, env.PI_CONFIG_DIR || ".omp");
+  const configRoot =
+    profile === "default" ? baseConfigRoot : join(baseConfigRoot, "profiles", profile);
+  const defaultAgentDir = join(configRoot, "agent");
+  const agentDir =
+    profile === "default" && env.PI_CODING_AGENT_DIR
+      ? resolve(env.PI_CODING_AGENT_DIR)
+      : defaultAgentDir;
+  const xdgSupported = platform === "linux" || platform === "darwin";
+  const resolveXdgRoot = (variable: "XDG_DATA_HOME" | "XDG_STATE_HOME" | "XDG_CACHE_HOME") => {
+    const base = env[variable];
+    if (!xdgSupported || agentDir !== defaultAgentDir || !base) {
+      return undefined;
+    }
+    const appRoot = join(base, "omp");
+    const candidate = profile === "default" ? appRoot : join(appRoot, "profiles", profile);
+    return existsSync(candidate) ? candidate : undefined;
+  };
+  const xdgDataRoot = resolveXdgRoot("XDG_DATA_HOME") ?? configRoot;
+  const xdgStateRoot = resolveXdgRoot("XDG_STATE_HOME") ?? configRoot;
+  const xdgCacheRoot = resolveXdgRoot("XDG_CACHE_HOME") ?? configRoot;
+
+  return {
+    profile,
+    configRoot,
+    agentDir,
+    agentDb: join(xdgDataRoot === configRoot ? agentDir : xdgDataRoot, "agent.db"),
+    xdgDataRoot,
+    xdgStateRoot,
+    xdgCacheRoot,
+  };
+}
+
+export function formatOmpVersionSupport(versionOutput: string): string {
+  const match = versionOutput.match(/(\d+)\.(\d+)\.(\d+)\b/);
+  if (!match) {
+    return `unknown (minimum ${MIN_SUPPORTED_OMP_VERSION})`;
+  }
+  const installed = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const minimum = MIN_SUPPORTED_OMP_VERSION.split(".").map(Number);
+  const supported =
+    installed[0]! > minimum[0]! ||
+    (installed[0] === minimum[0] &&
+      (installed[1]! > minimum[1]! ||
+        (installed[1] === minimum[1]! && installed[2]! >= minimum[2]!)));
+  return `${match[1]}.${match[2]}.${match[3]} (${supported ? "supported" : "unsupported"}; minimum ${MIN_SUPPORTED_OMP_VERSION})`;
+}
+
 export class OmpRpcAgentClient extends SharedPiRpcAgentClient {
+  private readonly ompRuntimeSettings?: ProviderRuntimeSettings;
+  private readonly diagnosticLogger: Logger;
+
   constructor(options: OmpRpcAgentClientOptions) {
     const subagentIndex = new OmpSubagentIndex();
-    const subagentSessionFilesById = new Map<string, string>();
+    const subagentSessionFilesByRuntime = new WeakMap<PiRuntimeSession, Map<string, string>>();
     const { sharedProviderParams, modelRoleParams } = resolveOmpProviderParams(
       options.providerParams,
+    );
+    const runtimeSettings = mergeRuntimeSettings(
+      {
+        command: {
+          mode: "replace",
+          argv: ["omp"],
+        },
+      },
+      options.runtimeSettings,
     );
     super({
       ...options,
       providerParams: sharedProviderParams,
-      runtimeSettings: mergeRuntimeSettings(
-        {
-          command: {
-            mode: "replace",
-            argv: ["omp"],
-          },
-        },
-        options.runtimeSettings,
-      ),
+      runtimeSettings,
       dialect: createOmpDialect(
         subagentIndex,
-        subagentSessionFilesById,
+        subagentSessionFilesByRuntime,
         options.logger,
         options.subagentCardScheduler,
         modelRoleParams,
       ),
     });
+    this.ompRuntimeSettings = runtimeSettings;
+    this.diagnosticLogger = options.logger;
+  }
+
+  override async getDiagnostic(): Promise<{ diagnostic: string }> {
+    try {
+      const launch = await resolveProviderLaunch({
+        commandConfig: this.ompRuntimeSettings?.command,
+        defaultBinary: "omp",
+      });
+      const availability = await checkProviderLaunchAvailable(launch);
+      const binaryRows = await buildBinaryDiagnosticRows(launch, availability, {
+        versionCommand: {
+          command: availability.resolvedPath ?? launch.command,
+          args: [...launch.args, "--version"],
+          env: this.ompRuntimeSettings?.env,
+        },
+      });
+      const version = binaryRows.find((row) => row.label === "Version")?.value ?? "unknown";
+      const env = { ...process.env, ...this.ompRuntimeSettings?.env };
+      const paths = resolveOmpDiagnosticPaths(env);
+      const bunVersion =
+        (process.versions as NodeJS.ProcessVersions & { bun?: string }).bun ?? "unavailable";
+
+      return {
+        diagnostic: formatProviderDiagnostic("Oh My Pi (OMP)", [
+          ...(await buildCommandResolutionDiagnosticRows(launch, {
+            knownBinaryNames: ["omp", launch.command],
+            pathValue: env.PATH ?? env.Path,
+          })),
+          ...binaryRows,
+          { label: "Version support", value: formatOmpVersionSupport(version) },
+          { label: "Active profile", value: paths.profile },
+          { label: "Config root", value: paths.configRoot },
+          { label: "Agent directory", value: paths.agentDir },
+          {
+            label: "Agent database",
+            value: `${paths.agentDb} (${existsSync(paths.agentDb) ? "found" : "not found"})`,
+          },
+          { label: "XDG data root", value: paths.xdgDataRoot },
+          { label: "XDG state root", value: paths.xdgStateRoot },
+          { label: "XDG cache root", value: paths.xdgCacheRoot },
+          {
+            label: "Bun runtime",
+            value: `${bunVersion}; npm-installed OMP requires Bun >= 1.3.14`,
+          },
+        ]),
+      };
+    } catch (error) {
+      this.diagnosticLogger.debug({ err: error }, "OMP diagnostic lookup failed");
+      return {
+        diagnostic: formatProviderDiagnosticError("Oh My Pi (OMP)", error),
+      };
+    }
   }
 }
 
@@ -166,7 +311,7 @@ function readOmpModelRoleParams(params: OmpProviderParams): OmpModelRoleParams {
 
 function createOmpDialect(
   subagentIndex: OmpSubagentIndex,
-  subagentSessionFilesById: Map<string, string>,
+  subagentSessionFilesByRuntime: WeakMap<PiRuntimeSession, Map<string, string>>,
   logger: Logger,
   subagentCardScheduler: OmpSubagentCardScheduler | undefined,
   modelRoleParams: OmpModelRoleParams,
@@ -176,6 +321,7 @@ function createOmpDialect(
     Extract<AgentTimelineItem, { type: "todo" }>
   >();
   const subagentCardTrackers = new WeakMap<PiRuntimeSession, OmpSubagentCardTracker>();
+  const historicalSubagentSessionFiles = new Set<string>();
   const subagentCardTrackerFor = (runtimeSession: PiRuntimeSession): OmpSubagentCardTracker => {
     const existing = subagentCardTrackers.get(runtimeSession);
     if (existing) {
@@ -188,6 +334,9 @@ function createOmpDialect(
   const clearSubagentCardTracker = (runtimeSession: PiRuntimeSession): void => {
     subagentCardTrackers.get(runtimeSession)?.clear();
     subagentCardTrackers.delete(runtimeSession);
+  };
+  const releaseChildren = async (runtimeSession: PiRuntimeSession): Promise<void> => {
+    await subagentIndex.releaseParent(runtimeSession);
   };
   return {
     providerId: OMP_PROVIDER,
@@ -207,9 +356,46 @@ function createOmpDialect(
         "OMP approval mode is set when the agent launches. Start a new OMP session to use a different mode.",
     }),
     defaultSessionDir: OMP_SESSION_DIR,
+    usePaseoExtension: false,
+    streamHistory: ({ state, provider, runtimeSession }) =>
+      streamOmpHistory({ sessionFile: state.sessionFile, provider, runtimeSession }),
+    resolveUserMessageId: async ({ runtimeSession, text }) => {
+      const messages = await asOmpRuntimeSession(runtimeSession).getBranchMessages();
+      return messages.toReversed().find((message) => message.text === text)?.entryId;
+    },
+    rewindConversation: async ({ runtimeSession, messageId }) => {
+      const target = messageId.trim();
+      if (!target) {
+        throw new Error("OMP rewind requires a user message id");
+      }
+      const result = await asOmpRuntimeSession(runtimeSession).branch(target);
+      return { restoredPrompt: result.text };
+    },
     ...OMP_HISTORY_MAPPER_HOOKS,
     handledBuiltinSlashCommands: OMP_HANDLED_BUILTIN_SLASH_COMMANDS,
     mapSlashCommands: mapOmpRuntimeSlashCommands,
+    promptResultIsAuthoritative: true,
+    sendOutOfBandPrompt: (runtimeSession, kind, message) => {
+      const ompSession = asOmpRuntimeSession(runtimeSession);
+      if (kind === "steer") {
+        ompSession.steer(message);
+      } else {
+        ompSession.followUp(message);
+      }
+    },
+    mapExtensionUiSideEffect: (event) => {
+      if (event.method !== "open_url" || typeof event.url !== "string") {
+        return null;
+      }
+      const lines = [`[Open URL](${event.url})`, `URL: ${event.url}`];
+      if (typeof event.launchUrl === "string") {
+        lines.push(`Launch URL: ${event.launchUrl}`);
+      }
+      if (typeof event.instructions === "string") {
+        lines.push("", event.instructions);
+      }
+      return { type: "assistant_message", text: lines.join("\n") };
+    },
     mapExtensionUiRequestToPermission: (event) =>
       mapOmpRpcUiPermissionRequest(event, { provider: OMP_PROVIDER }),
     buildExtensionUiResponse: buildOmpRpcUiPermissionResponse,
@@ -236,8 +422,9 @@ function createOmpDialect(
     notifyTitleChanged: async ({ runtimeSession, title }) => {
       await asOmpRuntimeSession(runtimeSession).setSessionName(title);
     },
+    beforeSessionClose: releaseChildren,
+    onSessionProcessExit: releaseChildren,
     onSessionClose: (runtimeSession) => {
-      subagentIndex.clearParent(runtimeSession);
       clearOmpHostToolState(runtimeSession);
       clearSubagentCardTracker(runtimeSession);
     },
@@ -263,7 +450,9 @@ function createOmpDialect(
           context.runtimeSession,
           context.emit,
           subagentIndex,
-          subagentSessionFilesById,
+          subagentSessionFilesByRuntime,
+          historicalSubagentSessionFiles,
+          context.cwd,
         );
         return true;
       }
@@ -280,7 +469,7 @@ function createOmpDialect(
           ompEvent,
           context.runtimeSession,
           subagentIndex,
-          subagentSessionFilesById,
+          subagentSessionFilesByRuntime,
         );
         return true;
       }
@@ -344,20 +533,73 @@ function createOmpDialect(
       }
       const item = mapOmpTodoToolResult(result);
       if (item && shouldEmitOmpTodoItem(item, runtimeSession, lastTodoItemsBySession)) {
-        emit({
-          type: "timeline",
-          provider,
-          turnId,
-          item,
-        });
+        emit({ type: "timeline", provider, turnId, item });
       } else {
         sessionLogger.debug({ event }, "Dropped malformed OMP todo tool result");
       }
     },
     importSession: async ({ client, input, context }) => {
       const liveSubagent = subagentIndex.get(input.providerHandleId);
-      if (!liveSubagent || isTerminalOmpSubagentStatus(liveSubagent.status)) {
-        return null;
+      if (!liveSubagent) {
+        const timeline = await readOmpImportedTimeline(input.providerHandleId);
+        const isHistorical = historicalSubagentSessionFiles.has(input.providerHandleId);
+        const classification = isHistorical
+          ? {
+              resumable: false,
+              reason: "historical child transcripts are read-only",
+            }
+          : await classifyReleasedOmpChild(input.providerHandleId, input.cwd);
+        if (
+          !classification.resumable &&
+          !isHistorical &&
+          classification.reason !== "session uses an isolated workspace" &&
+          classification.reason !== "session is isolated or non-resumable"
+        ) {
+          throw new Error(`OMP history import rejected: ${classification.reason}`);
+        }
+        const storedConfig: AgentSessionConfig = {
+          ...context.storedConfig,
+          provider: OMP_PROVIDER,
+          cwd: input.cwd,
+        };
+        const config: AgentSessionConfig = {
+          ...context.config,
+          provider: OMP_PROVIDER,
+          cwd: input.cwd,
+        };
+        const persistence: AgentPersistenceHandle = {
+          provider: OMP_PROVIDER,
+          sessionId: input.providerHandleId,
+          nativeHandle: input.providerHandleId,
+          metadata: { ...storedConfig, provider: OMP_PROVIDER, cwd: input.cwd },
+        };
+        if (classification.resumable) {
+          const session = await client.resumeSession(persistence, config, context.launchContext);
+          return {
+            session,
+            config: storedConfig,
+            persistence,
+            timeline,
+            ownership: { owner: "paseo", resumable: true },
+          };
+        }
+        const session = new OmpReleasedSession(
+          OMP_PROVIDER,
+          input.providerHandleId,
+          config,
+          client.capabilities,
+        );
+        return {
+          session,
+          config: storedConfig,
+          persistence,
+          timeline,
+          ownership: {
+            owner: "none",
+            resumable: false,
+            reason: classification.reason,
+          },
+        };
       }
       const storedConfig: AgentSessionConfig = {
         ...context.storedConfig,
@@ -373,11 +615,7 @@ function createOmpDialect(
         provider: OMP_PROVIDER,
         sessionId: input.providerHandleId,
         nativeHandle: input.providerHandleId,
-        metadata: {
-          ...storedConfig,
-          provider: OMP_PROVIDER,
-          cwd: input.cwd,
-        },
+        metadata: { ...storedConfig, provider: OMP_PROVIDER, cwd: input.cwd },
       };
       const initialMessages = await asOmpRuntimeSession(
         liveSubagent.parentRuntime,
@@ -433,16 +671,21 @@ function handleSubagentLifecycle(
   runtimeSession: PiRuntimeSession,
   emit: (event: AgentStreamEvent) => void,
   subagentIndex: OmpSubagentIndex,
-  subagentSessionFilesById: Map<string, string>,
+  subagentSessionFilesByRuntime: WeakMap<PiRuntimeSession, Map<string, string>>,
+  historicalSubagentSessionFiles: Set<string>,
+  parentCwd: string,
 ): void {
   if (event.type !== "subagent_lifecycle") {
     return;
   }
   const payload = event.payload;
   const sessionFile = resolveSubagentSessionFile(
+    runtimeSession,
     payload.id,
+    payload.index,
+    payload.parentToolCallId,
     payload.sessionFile,
-    subagentSessionFilesById,
+    subagentSessionFilesByRuntime,
   );
   if (!sessionFile) {
     return;
@@ -450,14 +693,49 @@ function handleSubagentLifecycle(
 
   const status = mapOmpSubagentLifecycleStatus(payload.status);
   if (isTerminalOmpSubagentStatus(status)) {
-    subagentIndex.terminal(sessionFile, status);
+    subagentIndex.terminal(runtimeSession, sessionFile, status);
   } else {
     subagentIndex.upsert({
       sessionFile,
       subagentId: payload.id,
       status,
       parentRuntime: runtimeSession,
-      ...(payload.description ? { title: payload.description } : {}),
+      title: resolveOmpSubagentTitle(sessionFile, payload.id),
+      classifyRelease: async () => await classifyReleasedOmpChild(sessionFile, parentCwd),
+      emitOwnership: async (entry) => {
+        if (!entry.releaseClassification) {
+          return;
+        }
+        const classification = entry.releaseClassification;
+        emit({
+          type: "child_session",
+          provider: OMP_PROVIDER,
+          childSessionId: sessionFile,
+          status: entry.status === "pending" ? "running" : entry.status,
+          ownership: classification.resumable
+            ? { owner: "paseo", resumable: true }
+            : { owner: "none", resumable: false, reason: classification.reason },
+          ...(entry.title ? { title: entry.title } : {}),
+        });
+        for (const child of await discoverReleasedOmpHistoricalChildren(sessionFile, parentCwd)) {
+          historicalSubagentSessionFiles.add(child.sessionFile);
+          subagentIndex.recordHistorical(child.sessionFile);
+          emit({
+            type: "child_session",
+            provider: OMP_PROVIDER,
+            childSessionId: child.sessionFile,
+            parentChildSessionId: child.parentSessionFile,
+            nativeChildId: child.nativeChildId,
+            status: "completed",
+            ownership: {
+              owner: "none",
+              resumable: false,
+              reason: "historical child transcripts are read-only",
+            },
+            title: resolveOmpSubagentTitle(child.sessionFile, child.nativeChildId),
+          });
+        }
+      },
     });
   }
   emit({
@@ -465,7 +743,11 @@ function handleSubagentLifecycle(
     provider: OMP_PROVIDER,
     childSessionId: sessionFile,
     status,
-    ...(payload.description ? { title: payload.description } : {}),
+    nativeChildId: payload.id,
+    parentToolCallId: payload.parentToolCallId,
+    childIndex: payload.index,
+    ownership: { owner: "provider" },
+    title: resolveOmpSubagentTitle(sessionFile, payload.id),
   });
 }
 
@@ -473,16 +755,19 @@ function handleSubagentProgress(
   event: OmpRuntimeEvent,
   runtimeSession: PiRuntimeSession,
   subagentIndex: OmpSubagentIndex,
-  subagentSessionFilesById: Map<string, string>,
+  subagentSessionFilesByRuntime: WeakMap<PiRuntimeSession, Map<string, string>>,
 ): void {
   if (event.type !== "subagent_progress") {
     return;
   }
   const payload = event.payload;
   const sessionFile = resolveSubagentSessionFile(
+    runtimeSession,
     payload.progress.id,
+    payload.index,
+    payload.parentToolCallId,
     payload.sessionFile,
-    subagentSessionFilesById,
+    subagentSessionFilesByRuntime,
   );
   if (!sessionFile) {
     return;
@@ -493,7 +778,7 @@ function handleSubagentProgress(
     subagentId: payload.progress.id,
     status: payload.progress.status,
     parentRuntime: runtimeSession,
-    ...(payload.progress.description ? { title: payload.progress.description } : {}),
+    title: resolveOmpSubagentTitle(sessionFile, payload.progress.id),
     ...(model ? { model } : {}),
   });
 }
@@ -526,16 +811,35 @@ function normalizeOmpResolvedModelId(value: string | undefined): string | undefi
   return modelId.length > 0 ? modelId : undefined;
 }
 
+function resolveOmpSubagentTitle(sessionFile: string, fallback: string): string {
+  const fileName = basename(sessionFile);
+  const extension = extname(fileName);
+  const stem = extension ? fileName.slice(0, -extension.length) : fileName;
+  return stem.trim() || fallback;
+}
+
 function resolveSubagentSessionFile(
+  runtimeSession: PiRuntimeSession,
   subagentId: string,
+  index: number,
+  parentToolCallId: string | undefined,
   sessionFile: string | undefined,
-  subagentSessionFilesById: Map<string, string>,
+  subagentSessionFilesByRuntime: WeakMap<PiRuntimeSession, Map<string, string>>,
 ): string | null {
+  const identity = `${parentToolCallId ?? ""}\u0000${index}\u0000${subagentId}`;
+  const fallbackIdentity = `\u0000${index}\u0000${subagentId}`;
+  const sessionFilesById = subagentSessionFilesByRuntime.get(runtimeSession) ?? new Map();
   if (sessionFile) {
-    subagentSessionFilesById.set(subagentId, sessionFile);
+    sessionFilesById.set(identity, sessionFile);
+    const previousFallback = sessionFilesById.get(fallbackIdentity);
+    sessionFilesById.set(
+      fallbackIdentity,
+      previousFallback === undefined || previousFallback === sessionFile ? sessionFile : "",
+    );
+    subagentSessionFilesByRuntime.set(runtimeSession, sessionFilesById);
     return sessionFile;
   }
-  return subagentSessionFilesById.get(subagentId) ?? null;
+  return sessionFilesById.get(identity) || sessionFilesById.get(fallbackIdentity) || null;
 }
 
 function mapOmpSubagentLifecycleStatus(
@@ -571,6 +875,20 @@ function areTodoItemsEqual(
     const rightItem = right.items[index];
     return rightItem?.text === leftItem.text && rightItem.completed === leftItem.completed;
   });
+}
+
+async function readOmpImportedTimeline(sessionFile: string): Promise<ImportedTimelineEntry[]> {
+  const timeline: ImportedTimelineEntry[] = [];
+  for await (const event of streamOmpHistory({ sessionFile, provider: OMP_PROVIDER })) {
+    if (event.type !== "timeline") {
+      continue;
+    }
+    timeline.push({
+      item: event.item,
+      ...(event.timestamp ? { timestamp: event.timestamp } : {}),
+    });
+  }
+  return timeline;
 }
 
 function mergeRuntimeSettings(

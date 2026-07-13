@@ -1,9 +1,15 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
 import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
 import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
+import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import { streamOmpHistory } from "./history.js";
+import { asOmpRuntimeSession } from "./runtime.js";
 
 async function collectHistory(
   messages: PiAgentMessage[],
@@ -225,6 +231,105 @@ describe("OMP history mapper", () => {
           error: null,
         },
       },
+    ]);
+  });
+  test("maps only the active JSONL chain with native user ids and visible unknown roles", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omp-history-"));
+    const sessionFile = join(dir, "session.jsonl");
+    writeFileSync(
+      sessionFile,
+      [
+        { type: "session", id: "root", parentId: null },
+        {
+          type: "message",
+          id: "user-old",
+          parentId: "root",
+          message: { role: "user", content: "old branch" },
+        },
+        {
+          type: "message",
+          id: "assistant-old",
+          parentId: "user-old",
+          message: { role: "assistant", content: [{ type: "text", text: "old answer" }] },
+        },
+        {
+          type: "session_init",
+          id: "init-active",
+          parentId: "root",
+          systemPrompt: "must stay hidden",
+        },
+        {
+          type: "message",
+          id: "system-active",
+          parentId: "init-active",
+          message: { role: "system", content: "secret system prompt" },
+        },
+        {
+          type: "message",
+          id: "user-active",
+          parentId: "system-active",
+          message: { role: "user", content: "active branch" },
+        },
+        {
+          type: "title",
+          id: "title-control",
+          parentId: "user-active",
+          title: "Updated title",
+        },
+        {
+          type: "custom",
+          customType: "tool_execution_start",
+          id: "custom-control",
+          parentId: "title-control",
+          data: { toolName: "task" },
+        },
+        {
+          type: "tool_execution_start",
+          id: "tool-control",
+          parentId: "custom-control",
+          command: "secret internal command",
+        },
+        {
+          type: "future_control",
+          id: "unknown-active",
+          parentId: "tool-control",
+          secret: "must not stringify",
+        },
+        {
+          type: "message",
+          id: "developer-active",
+          parentId: "unknown-active",
+          message: { role: "developer", content: "developer note" },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n"),
+    );
+
+    const events: AgentStreamEvent[] = [];
+    for await (const event of streamOmpHistory({ sessionFile, provider: "omp" })) {
+      events.push(event);
+    }
+    expect(events.map((event) => event.item)).toEqual([
+      { type: "user_message", text: "active branch", messageId: "user-active" },
+      { type: "assistant_message", text: "[future_control] Unsupported history record" },
+      { type: "assistant_message", text: "[developer] developer note" },
+    ]);
+
+    const pi = new FakePi(["omp"]);
+    const runtimeSession = await pi.startSession({ cwd: dir });
+    asOmpRuntimeSession(runtimeSession).activeBranchEntryId = "assistant-old";
+    const selectedEvents: AgentStreamEvent[] = [];
+    for await (const event of streamOmpHistory({
+      sessionFile,
+      runtimeSession,
+      provider: "omp",
+    })) {
+      selectedEvents.push(event);
+    }
+    expect(selectedEvents.map((event) => event.item)).toEqual([
+      { type: "user_message", text: "old branch", messageId: "user-old" },
+      { type: "assistant_message", text: "old answer" },
     ]);
   });
 });

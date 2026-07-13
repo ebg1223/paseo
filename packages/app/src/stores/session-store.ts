@@ -11,6 +11,7 @@ import {
 import type { PendingPermission } from "@/types/shared";
 import type { ComposerAttachment } from "@/attachments/types";
 import type { AgentLifecycleStatus } from "@getpaseo/protocol/agent-lifecycle";
+import type { ProviderChildOwnership } from "@getpaseo/protocol/agent-labels";
 import type {
   AgentPermissionRequest,
   AgentFeature,
@@ -119,6 +120,7 @@ export interface Agent {
   attentionTimestamp?: Date | null;
   archivedAt?: Date | null;
   parentAgentId: string | null;
+  providerChildOwnership?: ProviderChildOwnership | null;
   labels: Record<string, string>;
   projectPlacement?: ProjectPlacementPayload | null;
 }

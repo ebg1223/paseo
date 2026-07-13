@@ -2,6 +2,7 @@ import React, { useMemo, type ReactNode } from "react";
 import {
   View,
   Text,
+  Pressable,
   ScrollView as RNScrollView,
   type StyleProp,
   type ViewStyle,
@@ -23,6 +24,8 @@ import { HighlightedLines } from "./highlighted-content";
 import { DiffViewer } from "./diff-viewer";
 import { getCodeInsets } from "./code-insets";
 import { isWeb } from "@/constants/platform";
+import { useSessionStore } from "@/stores/session-store";
+import { navigateToAgent } from "@/utils/navigate-to-agent";
 
 const ScrollView = isWeb ? RNScrollView : GHScrollView;
 
@@ -249,10 +252,82 @@ function resolveSubAgentFallbackHeader(
   }
   return subAgentType ?? description ?? fallbackText;
 }
+type SubAgentChild = NonNullable<
+  Extract<ToolCallDetail, { type: "sub_agent" }>["children"]
+>[number];
+
+interface ImportedSubAgent {
+  serverId: string;
+  id: string;
+  workspaceId?: string;
+  persistence: { nativeHandle?: string } | null;
+}
+
+export function resolveSubAgentChildren(
+  children: readonly SubAgentChild[] | undefined,
+  childSessionId: string | null | undefined,
+): readonly SubAgentChild[] {
+  return (
+    children ??
+    (childSessionId
+      ? [{ sessionId: childSessionId, label: `session ${childSessionId}`, status: "running" }]
+      : [])
+  );
+}
+
+export interface SubAgentNavigationTarget {
+  child: SubAgentChild;
+  serverId: string;
+  agentId: string;
+  workspaceId?: string;
+}
+
+export interface SubAgentRenderRow {
+  child: SubAgentChild;
+  target: Omit<SubAgentNavigationTarget, "child"> | null;
+}
+
+export function resolveSubAgentRenderRows(
+  children: readonly SubAgentChild[],
+  agents: Iterable<ImportedSubAgent>,
+): SubAgentRenderRow[] {
+  const importedByNativeHandle = new Map<string, ImportedSubAgent>();
+  for (const agent of agents) {
+    const nativeHandle = agent.persistence?.nativeHandle;
+    if (nativeHandle && !importedByNativeHandle.has(nativeHandle)) {
+      importedByNativeHandle.set(nativeHandle, agent);
+    }
+  }
+  const rows: SubAgentRenderRow[] = [];
+  for (const child of children) {
+    const agent = importedByNativeHandle.get(child.sessionId);
+    rows.push({
+      child,
+      target: agent
+        ? {
+            serverId: agent.serverId,
+            agentId: agent.id,
+            workspaceId: agent.workspaceId,
+          }
+        : null,
+    });
+  }
+  return rows;
+}
+
+export function resolveSubAgentNavigationTargets(
+  children: readonly SubAgentChild[],
+  agents: Iterable<ImportedSubAgent>,
+): SubAgentNavigationTarget[] {
+  return resolveSubAgentRenderRows(children, agents).flatMap(({ child, target }) =>
+    target ? [{ child, ...target }] : [],
+  );
+}
 
 interface SubAgentDetailProps {
   log: string;
   childSessionId: string | null | undefined;
+  childSessions?: readonly SubAgentChild[];
   subAgentType: string | null | undefined;
   description: string | null | undefined;
   ds: DetailStyles;
@@ -361,9 +436,69 @@ function SubAgentLogText({
   return null;
 }
 
+function SubAgentChildLink({
+  child,
+  target,
+}: {
+  child: SubAgentChild;
+  target: Omit<SubAgentNavigationTarget, "child">;
+}) {
+  const handlePress = React.useCallback(() => {
+    navigateToAgent({
+      serverId: target.serverId,
+      agentId: target.agentId,
+      workspaceId: target.workspaceId,
+      pin: false,
+    });
+  }, [target]);
+  const text = `${child.label} — ${child.status} — session ${child.sessionId}`;
+  return (
+    <Pressable accessibilityRole="link" onPress={handlePress}>
+      <Text style={styles.subAgentChildLink}>{text}</Text>
+    </Pressable>
+  );
+}
+
+function SubAgentChildLinks({
+  childSessions,
+  childSessionId,
+}: {
+  childSessions: readonly SubAgentChild[] | undefined;
+  childSessionId: string | null | undefined;
+}) {
+  const effectiveChildren = useMemo(
+    () => resolveSubAgentChildren(childSessions, childSessionId),
+    [childSessionId, childSessions],
+  );
+  const sessions = useSessionStore((state) => state.sessions);
+  const rows = useMemo(() => {
+    const agents: ImportedSubAgent[] = [];
+    for (const session of Object.values(sessions)) {
+      agents.push(...session.agents.values(), ...session.agentDetails.values());
+    }
+    return resolveSubAgentRenderRows(effectiveChildren, agents);
+  }, [effectiveChildren, sessions]);
+  if (rows.length === 0) return null;
+  return (
+    <View style={styles.subAgentChildren}>
+      {rows.map(({ child, target }) => {
+        if (target) {
+          return <SubAgentChildLink key={child.sessionId} child={child} target={target} />;
+        }
+        return (
+          <Text selectable key={child.sessionId} style={styles.subAgentSessionText}>
+            {`${child.label} — ${child.status} — session ${child.sessionId}`}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
 function SubAgentDetailSection({
   log,
   childSessionId,
+  childSessions,
   subAgentType,
   description,
   ds,
@@ -393,11 +528,7 @@ function SubAgentDetailSection({
             contentContainerStyle={styles.codeHorizontalContent}
           >
             <View style={styles.codeLine} dataSet={CODE_SURFACE_DATASET}>
-              {childSessionId ? (
-                <Text selectable style={styles.subAgentSessionText}>
-                  session {childSessionId}
-                </Text>
-              ) : null}
+              <SubAgentChildLinks childSessions={childSessions} childSessionId={childSessionId} />
               {hasActions ? (
                 <View style={styles.subAgentActions}>
                   {actions.map((action) => (
@@ -686,6 +817,7 @@ function buildDetailSections(
         key="sub-agent"
         log={detail.log}
         childSessionId={detail.childSessionId}
+        childSessions={detail.children}
         subAgentType={detail.subAgentType}
         description={detail.description}
         ds={ds}
@@ -916,6 +1048,16 @@ const styles = StyleSheet.create((theme) => {
       color: theme.colors.foregroundMuted,
       lineHeight: 18,
       marginBottom: theme.spacing[2],
+    },
+    subAgentChildren: {
+      gap: theme.spacing[1],
+      marginBottom: theme.spacing[2],
+    },
+    subAgentChildLink: {
+      fontFamily: theme.fontFamily.mono,
+      fontSize: theme.fontSize.code,
+      color: theme.colors.accent,
+      lineHeight: 18,
     },
     subAgentActions: {
       gap: theme.spacing[1],

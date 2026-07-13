@@ -4,6 +4,7 @@ import type { ConfirmDialogInput } from "@/utils/confirm-dialog";
 export interface ResolveArchiveSubagentDialogInput {
   title: Agent["title"] | null | undefined;
   status: Agent["status"] | null | undefined;
+  providerChildOwnership?: Agent["providerChildOwnership"];
 }
 
 function resolveSubagentLabel(title: Agent["title"] | null | undefined): string | null {
@@ -20,17 +21,30 @@ function resolveSubagentLabel(title: Agent["title"] | null | undefined): string 
   return normalized;
 }
 
+function resolveArchiveMessage(
+  subagentLabel: string,
+  isRunning: boolean,
+  isProviderOwned: boolean,
+): string {
+  if (isProviderOwned) {
+    return `Remove ${subagentLabel} from Paseo. The provider-owned child will keep running until its parent provider session exits.`;
+  }
+  if (isRunning) {
+    return `${subagentLabel} is still running. Archiving it will stop the subagent and remove it from the track.`;
+  }
+  return `Remove ${subagentLabel} from the track. The subagent will be archived.`;
+}
+
 export function resolveArchiveSubagentDialog(
   input: ResolveArchiveSubagentDialogInput,
 ): ConfirmDialogInput {
   const subagentLabel = resolveSubagentLabel(input.title) ?? "this subagent";
   const isRunning = input.status === "running";
+  const isProviderOwned = input.providerChildOwnership?.owner === "provider";
 
   return {
     title: isRunning ? "Archive running subagent?" : "Archive subagent?",
-    message: isRunning
-      ? `${subagentLabel} is still running. Archiving it will stop the subagent and remove it from the track.`
-      : `Remove ${subagentLabel} from the track. The subagent will be archived.`,
+    message: resolveArchiveMessage(subagentLabel, isRunning, isProviderOwned),
     confirmLabel: "Archive",
     cancelLabel: "Cancel",
     destructive: true,
@@ -58,6 +72,7 @@ export async function requestArchiveSubagent(
     resolveArchiveSubagentDialog({
       title: subagent?.title,
       status: subagent?.status,
+      providerChildOwnership: subagent?.providerChildOwnership,
     }),
   );
   if (!confirmed) {
