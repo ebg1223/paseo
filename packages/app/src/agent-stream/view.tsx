@@ -2,7 +2,6 @@ import React, {
   forwardRef,
   memo,
   useCallback,
-  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -58,6 +57,8 @@ import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import { ToolCallDetailsContent } from "@/components/tool-call-details";
 import { QuestionFormCard } from "@/components/question-form-card";
 import { ToolCallSheetProvider } from "@/components/tool-call-sheet";
+import { ToolCallGroup } from "@/components/tool-call-group";
+import { compactToolCallRuns } from "@/tool-calls/grouping";
 import { type AgentStreamRenderModel, buildAgentStreamRenderModel } from "./model";
 import { resolveStreamRenderStrategy } from "./strategy-resolver";
 import { type StreamSegmentRenderers, type StreamViewportHandle } from "./strategy";
@@ -82,13 +83,13 @@ import {
   type OpenFileDisposition,
   type WorkspaceFileOpenRequest,
 } from "@/workspace/file-open";
-import { navigateToPreparedWorkspaceTab } from "@/utils/workspace-navigation";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { buildNewWorkspaceRoute } from "@/utils/host-routes";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { isWeb } from "@/constants/platform";
 import type { Theme } from "@/styles/theme";
 import { recordRenderProfileReasons } from "@/utils/render-profiler";
-import { MountedTabActiveContext } from "@/components/split-container";
+import { useRetainedPanelActive } from "@/components/retained-panel";
 import { generateDraftId } from "@/stores/draft-keys";
 import {
   buildDraftWorkspaceAttachmentScopeKey,
@@ -229,13 +230,20 @@ export interface AgentStreamViewHandle {
 export interface AgentStreamViewProps {
   agentId: string;
   serverId?: string;
-  agent: AgentScreenAgent;
+  context: AgentScreenAgent;
   streamItems: StreamItem[];
+  streamHead?: StreamItem[];
   pendingPermissions: Map<string, PendingPermission>;
   routeBottomAnchorRequest?: BottomAnchorRouteRequest | null;
   isAuthoritativeHistoryReady?: boolean;
   toast?: ToastApi | null;
   onOpenWorkspaceFile?: (request: WorkspaceFileOpenRequest) => void;
+  readOnly?: boolean;
+  historyPagination?: {
+    hasOlder: boolean;
+    isLoadingOlder: boolean;
+    onLoadOlder: () => void;
+  };
 }
 
 const AGENT_CAPABILITY_FLAG_KEYS: (keyof AgentCapabilityFlags)[] = [
@@ -307,19 +315,23 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     {
       agentId,
       serverId,
-      agent,
+      context,
       streamItems,
+      streamHead: providedStreamHead,
       pendingPermissions,
       routeBottomAnchorRequest = null,
       isAuthoritativeHistoryReady = true,
       toast,
       onOpenWorkspaceFile,
+      readOnly = false,
+      historyPagination,
     },
     ref,
   ) {
     const { t } = useTranslation();
     const router = useRouter();
     const autoExpandReasoning = useSettings((settings) => settings.autoExpandReasoning);
+    const toolCallDetailLevel = useSettings((settings) => settings.toolCallDetailLevel);
     const viewportRef = useRef<StreamViewportHandle | null>(null);
     const isMobile = useIsCompactFormFactor();
     const streamRenderStrategy = useMemo(
@@ -334,31 +346,44 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const [expandedInlineToolCallIds, setExpandedInlineToolCallIds] = useState<Set<string>>(
       new Set(),
     );
+    const [expandedToolCallGroupIds, setExpandedToolCallGroupIds] = useState<Set<string>>(
+      new Set(),
+    );
     const openFileExplorerForCheckout = usePanelStore((state) => state.openFileExplorerForCheckout);
     const setExplorerTabForCheckout = usePanelStore((state) => state.setExplorerTabForCheckout);
 
     // Get serverId (fallback to agent's serverId if not provided)
-    const resolvedServerId = serverId ?? agent.serverId ?? "";
+    const resolvedServerId = serverId ?? context.serverId ?? "";
 
     const client = useSessionStore((state) => state.sessions[resolvedServerId]?.client ?? null);
-    const streamHead = useSessionStore((state) =>
+    const sessionStreamHead = useSessionStore((state) =>
       state.sessions[resolvedServerId]?.agentStreamHead?.get(agentId),
     );
+    const streamHead = providedStreamHead ?? sessionStreamHead;
     const supportsAgentForkContext = useSessionStore(
-      (state) => state.sessions[resolvedServerId]?.serverInfo?.features?.agentForkContext === true,
+      (state) =>
+        !readOnly &&
+        state.sessions[resolvedServerId]?.serverInfo?.features?.agentForkContext === true,
     );
 
-    const workspaceRoot = agent.cwd?.trim() || "";
+    const workspaceRoot = context.cwd?.trim() || "";
     const { requestDirectoryListing } = useFileExplorerActions({
       serverId: resolvedServerId,
-      workspaceId: agent.workspaceId,
+      workspaceId: context.workspaceId,
       workspaceRoot,
     });
-    const { isLoadingOlder, hasOlder, loadOlder } = useLoadOlderAgentHistory({
+    const agentHistoryPagination = useLoadOlderAgentHistory({
       serverId: resolvedServerId,
       agentId,
       toast,
     });
+    const { isLoadingOlder, hasOlder, loadOlder } = historyPagination
+      ? {
+          isLoadingOlder: historyPagination.isLoadingOlder,
+          hasOlder: historyPagination.hasOlder,
+          loadOlder: historyPagination.onLoadOlder,
+        }
+      : agentHistoryPagination;
     // Keep entry/exit animations off on Android due to RN dispatchDraw crashes
     // tracked in react-native-reanimated#8422.
     const shouldDisableEntryExitAnimations = Platform.OS === "android";
@@ -372,6 +397,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     useEffect(() => {
       setIsNearBottom(true);
       setExpandedInlineToolCallIds(new Set());
+      setExpandedToolCallGroupIds(new Set());
     }, [agentId]);
 
     const handleInlinePathPress = useStableEvent(
@@ -380,7 +406,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           return;
         }
 
-        const normalized = normalizeInlinePathTarget(target.path, agent.cwd);
+        const normalized = normalizeInlinePathTarget(target.path, context.cwd);
         if (!normalized) {
           return;
         }
@@ -403,10 +429,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             return;
           }
 
-          if (agent.workspaceId) {
-            navigateToPreparedWorkspaceTab({
+          if (context.workspaceId) {
+            navigateToWorkspace({
               serverId: resolvedServerId,
-              workspaceId: agent.workspaceId,
+              workspaceId: context.workspaceId,
               target: createWorkspaceFileTabTarget(location),
             });
           }
@@ -420,8 +446,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
         const checkout = {
           serverId: resolvedServerId,
-          cwd: agent.cwd,
-          isGit: agent.projectPlacement?.checkout?.isGit ?? true,
+          cwd: context.cwd,
+          isGit: context.projectPlacement?.checkout?.isGit ?? true,
         };
         setExplorerTabForCheckout({ ...checkout, tab: "files" });
         openFileExplorerForCheckout({
@@ -445,7 +471,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           if (!client) {
             throw new Error(t("workspace.terminal.hostDisconnected"));
           }
-          const draftSetup = buildForkDraftSetup(agent);
+          const draftSetup = buildForkDraftSetup(context);
           const prepareForkDraft = async () => {
             const draftId = generateDraftId();
             const payload = await client.buildAgentForkContext(
@@ -467,12 +493,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           };
 
           if (target === "tab") {
-            const workspaceId = agent.workspaceId;
+            const workspaceId = context.workspaceId;
             if (!workspaceId) {
               throw new Error(t("message.actions.forkMissingWorkspace"));
             }
             const draftId = await prepareForkDraft();
-            navigateToPreparedWorkspaceTab({
+            navigateToWorkspace({
               serverId: resolvedServerId,
               workspaceId,
               target: buildForkDraftTabTarget(draftSetup, draftId),
@@ -482,7 +508,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
           const draftId = await prepareForkDraft();
           const sourceDirectory =
-            agent.projectPlacement?.checkout?.cwd?.trim() || agent.cwd.trim() || undefined;
+            context.projectPlacement?.checkout?.cwd?.trim() || context.cwd.trim() || undefined;
           if (draftSetup) {
             useWorkspaceDraftSubmissionStore.getState().setDraftSetup({
               draftId,
@@ -494,8 +520,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             buildNewWorkspaceRoute({
               serverId: resolvedServerId,
               sourceDirectory,
-              displayName: agent.projectPlacement?.projectName,
-              projectId: agent.projectPlacement?.projectKey,
+              displayName: context.projectPlacement?.projectName,
+              projectId: context.projectPlacement?.projectKey,
               draftId,
             }),
           );
@@ -509,7 +535,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     // cell-window renders on every 48ms flush from background agents.
     // When isActive flips back to true, the context change triggers a re-render and
     // the component reads the current (fresh) streamItems/streamHead from props.
-    const isActive = useContext(MountedTabActiveContext);
+    const isActive = useRetainedPanelActive();
     const frozenStreamItemsRef = useRef(streamItems);
     const frozenStreamHeadRef = useRef(streamHead);
     if (isActive) {
@@ -518,27 +544,36 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     }
     const effectiveStreamItems = isActive ? streamItems : frozenStreamItemsRef.current;
     const effectiveStreamHead = isActive ? streamHead : frozenStreamHeadRef.current;
+    const compactedToolCalls = useMemo(
+      () =>
+        compactToolCallRuns({
+          tail: effectiveStreamItems,
+          head: effectiveStreamHead ?? EMPTY_STREAM_HEAD,
+          enabled: toolCallDetailLevel !== "detailed",
+        }),
+      [effectiveStreamHead, effectiveStreamItems, toolCallDetailLevel],
+    );
 
     const baseRenderModel = useMemo(() => {
       return buildAgentStreamRenderModel({
-        agentStatus: agent.status,
-        tail: effectiveStreamItems,
-        head: effectiveStreamHead ?? EMPTY_STREAM_HEAD,
+        agentStatus: context.status,
+        tail: compactedToolCalls.tail,
+        head: compactedToolCalls.head,
         platform: isWeb ? "web" : "native",
         isMobileBreakpoint: isMobile,
       });
-    }, [agent.status, isMobile, effectiveStreamHead, effectiveStreamItems]);
+    }, [context.status, isMobile, compactedToolCalls.head, compactedToolCalls.tail]);
     const streamLayout = useMemo(
       () =>
         layoutStream({
           strategy: streamRenderStrategy,
-          agentStatus: agent.status,
+          agentStatus: context.status,
           history: baseRenderModel.history,
           liveHead: baseRenderModel.segments.liveHead,
           timingByAssistantId: baseRenderModel.turnTiming.byAssistantId,
         }),
       [
-        agent.status,
+        context.status,
         baseRenderModel.history,
         baseRenderModel.segments.liveHead,
         baseRenderModel.turnTiming.byAssistantId,
@@ -580,6 +615,18 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [streamRenderStrategy],
     );
 
+    const setToolCallGroupExpanded = useCallback((groupId: string, expanded: boolean) => {
+      setExpandedToolCallGroupIds((previous) => {
+        const next = new Set(previous);
+        if (expanded) {
+          next.add(groupId);
+        } else {
+          next.delete(groupId);
+        }
+        return next;
+      });
+    }, []);
+
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
         return (
@@ -591,14 +638,14 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             images={item.images}
             attachments={item.attachments}
             timestamp={item.timestamp.getTime()}
-            capabilities={agent.capabilities}
+            capabilities={context.capabilities}
             client={client}
             isFirstInGroup={layoutItem.isFirstInUserGroup}
             isLastInGroup={layoutItem.isLastInUserGroup}
           />
         );
       },
-      [agent.capabilities, agentId, client, resolvedServerId],
+      [context.capabilities, agentId, client, resolvedServerId],
     );
 
     const renderAssistantMessageItem = useCallback(
@@ -643,8 +690,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [autoExpandReasoning, setInlineDetailsExpanded],
     );
 
-    const renderToolCallItem = useCallback(
-      (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "tool_call" }>) => {
+    const renderSingleToolCallItem = useCallback(
+      (item: Extract<StreamItem, { kind: "tool_call" }>, isLastInSequence: boolean) => {
         const { payload } = item;
 
         if (payload.source === "agent") {
@@ -669,9 +716,9 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
               error={data.error}
               status={data.status}
               detail={data.detail}
-              cwd={agent.cwd}
+              cwd={context.cwd}
               metadata={data.metadata}
-              isLastInSequence={layoutItem.isLastInToolSequence}
+              isLastInSequence={isLastInSequence}
               onOpenFilePath={handleToolCallOpenFile}
             />
           );
@@ -686,12 +733,43 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             args={data.arguments}
             result={data.result}
             status={data.status}
-            isLastInSequence={layoutItem.isLastInToolSequence}
+            isLastInSequence={isLastInSequence}
             onOpenFilePath={handleToolCallOpenFile}
           />
         );
       },
-      [agent.cwd, setInlineDetailsExpanded, handleToolCallOpenFile],
+      [context.cwd, setInlineDetailsExpanded, handleToolCallOpenFile],
+    );
+
+    const renderToolCallItem = useCallback(
+      (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "tool_call" }>) => {
+        const group = compactedToolCalls.groupsByHostId.get(item.id);
+        if (!group) {
+          return renderSingleToolCallItem(item, layoutItem.isLastInToolSequence);
+        }
+        const expanded = expandedToolCallGroupIds.has(group.id);
+        return (
+          <ToolCallGroup
+            group={group}
+            presentation={toolCallDetailLevel === "concise" ? "concise" : "overview"}
+            expanded={expanded}
+            onExpandedChange={setToolCallGroupExpanded}
+          >
+            {group.calls.map((call, index) => (
+              <React.Fragment key={call.id}>
+                {renderSingleToolCallItem(call, index === group.calls.length - 1)}
+              </React.Fragment>
+            ))}
+          </ToolCallGroup>
+        );
+      },
+      [
+        compactedToolCalls.groupsByHostId,
+        expandedToolCallGroupIds,
+        renderSingleToolCallItem,
+        setToolCallGroupExpanded,
+        toolCallDetailLevel,
+      ],
     );
 
     const renderStreamItemContent = useCallback(
@@ -748,10 +826,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           content,
           layoutItem,
           strategy: streamRenderStrategy,
-          onForkAssistantTurn: handleForkAssistantTurn,
+          onForkAssistantTurn: readOnly ? undefined : handleForkAssistantTurn,
         });
       },
-      [handleForkAssistantTurn, renderStreamItemContent, streamRenderStrategy],
+      [handleForkAssistantTurn, readOnly, renderStreamItemContent, streamRenderStrategy],
     );
 
     const pendingPermissionItems = useMemo(
@@ -759,7 +837,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [pendingPermissions, agentId],
     );
 
-    const showRunningTurnFooter = agent.status === "running";
+    const showRunningTurnFooter = context.status === "running";
     const pendingPermissionsNode = useMemo(
       () =>
         renderPendingPermissionsNode({
@@ -776,11 +854,12 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             inFlightTurnStartedAt={baseRenderModel.turnTiming.runningStartedAt}
             host={bottomTurnFooterHost}
             strategy={streamRenderStrategy}
-            onForkAssistantTurn={handleForkAssistantTurn}
+            onForkAssistantTurn={readOnly ? undefined : handleForkAssistantTurn}
           />
         ) : null,
       [
         handleForkAssistantTurn,
+        readOnly,
         showRunningTurnFooter,
         baseRenderModel.turnTiming.runningStartedAt,
         bottomTurnFooterHost,
@@ -906,12 +985,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             })}
           </MessageOuterSpacingProvider>
           {!isNearBottom && (
-            <Animated.View
-              style={stylesheet.scrollToBottomContainer}
-              entering={scrollIndicatorFadeIn}
-              exiting={scrollIndicatorFadeOut}
-            >
-              <View style={stylesheet.scrollToBottomInner}>
+            <View style={stylesheet.scrollToBottomContainer} pointerEvents="box-none">
+              <Animated.View entering={scrollIndicatorFadeIn} exiting={scrollIndicatorFadeOut}>
                 <Pressable
                   style={stylesheet.scrollToBottomButton}
                   onPress={scrollToBottom}
@@ -921,8 +996,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 >
                   <ChevronDown size={24} color={stylesheet.scrollToBottomIcon.color} />
                 </Pressable>
-              </View>
-            </Animated.View>
+              </Animated.View>
+            </View>
           )}
         </View>
       </ToolCallSheetProvider>
@@ -1005,6 +1080,17 @@ function bottomAnchorRouteRequestsEqual(
   );
 }
 
+function historyPaginationPropsEqual(
+  left: AgentStreamViewProps["historyPagination"],
+  right: AgentStreamViewProps["historyPagination"],
+): boolean {
+  return (
+    left?.hasOlder === right?.hasOlder &&
+    left?.isLoadingOlder === right?.isLoadingOlder &&
+    left?.onLoadOlder === right?.onLoadOlder
+  );
+}
+
 function agentStreamViewPropsEqual(
   left: AgentStreamViewProps,
   right: AgentStreamViewProps,
@@ -1012,8 +1098,9 @@ function agentStreamViewPropsEqual(
   const reasons: string[] = [];
   if (left.agentId !== right.agentId) reasons.push("agentId");
   if (left.serverId !== right.serverId) reasons.push("serverId");
-  reasons.push(...collectAgentScreenAgentDiffs(left.agent, right.agent));
+  reasons.push(...collectAgentScreenAgentDiffs(left.context, right.context));
   if (left.streamItems !== right.streamItems) reasons.push("streamItems");
+  if (left.streamHead !== right.streamHead) reasons.push("streamHead");
   if (left.pendingPermissions !== right.pendingPermissions) reasons.push("pendingPermissions");
   if (
     !bottomAnchorRouteRequestsEqual(left.routeBottomAnchorRequest, right.routeBottomAnchorRequest)
@@ -1025,6 +1112,10 @@ function agentStreamViewPropsEqual(
   }
   if (left.toast !== right.toast) reasons.push("toast");
   if (left.onOpenWorkspaceFile !== right.onOpenWorkspaceFile) reasons.push("onOpenWorkspaceFile");
+  if (left.readOnly !== right.readOnly) reasons.push("readOnly");
+  if (!historyPaginationPropsEqual(left.historyPagination, right.historyPagination)) {
+    reasons.push("historyPagination");
+  }
   recordRenderProfileReasons(`AgentStreamView:${right.agentId}`, reasons);
   return reasons.length === 0;
 }
@@ -1393,13 +1484,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     bottom: 16,
     left: 0,
     right: 0,
-    alignItems: "center",
-    pointerEvents: "box-none",
-  },
-  scrollToBottomInner: {
-    width: "100%",
-    maxWidth: MAX_CONTENT_WIDTH,
-    alignSelf: "center",
     alignItems: "center",
   },
   scrollToBottomButton: {

@@ -625,7 +625,7 @@ export const es: TranslationResources = {
           success: "Actualizado",
         },
         archive: {
-          label: "Árbol de trabajo de archivo",
+          label: "Archivar espacio de trabajo",
           pending: "Archivando...",
           success: "Archivado",
         },
@@ -679,8 +679,6 @@ export const es: TranslationResources = {
             "La actualización no está disponible mientras tenga cambios locales, así que confírmelos o guárdelos primero",
           updateCurrent:
             "La actualización no está disponible porque esta rama ya está actualizada con{{baseRef}}",
-          archiveNotWorktree:
-            "El archivo no está disponible aquí porque este espacio de trabajo no se creó como un árbol de trabajoPaseo",
           mergePrNoGithub:
             "FusionarPRno está disponible en este momento porqueGitHubno está conectado",
           mergePrMissing:
@@ -712,11 +710,9 @@ export const es: TranslationResources = {
           baseRefUnavailable: "Referencia base no disponible",
           failedMerge: "No se pudo fusionar",
           failedMergeFromBase: "No se pudo fusionar desde la base",
-          worktreePathUnavailable: "Ruta del árbol de trabajo no disponible",
-          failedArchive: "No se pudo archivar el árbol de trabajo",
         },
         archiveWarning: {
-          title: '¿Archivo "{{worktreeName}}"?',
+          title: '¿Archivo "{{workspaceName}}"?',
           confirm: "Archivo",
           cancel: "Cancelar",
           uncommittedChanges: "Cambios no confirmados",
@@ -805,6 +801,9 @@ export const es: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "Anclados",
+    },
     host: {
       noHost: "Sin anfitrión",
       switchTitle: "Cambiar de anfitrión",
@@ -813,9 +812,24 @@ export const es: TranslationResources = {
     actions: {
       addProject: "Agregar proyecto",
       newWorkspace: "Nuevo espacio de trabajo",
+      hosts: "Hosts",
       home: "Hogar",
       settings: "Ajustes",
       closeSidebar: "Cerrar barra lateral",
+    },
+    help: {
+      trigger: "Ayuda y soporte",
+      troubleshoot: "Solucionar problemas",
+      diagnostics: "Ejecutar diagnóstico",
+      diagnosticsDescription: "Recopila datos de la app y los hosts conectados",
+      shortcuts: "Atajos de teclado",
+      shortcutsDescription: "Ver los atajos de teclado disponibles",
+      reportIssue: "Informar de un problema",
+      discord: "Discord",
+      discordDescription: "La mejor opción para ayuda rápida y conversación",
+      github: "Crear incidencia en GitHub",
+      githubDescription: "Informar de un error reproducible",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "Historial",
@@ -865,8 +879,10 @@ export const es: TranslationResources = {
         copyPath: "Copiar ruta",
         copyBranchName: "Copiar nombre de sucursal",
         rename: "Cambiar nombre del espacio de trabajo",
+        pin: "Anclar arriba",
+        unpin: "Desanclar",
         archive: "Archivo",
-        archiveWorktree: "Árbol de trabajo de archivo",
+        archiveWorkspace: "Archivar espacio de trabajo",
         hideFromSidebar: "Ocultar de la barra lateral",
         archiving: "Archivando...",
         hiding: "Ocultación...",
@@ -889,7 +905,7 @@ export const es: TranslationResources = {
         branchNameCopied: "Nombre de la sucursal copiado",
         hostDisconnected: "Hostno está conectado",
         hideFailed: "No se pudo ocultar el espacio de trabajo",
-        archiveFailed: "No se pudo archivar el árbol de trabajo",
+        archiveFailed: "No se pudo archivar el espacio de trabajo",
       },
     },
   },
@@ -1418,6 +1434,36 @@ export const es: TranslationResources = {
     input: "Aporte",
     output: "Producción",
   },
+  toolCallGroup: {
+    title: "Herramientas",
+    accessibilityLabel: "Herramientas, {{count}} llamadas",
+    editedFiles: {
+      one: "editó {{count}} archivo",
+      other: "editó {{count}} archivos",
+    },
+    commands: {
+      one: "ejecutó {{count}} comando",
+      other: "ejecutó {{count}} comandos",
+    },
+    readFiles: {
+      one: "leyó {{count}} archivo",
+      other: "leyó {{count}} archivos",
+    },
+    searches: {
+      one: "buscó {{count}} vez",
+      other: "buscó {{count}} veces",
+    },
+    otherTools: {
+      one: "usó {{count}} herramienta adicional",
+      other: "usó {{count}} herramientas adicionales",
+    },
+    paseoCalls: {
+      one: "llamó a Paseo {{count}} vez",
+      other: "llamó a Paseo {{count}} veces",
+    },
+    and: "y",
+    failed: "{{count}} con error",
+  },
   renameModal: {
     rename: "Rebautizar",
     saving: "Guardando...",
@@ -1516,6 +1562,16 @@ export const es: TranslationResources = {
         label: "Siempre expandir razonamiento",
         description:
           "Mostrar los bloques de pensamiento y razonamiento del agente totalmente expandidos de forma predeterminada",
+      },
+      toolCallDetail: {
+        label: "Detalle de llamadas a herramientas",
+        description: "Cómo aparece la actividad de herramientas en las cronologías del agente",
+        accessibilityLabel: "Seleccionar detalle de herramientas ({{value}})",
+        options: {
+          overview: "Resumen",
+          concise: "Conciso",
+          detailed: "Detallado",
+        },
       },
       language: {
         label: "Idioma",
@@ -1647,7 +1703,7 @@ export const es: TranslationResources = {
         openProject: "Abrir proyecto",
         newWorkspace: "Nuevo espacio de trabajo",
         newWorktree: "Nuevo árbol de trabajo",
-        archiveWorktree: "Árbol de trabajo de archivo",
+        archiveWorkspace: "Archivar espacio de trabajo",
         newTab: "Nueva pestaña",
         closeCurrentTab: "Cerrar pestaña actual",
         jumpToWorkspace: "Saltar al espacio de trabajo",

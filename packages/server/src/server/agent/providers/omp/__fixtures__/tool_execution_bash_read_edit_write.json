@@ -1,0 +1,141 @@
+[
+  {
+    "type": "tool_execution_start",
+    "toolCallId": "call_gEXwIvv5OyZaxzmbs6va4A2K|fc_05aa0994187981d1016a4d8da038988199b2ce0ac927730c1a",
+    "toolName": "bash",
+    "args": {
+      "command": "echo hi",
+      "cwd": "/tmp/omp-capture-tools-Xv1Tr1"
+    },
+    "intent": "Running requested echo"
+  },
+  {
+    "type": "tool_execution_update",
+    "toolCallId": "call_gEXwIvv5OyZaxzmbs6va4A2K|fc_05aa0994187981d1016a4d8da038988199b2ce0ac927730c1a",
+    "toolName": "bash",
+    "args": {
+      "command": "echo hi",
+      "cwd": "/tmp/omp-capture-tools-Xv1Tr1"
+    },
+    "partialResult": {
+      "content": [
+        {
+          "type": "text",
+          "text": "hi\n"
+        }
+      ],
+      "details": {}
+    }
+  },
+  {
+    "type": "tool_execution_end",
+    "toolCallId": "call_gEXwIvv5OyZaxzmbs6va4A2K|fc_05aa0994187981d1016a4d8da038988199b2ce0ac927730c1a",
+    "toolName": "bash",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "hi\n\n\nWall time: 0.02 seconds"
+        }
+      ],
+      "details": {
+        "timeoutSeconds": 300,
+        "wallTimeMs": 21.136528999999427
+      }
+    },
+    "isError": false
+  },
+  {
+    "type": "tool_execution_start",
+    "toolCallId": "call_hE5CZz9YzllZgnIp59vhC9Eb|fc_05aa0994187981d1016a4d8da52a908199beaf8f7e26bd6d23",
+    "toolName": "read",
+    "args": {
+      "path": "fixture.txt"
+    },
+    "intent": "Reading fixture"
+  },
+  {
+    "type": "tool_execution_end",
+    "toolCallId": "call_hE5CZz9YzllZgnIp59vhC9Eb|fc_05aa0994187981d1016a4d8da52a908199beaf8f7e26bd6d23",
+    "toolName": "read",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[fixture.txt#0063]\n1:alpha\n2:beta\n3:"
+        }
+      ],
+      "details": {
+        "displayContent": {
+          "text": "alpha\nbeta\n",
+          "startLine": 1,
+          "lineNumbers": [1, 2, 3]
+        },
+        "meta": {
+          "source": {
+            "type": "path",
+            "value": "/tmp/omp-capture-tools-Xv1Tr1/fixture.txt"
+          }
+        }
+      }
+    },
+    "isError": false
+  },
+  {
+    "type": "tool_execution_start",
+    "toolCallId": "call_CSQVOWll84bX8g7szgUXjQve|ctc_05aa0994187981d1016a4d8da6dc7c819983f07d0c52a51d2c",
+    "toolName": "edit",
+    "args": {
+      "input": "*** Begin Patch\n[fixture.txt#0063]\nSWAP 2.=2:\n+gamma\n*** End Patch\n"
+    }
+  },
+  {
+    "type": "tool_execution_end",
+    "toolCallId": "call_CSQVOWll84bX8g7szgUXjQve|ctc_05aa0994187981d1016a4d8da6dc7c819983f07d0c52a51d2c",
+    "toolName": "edit",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[fixture.txt#0CD6]\n1:alpha\n2:gamma"
+        }
+      ],
+      "details": {
+        "diff": " 1|alpha\n-2|beta\n+2|gamma",
+        "firstChangedLine": 2,
+        "op": "update",
+        "path": "fixture.txt",
+        "oldText": "alpha\nbeta\n",
+        "newText": "alpha\ngamma\n"
+      }
+    },
+    "isError": false
+  },
+  {
+    "type": "tool_execution_start",
+    "toolCallId": "call_cpC97uMIHxUcr5Uj5Q2SsDgT|fc_006a165b8a70dea5016a4d8e6a3710819a96c0a44165b3c9b5",
+    "toolName": "write",
+    "args": {
+      "path": "created.txt",
+      "content": "hello write"
+    },
+    "intent": "Creating requested file"
+  },
+  {
+    "type": "tool_execution_end",
+    "toolCallId": "call_cpC97uMIHxUcr5Uj5Q2SsDgT|fc_006a165b8a70dea5016a4d8e6a3710819a96c0a44165b3c9b5",
+    "toolName": "write",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "[created.txt#B763]\nSuccessfully wrote 11 bytes to created.txt"
+        }
+      ],
+      "details": {
+        "resolvedPath": "/tmp/omp-capture-write-ui-xN6zIE/created.txt"
+      }
+    },
+    "isError": false
+  }
+]

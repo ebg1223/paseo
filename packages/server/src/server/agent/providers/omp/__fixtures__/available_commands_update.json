@@ -1,0 +1,722 @@
+[
+  {
+    "type": "available_commands_update",
+    "commands": [
+      {
+        "name": "model",
+        "aliases": ["models"],
+        "description": "Show current model selection",
+        "source": "builtin"
+      },
+      {
+        "name": "fast",
+        "description": "Toggle fast mode",
+        "input": {
+          "hint": "[on|off|status]"
+        },
+        "subcommands": [
+          {
+            "name": "on",
+            "description": "Enable fast mode"
+          },
+          {
+            "name": "off",
+            "description": "Disable fast mode"
+          },
+          {
+            "name": "status",
+            "description": "Show fast mode status"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "advisor",
+        "description": "Toggle advisor",
+        "input": {
+          "hint": "[on|off|status|dump [raw]|configure]"
+        },
+        "subcommands": [
+          {
+            "name": "on",
+            "description": "Enable the advisor"
+          },
+          {
+            "name": "off",
+            "description": "Disable the advisor"
+          },
+          {
+            "name": "status",
+            "description": "Show advisor status"
+          },
+          {
+            "name": "dump",
+            "description": "Copy the advisor's transcript to clipboard",
+            "usage": "[raw]"
+          },
+          {
+            "name": "configure",
+            "description": "Open the advisor configuration editor (TUI)"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "export",
+        "description": "Export session to HTML file",
+        "input": {
+          "hint": "[path]"
+        },
+        "source": "builtin"
+      },
+      {
+        "name": "dump",
+        "description": "Return full transcript as plain text, with LLM request JSON path",
+        "source": "builtin"
+      },
+      {
+        "name": "share",
+        "description": "Share session via an encrypted link (share server or secret gist)",
+        "source": "builtin"
+      },
+      {
+        "name": "browser",
+        "description": "Toggle browser headless vs visible mode",
+        "input": {
+          "hint": "[headless|visible]"
+        },
+        "subcommands": [
+          {
+            "name": "headless",
+            "description": "Switch to headless mode"
+          },
+          {
+            "name": "visible",
+            "description": "Switch to visible mode"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "todo",
+        "description": "Manage todos",
+        "input": {
+          "hint": "<subcommand>"
+        },
+        "subcommands": [
+          {
+            "name": "edit",
+            "description": "Open todos in $EDITOR (Markdown round-trip)"
+          },
+          {
+            "name": "copy",
+            "description": "Copy todos as Markdown to clipboard"
+          },
+          {
+            "name": "export",
+            "description": "Write todos as Markdown to a file (default: TODO.md)",
+            "usage": "[<path>]"
+          },
+          {
+            "name": "import",
+            "description": "Replace todos from a Markdown file (default: TODO.md)",
+            "usage": "[<path>]"
+          },
+          {
+            "name": "append",
+            "description": "Append a task; phase fuzzy-matched or auto-created",
+            "usage": "[<phase>] <task...>"
+          },
+          {
+            "name": "start",
+            "description": "Mark task in_progress (fuzzy-matched)",
+            "usage": "<task>"
+          },
+          {
+            "name": "done",
+            "description": "Mark task/phase/all completed (fuzzy-matched)",
+            "usage": "[<task|phase>]"
+          },
+          {
+            "name": "drop",
+            "description": "Mark task/phase/all abandoned (fuzzy-matched)",
+            "usage": "[<task|phase>]"
+          },
+          {
+            "name": "rm",
+            "description": "Remove task/phase/all (fuzzy-matched)",
+            "usage": "[<task|phase>]"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "session",
+        "description": "Show session information",
+        "input": {
+          "hint": "info|delete"
+        },
+        "subcommands": [
+          {
+            "name": "info",
+            "description": "Show session info and stats"
+          },
+          {
+            "name": "delete",
+            "description": "Delete current session and return to selector"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "jobs",
+        "description": "Show background jobs",
+        "source": "builtin"
+      },
+      {
+        "name": "usage",
+        "description": "Show token usage",
+        "input": {
+          "hint": "[show|reset [account|active]]"
+        },
+        "subcommands": [
+          {
+            "name": "show",
+            "description": "Show provider usage and limits"
+          },
+          {
+            "name": "reset",
+            "description": "Spend a saved Codex rate-limit reset",
+            "usage": "[account|active]"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "stats",
+        "description": "Launch the local stats dashboard",
+        "input": {
+          "hint": "[--port <port>]"
+        },
+        "source": "builtin"
+      },
+      {
+        "name": "changelog",
+        "description": "Show changelog",
+        "input": {
+          "hint": "[full]"
+        },
+        "subcommands": [
+          {
+            "name": "full",
+            "description": "Show complete changelog"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "tools",
+        "description": "Show available tools",
+        "source": "builtin"
+      },
+      {
+        "name": "context",
+        "description": "Show context usage",
+        "source": "builtin"
+      },
+      {
+        "name": "mcp",
+        "description": "Manage MCP servers",
+        "input": {
+          "hint": "<subcommand>"
+        },
+        "subcommands": [
+          {
+            "name": "add",
+            "description": "Add a new MCP server",
+            "usage": "<name> [--scope project|user] [--url <url>] [-- <command...>]"
+          },
+          {
+            "name": "list",
+            "description": "List all configured MCP servers"
+          },
+          {
+            "name": "remove",
+            "description": "Remove an MCP server",
+            "usage": "<name> [--scope project|user]"
+          },
+          {
+            "name": "test",
+            "description": "Test connection to a server",
+            "usage": "<name>"
+          },
+          {
+            "name": "reauth",
+            "description": "Reauthorize OAuth for a server",
+            "usage": "<name>"
+          },
+          {
+            "name": "unauth",
+            "description": "Remove OAuth auth from a server",
+            "usage": "<name>"
+          },
+          {
+            "name": "enable",
+            "description": "Enable an MCP server",
+            "usage": "<name>"
+          },
+          {
+            "name": "disable",
+            "description": "Disable an MCP server",
+            "usage": "<name>"
+          },
+          {
+            "name": "smithery-search",
+            "description": "Search Smithery registry and deploy an MCP server",
+            "usage": "<keyword> [--scope project|user] [--limit <1-100>] [--semantic]"
+          },
+          {
+            "name": "smithery-login",
+            "description": "Login to Smithery and cache API key"
+          },
+          {
+            "name": "smithery-logout",
+            "description": "Remove cached Smithery API key"
+          },
+          {
+            "name": "reconnect",
+            "description": "Reconnect to a specific MCP server",
+            "usage": "<name>"
+          },
+          {
+            "name": "reload",
+            "description": "Force reload MCP runtime tools"
+          },
+          {
+            "name": "resources",
+            "description": "List available resources from connected servers"
+          },
+          {
+            "name": "prompts",
+            "description": "List available prompts from connected servers"
+          },
+          {
+            "name": "notifications",
+            "description": "Show notification capabilities and subscriptions"
+          },
+          {
+            "name": "help",
+            "description": "Show help message"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "ssh",
+        "description": "Manage SSH connections",
+        "input": {
+          "hint": "<subcommand>"
+        },
+        "subcommands": [
+          {
+            "name": "add",
+            "description": "Add an SSH host",
+            "usage": "<name> --host <host> [--user <user>] [--port <port>] [--key <keyPath>]"
+          },
+          {
+            "name": "list",
+            "description": "List all configured SSH hosts"
+          },
+          {
+            "name": "remove",
+            "description": "Remove an SSH host",
+            "usage": "<name> [--scope project|user]"
+          },
+          {
+            "name": "help",
+            "description": "Show help message"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "fresh",
+        "description": "Reset provider stream state without changing the local transcript",
+        "source": "builtin"
+      },
+      {
+        "name": "compact",
+        "description": "Compact the conversation",
+        "input": {
+          "hint": "[soft|remote|snapcompact] [focus]"
+        },
+        "subcommands": [
+          {
+            "name": "soft",
+            "description": "Summarize locally with the active model (skip remote endpoints)",
+            "usage": "[focus]"
+          },
+          {
+            "name": "remote",
+            "description": "Summarize via the remote endpoint / provider-native compaction",
+            "usage": "[focus]"
+          },
+          {
+            "name": "snapcompact",
+            "description": "Archive history onto dense bitmap images the model reads back (no LLM call)"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "shake",
+        "description": "Shake heavy content out of the conversation context",
+        "input": {
+          "hint": "[elide|images]"
+        },
+        "subcommands": [
+          {
+            "name": "elide",
+            "description": "Strip tool results + large blocks (default)"
+          },
+          {
+            "name": "images",
+            "description": "Strip image blocks"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "memory",
+        "description": "Manage memory",
+        "input": {
+          "hint": "<subcommand>"
+        },
+        "subcommands": [
+          {
+            "name": "view",
+            "description": "Show current memory injection payload"
+          },
+          {
+            "name": "stats",
+            "description": "Show memory backend statistics"
+          },
+          {
+            "name": "diagnose",
+            "description": "Run memory backend diagnostics"
+          },
+          {
+            "name": "clear",
+            "description": "Clear persisted memory data and artifacts"
+          },
+          {
+            "name": "reset",
+            "description": "Alias for clear"
+          },
+          {
+            "name": "enqueue",
+            "description": "Enqueue memory consolidation maintenance"
+          },
+          {
+            "name": "rebuild",
+            "description": "Alias for enqueue"
+          },
+          {
+            "name": "mm list",
+            "description": "List mental models on the active bank"
+          },
+          {
+            "name": "mm show",
+            "description": "Show one mental model (id required)"
+          },
+          {
+            "name": "mm refresh",
+            "description": "Refresh auto-refresh models bank-wide, or one model by id"
+          },
+          {
+            "name": "mm history",
+            "description": "Diff the change history of a mental model"
+          },
+          {
+            "name": "mm seed",
+            "description": "Create any built-in mental models that are missing"
+          },
+          {
+            "name": "mm delete",
+            "description": "Delete a mental model from the bank (id required)"
+          },
+          {
+            "name": "mm reload",
+            "description": "Re-pull the cached <mental_models> block"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "rename",
+        "description": "Rename the current session",
+        "input": {
+          "hint": "<title>"
+        },
+        "source": "builtin"
+      },
+      {
+        "name": "move",
+        "description": "Move the current session to a different directory",
+        "input": {
+          "hint": "[<path>]"
+        },
+        "source": "builtin"
+      },
+      {
+        "name": "marketplace",
+        "description": "Manage plugins from marketplaces",
+        "input": {
+          "hint": "<subcommand>"
+        },
+        "subcommands": [
+          {
+            "name": "add",
+            "description": "Add a marketplace source",
+            "usage": "<source>"
+          },
+          {
+            "name": "remove",
+            "description": "Remove a marketplace source",
+            "usage": "<name>"
+          },
+          {
+            "name": "update",
+            "description": "Update marketplace catalog(s)",
+            "usage": "[name]"
+          },
+          {
+            "name": "list",
+            "description": "List configured marketplaces"
+          },
+          {
+            "name": "discover",
+            "description": "Browse available plugins",
+            "usage": "[marketplace]"
+          },
+          {
+            "name": "install",
+            "description": "Install a plugin (interactive browser if no args)",
+            "usage": "[--force] [name@marketplace]"
+          },
+          {
+            "name": "uninstall",
+            "description": "Uninstall a plugin (selector if no args)",
+            "usage": "[name@marketplace]"
+          },
+          {
+            "name": "installed",
+            "description": "List installed marketplace plugins"
+          },
+          {
+            "name": "upgrade",
+            "description": "Upgrade outdated plugins",
+            "usage": "[name@marketplace]"
+          },
+          {
+            "name": "help",
+            "description": "Show usage guide"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "plugins",
+        "description": "Manage plugins",
+        "input": {
+          "hint": "[list|enable|disable]"
+        },
+        "subcommands": [
+          {
+            "name": "list",
+            "description": "List all installed plugins (npm + marketplace)"
+          },
+          {
+            "name": "enable",
+            "description": "Enable a marketplace plugin",
+            "usage": "<name@marketplace>"
+          },
+          {
+            "name": "disable",
+            "description": "Disable a marketplace plugin",
+            "usage": "<name@marketplace>"
+          }
+        ],
+        "source": "builtin"
+      },
+      {
+        "name": "reload-plugins",
+        "description": "Reload all plugins",
+        "source": "builtin"
+      },
+      {
+        "name": "force",
+        "aliases": ["force:"],
+        "description": "Force next turn to use a specific tool",
+        "input": {
+          "hint": "<tool-name> [prompt]"
+        },
+        "source": "builtin"
+      },
+      {
+        "name": "autoresearch",
+        "description": "Toggle builtin autoresearch mode, or pass off / clear, or a goal message.",
+        "input": {
+          "hint": "arguments"
+        },
+        "source": "extension"
+      },
+      {
+        "name": "green",
+        "description": "Generate a prompt to iterate on CI failures until the branch is green",
+        "input": {
+          "hint": "arguments"
+        },
+        "source": "custom"
+      },
+      {
+        "name": "review",
+        "description": "Launch interactive code review",
+        "input": {
+          "hint": "arguments"
+        },
+        "source": "custom"
+      },
+      {
+        "name": "grok:cancel",
+        "description": "Cancel a running background Grok job",
+        "source": "file"
+      },
+      {
+        "name": "grok:rescue",
+        "description": "Delegate a coding or investigation task to Grok (write-capable by default)",
+        "source": "file"
+      },
+      {
+        "name": "grok:result",
+        "description": "Show the final output of a completed Grok job",
+        "source": "file"
+      },
+      {
+        "name": "grok:review",
+        "description": "Run a read-only Grok code review of your uncommitted changes or a branch",
+        "source": "file"
+      },
+      {
+        "name": "grok:search",
+        "description": "Search X (Twitter) and the web in real time with Grok, then summarize with sources",
+        "source": "file"
+      },
+      {
+        "name": "grok:setup",
+        "description": "Check whether the local Grok CLI is installed and authenticated",
+        "source": "file"
+      },
+      {
+        "name": "grok:status",
+        "description": "Show running and recent Grok jobs for this repository",
+        "source": "file"
+      },
+      {
+        "name": "codex:adversarial-review",
+        "description": "Run a Codex review that challenges the implementation approach and design choices",
+        "source": "file"
+      },
+      {
+        "name": "codex:alerts",
+        "description": "Check Codex jobs for drift - stalls, repeated command failures, errors, long runtimes, orphaned workers, goal drift - as compact alerts",
+        "source": "file"
+      },
+      {
+        "name": "codex:artifacts",
+        "description": "List the evidence files (screenshots, logs, reports) a Codex job saved to its artifact directory",
+        "source": "file"
+      },
+      {
+        "name": "codex:cancel",
+        "description": "Cancel an active background Codex job in this repository",
+        "source": "file"
+      },
+      {
+        "name": "codex:continue",
+        "description": "Start a follow-up Codex turn on a specific existing thread with a corrective or continuation prompt",
+        "source": "file"
+      },
+      {
+        "name": "codex:goal",
+        "description": "Set, show, or clear a persistent goal on a Codex job or thread to keep long-running loops anchored",
+        "source": "file"
+      },
+      {
+        "name": "codex:items",
+        "description": "List compact thread items (messages, commands, file changes) with type filters and a hard output budget",
+        "source": "file"
+      },
+      {
+        "name": "codex:rescue",
+        "description": "Delegate investigation, an explicit fix request, or follow-up rescue work to the Codex rescue subagent",
+        "source": "file"
+      },
+      {
+        "name": "codex:result",
+        "description": "Show the stored final output for a finished Codex job in this repository",
+        "source": "file"
+      },
+      {
+        "name": "codex:review",
+        "description": "Run a Codex code review against local git state",
+        "source": "file"
+      },
+      {
+        "name": "codex:setup",
+        "description": "Check whether the local Codex CLI is ready, toggle the stop-time review gate, set sandbox trust, and print statusline setup",
+        "source": "file"
+      },
+      {
+        "name": "codex:status",
+        "description": "Show active and recent Codex jobs for this repository, including review-gate status and latest activity",
+        "source": "file"
+      },
+      {
+        "name": "codex:steer",
+        "description": "Steer the active turn of a running background Codex job with a short corrective instruction",
+        "source": "file"
+      },
+      {
+        "name": "codex:tail",
+        "description": "Show the last N progress log lines for a Codex job (bounded, local, no server call)",
+        "source": "file"
+      },
+      {
+        "name": "codex:thread",
+        "description": "Show a compact header for one Codex thread (no transcript dump)",
+        "source": "file"
+      },
+      {
+        "name": "codex:threads",
+        "description": "List recent Codex threads for this workspace, one compact line per thread",
+        "source": "file"
+      },
+      {
+        "name": "codex:transfer",
+        "description": "Transfer the current Claude Code session into a resumable Codex thread",
+        "source": "file"
+      },
+      {
+        "name": "codex:turns",
+        "description": "List a Codex thread's turns newest-first with one-line summaries and pagination",
+        "source": "file"
+      },
+      {
+        "name": "init",
+        "description": "Generate AGENTS.md for current codebase",
+        "source": "file"
+      }
+    ]
+  }
+]

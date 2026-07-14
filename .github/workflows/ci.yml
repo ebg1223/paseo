@@ -33,7 +33,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
 
       - name: Check formatting
         run: npx oxfmt --check .
@@ -51,7 +51,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
 
       - name: Lint lockfile
         run: npx --yes lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity
@@ -75,7 +75,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
       - name: Build server stack
         run: npm run build:server
 
@@ -111,9 +111,9 @@ jobs:
         run: git fetch --no-tags origin main:refs/remotes/origin/main
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
       - name: Install agent CLIs for provider tests
-        run: npm install -g @anthropic-ai/claude-code opencode-ai
+        run: node scripts/npm-retry.mjs install -g @anthropic-ai/claude-code opencode-ai
 
       - name: Build server dependencies
         run: npm run build:server-deps
@@ -139,35 +139,8 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Install dependencies with Electron retry
-        if: runner.os != 'Windows'
-        run: |
-          for attempt in 1 2 3; do
-            if npm ci; then
-              exit 0
-            else
-              exit_code=$?
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              exit $exit_code
-            fi
-            sleep $((attempt * 20))
-          done
-
-      - name: Install dependencies with Electron retry
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            npm ci
-            if ($LASTEXITCODE -eq 0) {
-              exit 0
-            }
-            if ($attempt -eq 3) {
-              exit $LASTEXITCODE
-            }
-            Start-Sleep -Seconds (20 * $attempt)
-          }
+      - name: Install dependencies with retry
+        run: node scripts/npm-retry.mjs ci
       - name: Build server stack
         run: npm run build:server
 
@@ -187,18 +160,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies with retry
-        run: |
-          for attempt in 1 2 3; do
-            if npm ci; then
-              exit 0
-            else
-              exit_code=$?
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              exit $exit_code
-            fi
-            sleep $((attempt * 20))
-          done
+        run: node scripts/npm-retry.mjs ci
       - name: Install Playwright browsers
         timeout-minutes: 10
         run: npx playwright install chromium
@@ -222,7 +184,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
       - name: Build client dependencies
         run: npm run build:client
 
@@ -258,18 +220,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies with retry
-        run: |
-          for attempt in 1 2 3; do
-            if npm ci; then
-              exit 0
-            else
-              exit_code=$?
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              exit $exit_code
-            fi
-            sleep $((attempt * 20))
-          done
+        run: node scripts/npm-retry.mjs ci
       - name: Install Playwright browsers
         timeout-minutes: 10
         run: npx playwright install chromium
@@ -282,7 +233,7 @@ jobs:
 
       - name: Install agent CLIs for provider tests
         if: ${{ !matrix.desktop }}
-        run: npm install -g @anthropic-ai/claude-code @openai/codex@0.105.0 opencode-ai
+        run: node scripts/npm-retry.mjs install -g @anthropic-ai/claude-code @openai/codex@0.105.0 opencode-ai
 
       - name: Run Playwright E2E tests
         if: ${{ !matrix.desktop }}
@@ -317,7 +268,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
 
       - name: Build relay
         run: npm run build:relay
@@ -343,10 +294,10 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/npm-retry.mjs ci
 
       - name: Install agent CLIs for provider tests
-        run: npm install -g @anthropic-ai/claude-code @openai/codex@0.105.0 opencode-ai
+        run: node scripts/npm-retry.mjs install -g @anthropic-ai/claude-code @openai/codex@0.105.0 opencode-ai
 
       - name: Run CLI tests
         run: npm run test --workspace=@getpaseo/cli
@@ -356,3 +307,50 @@ jobs:
           PASEO_VOICE_MODE_ENABLED: "0"
           PASEO_CLI_TEST_SHARD: ${{ matrix.shard }}
           PASEO_CLI_TEST_SHARD_TOTAL: "3"
+
+  omp-real-e2e:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - name: Check OMP credentials
+        id: credentials
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "OMP real E2E skipped: OPENROUTER_API_KEY is unavailable"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.credentials.outputs.available == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.credentials.outputs.available == 'true'
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.credentials.outputs.available == 'true'
+        with:
+          bun-version: "1.3.9"
+
+      - name: Install dependencies
+        if: steps.credentials.outputs.available == 'true'
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Install pinned OMP CLI
+        if: steps.credentials.outputs.available == 'true'
+        run: npm install -g @oh-my-pi/pi-coding-agent@16.3.9
+
+      - name: Build server dependencies
+        if: steps.credentials.outputs.available == 'true'
+        run: npm run build:server-deps
+
+      - name: Run OMP real E2E matrix
+        if: steps.credentials.outputs.available == 'true'
+        working-directory: packages/server
+        run: npx vitest run src/server/daemon-e2e/omp.real.e2e.test.ts

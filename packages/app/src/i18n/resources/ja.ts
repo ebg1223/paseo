@@ -623,7 +623,7 @@ export const ja: TranslationResources = {
           success: "更新しました",
         },
         archive: {
-          label: "ワークツリーをアーカイブ",
+          label: "ワークスペースをアーカイブ",
           pending: "アーカイブ中...",
           success: "アーカイブしました",
         },
@@ -670,8 +670,6 @@ export const ja: TranslationResources = {
           updateDirty:
             "ローカルに変更があるため更新は利用できません。先にコミットまたはスタッシュしてください",
           updateCurrent: "このブランチはすでに{{baseRef}}と最新の状態のため、更新は利用できません",
-          archiveNotWorktree:
-            "このワークスペースはPaseoワークツリーとして作成されていないため、アーカイブはここでは利用できません",
           mergePrNoGithub: "GitHubが接続されていないため、PRのマージは現在利用できません",
           mergePrMissing: "プルリクエストがまだないため、PRのマージは利用できません",
           mergePrDraft: "プルリクエストがまだドラフトのため、PRのマージは利用できません",
@@ -697,11 +695,9 @@ export const ja: TranslationResources = {
           baseRefUnavailable: "ベースRefが利用できません",
           failedMerge: "マージに失敗しました",
           failedMergeFromBase: "ベースからのマージに失敗しました",
-          worktreePathUnavailable: "ワークツリーパスが利用できません",
-          failedArchive: "ワークツリーのアーカイブに失敗しました",
         },
         archiveWarning: {
-          title: '"{{worktreeName}}"をアーカイブしますか？',
+          title: '"{{workspaceName}}"をアーカイブしますか？',
           confirm: "アーカイブ",
           cancel: "キャンセル",
           uncommittedChanges: "未コミットの変更",
@@ -790,6 +786,9 @@ export const ja: TranslationResources = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "固定済み",
+    },
     host: {
       noHost: "ホストなし",
       switchTitle: "ホストを切り替え",
@@ -798,9 +797,24 @@ export const ja: TranslationResources = {
     actions: {
       addProject: "プロジェクトを追加",
       newWorkspace: "新しいワークスペース",
+      hosts: "ホスト",
       home: "ホーム",
       settings: "設定",
       closeSidebar: "サイドバーを閉じる",
+    },
+    help: {
+      trigger: "ヘルプとサポート",
+      troubleshoot: "トラブルシューティング",
+      diagnostics: "診断を実行",
+      diagnosticsDescription: "アプリと接続中のホストの詳細を収集",
+      shortcuts: "キーボードショートカット",
+      shortcutsDescription: "利用可能なキーボードショートカットを表示",
+      reportIssue: "問題を報告",
+      discord: "Discord",
+      discordDescription: "すばやいサポートや相談に最適",
+      github: "GitHub Issueを作成",
+      githubDescription: "再現可能なバグを報告",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "履歴",
@@ -850,8 +864,10 @@ export const ja: TranslationResources = {
         copyPath: "パスをコピー",
         copyBranchName: "ブランチ名をコピー",
         rename: "ワークスペースの名前を変更",
+        pin: "上部に固定",
+        unpin: "固定解除",
         archive: "アーカイブ",
-        archiveWorktree: "ワークツリーをアーカイブ",
+        archiveWorkspace: "ワークスペースをアーカイブ",
         hideFromSidebar: "サイドバーから非表示",
         archiving: "アーカイブ中...",
         hiding: "非表示にしています...",
@@ -874,7 +890,7 @@ export const ja: TranslationResources = {
         branchNameCopied: "ブランチ名をコピーしました",
         hostDisconnected: "ホストが接続されていません",
         hideFailed: "ワークスペースの非表示に失敗しました",
-        archiveFailed: "ワークツリーのアーカイブに失敗しました",
+        archiveFailed: "ワークスペースのアーカイブに失敗しました",
       },
     },
   },
@@ -1396,6 +1412,36 @@ export const ja: TranslationResources = {
     input: "入力",
     output: "出力",
   },
+  toolCallGroup: {
+    title: "ツール",
+    accessibilityLabel: "ツール、{{count}}件の呼び出し",
+    editedFiles: {
+      one: "{{count}}個のファイルを編集",
+      other: "{{count}}個のファイルを編集",
+    },
+    commands: {
+      one: "{{count}}個のコマンドを実行",
+      other: "{{count}}個のコマンドを実行",
+    },
+    readFiles: {
+      one: "{{count}}個のファイルを読み取り",
+      other: "{{count}}個のファイルを読み取り",
+    },
+    searches: {
+      one: "{{count}}回検索",
+      other: "{{count}}回検索",
+    },
+    otherTools: {
+      one: "その他のツールを{{count}}回使用",
+      other: "その他のツールを{{count}}回使用",
+    },
+    paseoCalls: {
+      one: "Paseoを{{count}}回呼び出し",
+      other: "Paseoを{{count}}回呼び出し",
+    },
+    and: "および",
+    failed: "{{count}}件失敗",
+  },
   renameModal: {
     rename: "名前を変更",
     saving: "保存中...",
@@ -1491,6 +1537,16 @@ export const ja: TranslationResources = {
       autoExpandReasoning: {
         label: "常に思考プロセスを展開",
         description: "デフォルトでAIのエージェント思考・推論ブロックを完全に展開して表示します",
+      },
+      toolCallDetail: {
+        label: "ツール呼び出しの詳細",
+        description: "エージェントのタイムラインでのツール活動の表示方法",
+        accessibilityLabel: "ツール詳細を選択（{{value}}）",
+        options: {
+          overview: "概要",
+          concise: "簡潔",
+          detailed: "詳細",
+        },
       },
       language: {
         label: "言語",
@@ -1622,7 +1678,7 @@ export const ja: TranslationResources = {
         openProject: "プロジェクトを開く",
         newWorkspace: "新しいワークスペース",
         newWorktree: "新しいワークツリー",
-        archiveWorktree: "ワークツリーをアーカイブ",
+        archiveWorkspace: "ワークスペースをアーカイブ",
         newTab: "新しいタブ",
         closeCurrentTab: "現在のタブを閉じる",
         jumpToWorkspace: "ワークスペースにジャンプ",

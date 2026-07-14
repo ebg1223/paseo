@@ -12,11 +12,13 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import pino from "pino";
-import { describe, expect, test } from "vitest";
+import { setImmediate as waitForImmediate } from "node:timers/promises";
+import { describe, expect, onTestFinished, test } from "vitest";
 
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
-import { PiRpcAgentClient, PiRpcAgentSession, transformPiModels } from "./agent.js";
-import { FakePi } from "./test-utils/fake-pi.js";
+import { PiRpcAgentClient, transformPiModels } from "./agent.js";
+import { PiRpcAgentSession } from "../pi-shared/agent.js";
+import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 
 const ONE_BY_ONE_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -55,6 +57,10 @@ function readUtf8File(pathname: string): string {
   }
 }
 
+async function flushTurnScheduling(): Promise<void> {
+  await waitForImmediate();
+}
+
 async function createSession(pi = new FakePi()): Promise<{
   pi: FakePi;
   session: PiRpcAgentSession;
@@ -78,6 +84,29 @@ test("forwards launch-context env to the Pi process launch", async () => {
   expect(pi.recordedLaunches[0]?.env).toEqual({
     CHUNK14_PROBE: "expected",
   });
+
+  await session.close();
+});
+
+test("starts internal Pi agents without persisting a native session", async () => {
+  const pi = new FakePi();
+  const client = createClient(pi);
+  const session = await client.createSession(createConfig({ internal: true }));
+
+  expect(pi.recordedLaunches[0]).toMatchObject({
+    noSession: true,
+    argv: expect.arrayContaining(["--no-session"]),
+  });
+
+  await session.close();
+});
+
+test("keeps normal Pi agent sessions persisted", async () => {
+  const pi = new FakePi();
+  const client = createClient(pi);
+  const session = await client.createSession(createConfig());
+
+  expect(pi.recordedLaunches[0]?.argv).not.toContain("--no-session");
 
   await session.close();
 });
@@ -124,6 +153,13 @@ class SessionEvents {
     });
   }
 
+  turnCompletedEvents() {
+    return this.events.filter(
+      (event): event is Extract<AgentStreamEvent, { type: "turn_completed" }> =>
+        event.type === "turn_completed",
+    );
+  }
+
   nextTurnCompletion(): Promise<Extract<AgentStreamEvent, { type: "turn_completed" }>> {
     return this.nextEvent(
       (event): event is Extract<AgentStreamEvent, { type: "turn_completed" }> =>
@@ -135,6 +171,13 @@ class SessionEvents {
     return this.nextEvent(
       (event): event is Extract<AgentStreamEvent, { type: "turn_failed" }> =>
         event.type === "turn_failed",
+    );
+  }
+
+  nextTurnCancellation(): Promise<Extract<AgentStreamEvent, { type: "turn_canceled" }>> {
+    return this.nextEvent(
+      (event): event is Extract<AgentStreamEvent, { type: "turn_canceled" }> =>
+        event.type === "turn_canceled",
     );
   }
 
@@ -420,9 +463,18 @@ describe("PiRpcAgentSession", () => {
 
     await session.startTurn("hello");
     fakeSession.emit({
+      type: "message_start",
+      message: { role: "assistant", content: [], responseId: "response-1" },
+    });
+    fakeSession.emit({
       type: "message_update",
-      message: { role: "assistant", content: [] },
-      assistantMessageEvent: { type: "text_delta", delta: "hello" },
+      message: { role: "assistant", content: [], responseId: "response-1" },
+      assistantMessageEvent: { type: "text_delta", delta: "hel" },
+    });
+    fakeSession.emit({
+      type: "message_update",
+      message: { role: "assistant", content: [], responseId: "response-1" },
+      assistantMessageEvent: { type: "text_delta", delta: "lo" },
     });
     fakeSession.emit({
       type: "message_update",
@@ -447,7 +499,8 @@ describe("PiRpcAgentSession", () => {
     await events.nextTurnCompletion();
 
     expect(events.timelineItems()).toEqual([
-      { type: "assistant_message", text: "hello" },
+      { type: "assistant_message", text: "hel", messageId: "response-1" },
+      { type: "assistant_message", text: "lo", messageId: "response-1" },
       { type: "reasoning", text: "thinking" },
       {
         type: "tool_call",
@@ -464,6 +517,60 @@ describe("PiRpcAgentSession", () => {
         status: "completed",
         detail: { type: "shell", command: "echo hi", output: "hi\n", exitCode: 0 },
         error: null,
+      },
+    ]);
+  });
+
+  test("keeps one generated message id when Pi omits message start and response id", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    await session.startTurn("hello");
+    fakeSession.emit({
+      type: "message_update",
+      message: { role: "assistant", content: [] },
+      assistantMessageEvent: { type: "text_delta", delta: "hel" },
+    });
+    fakeSession.emit({
+      type: "message_update",
+      message: { role: "assistant", content: [] },
+      assistantMessageEvent: { type: "text_delta", delta: "lo" },
+    });
+
+    const [firstChunk, secondChunk] = events.timelineItems();
+    expect(firstChunk).toMatchObject({
+      type: "assistant_message",
+      text: "hel",
+      messageId: expect.any(String),
+    });
+    const firstMessageId = (firstChunk as { messageId: string }).messageId;
+    expect(secondChunk).toEqual({
+      type: "assistant_message",
+      text: "lo",
+      messageId: firstMessageId,
+    });
+  });
+
+  test("uses a response id that first appears on the assistant update", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    await session.startTurn("hello");
+    fakeSession.emit({
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+    fakeSession.emit({
+      type: "message_update",
+      message: { role: "assistant", content: [], responseId: "late-response-id" },
+      assistantMessageEvent: { type: "text_delta", delta: "hello" },
+    });
+
+    expect(events.timelineItems()).toEqual([
+      {
+        type: "assistant_message",
+        text: "hello",
+        messageId: "late-response-id",
       },
     ]);
   });
@@ -508,6 +615,38 @@ describe("PiRpcAgentSession", () => {
     ]);
   });
 
+  test("canceling a silent Pi extension command leaves the session usable", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    fakeSession.holdNextPrompt();
+    const firstTurn = await session.startTurn("/silent-search");
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "notify-1",
+      method: "notify",
+      message: "Search finished",
+    });
+    await session.interrupt();
+    const cancellation = await events.nextTurnCancellation();
+    await session.startTurn("next request");
+    await fakeSession.failHeldPrompt(new Error("Canceled prompt timed out"));
+
+    expect(cancellation).toEqual({
+      type: "turn_canceled",
+      provider: "pi",
+      reason: "interrupted",
+      turnId: firstTurn.turnId,
+    });
+    expect(fakeSession.prompts).toEqual([
+      { message: "/silent-search", imageCount: 0 },
+      { message: "next request", imageCount: 0 },
+    ]);
+    await expect(session.startTurn("overlapping request")).rejects.toThrow(
+      "A Pi turn is already active",
+    );
+  });
+
   test("adds Pi assistant context to generic provider finish errors", async () => {
     const { pi, session, events } = await createSession();
 
@@ -550,12 +689,14 @@ describe("PiRpcAgentSession", () => {
         },
       },
       {},
+      { env: { RESUME_PROBE: "expected" } },
     );
 
     expect(pi.recordedLaunches).toHaveLength(1);
     const actualLaunch = pi.recordedLaunches[0]!;
     expect(actualLaunch).toMatchObject({
       cwd: "/workspace/project",
+      env: { RESUME_PROBE: "expected" },
       session: "/tmp/native-pi-session",
     });
     expect(actualLaunch.extensionPaths).toHaveLength(1);
@@ -756,6 +897,138 @@ describe("PiRpcAgentSession", () => {
     await expect(events.nextTurnFailure()).resolves.toMatchObject({
       error: "Pi exited",
     });
+  });
+
+  test("completes locally handled slash commands when agentInvoked is false", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    fakeSession.promptAck = { agentInvoked: false };
+
+    const { turnId: usageTurnId } = await session.startTurn("/usage");
+    fakeSession.emit({
+      type: "command_output",
+      text: "\u001b[38;2;138;138;138mUsage 12%\u001b[39m",
+    });
+
+    await flushTurnScheduling();
+    const usageCompletion = await events.nextTurnCompletion();
+    expect(usageCompletion).toMatchObject({ type: "turn_completed", turnId: usageTurnId });
+    expect(events.timelineAndCompletionEvents()).toEqual([
+      { type: "timeline", item: { type: "user_message", text: "/usage" } },
+      { type: "timeline", item: { type: "assistant_message", text: "Usage 12%" } },
+      { type: "turn_completed" },
+    ]);
+
+    const { turnId: helloTurnId } = await session.startTurn("hello");
+    fakeSession.finishTurn();
+    await flushTurnScheduling();
+    expect(events.turnCompletedEvents()).toHaveLength(2);
+    expect(events.turnCompletedEvents()[1]).toMatchObject({
+      type: "turn_completed",
+      turnId: helloTurnId,
+    });
+  });
+
+  test("does not synthesize completion when agentInvoked is true for slash prompts", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    fakeSession.promptAck = { agentInvoked: true };
+
+    const { turnId } = await session.startTurn("/usage");
+    await flushTurnScheduling();
+    expect(events.turnCompletedEvents()).toHaveLength(0);
+
+    fakeSession.emit({ type: "agent_start" });
+    fakeSession.finishTurn();
+    await flushTurnScheduling();
+
+    const completion = await events.nextTurnCompletion();
+    expect(completion).toMatchObject({ type: "turn_completed", turnId });
+    expect(events.turnCompletedEvents()).toHaveLength(1);
+  });
+
+  test("probes slash prompts without agentInvoked and surfaces buffered notify output", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    const { turnId } = await session.startTurn("/plan on");
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "notify-plan",
+      method: "notify",
+      message: "Plan mode enabled",
+    });
+
+    await flushTurnScheduling();
+    const completion = await events.nextTurnCompletion();
+    expect(completion).toMatchObject({ type: "turn_completed", turnId });
+    expect(events.timelineAndCompletionEvents()).toEqual([
+      { type: "timeline", item: { type: "user_message", text: "/plan on" } },
+      { type: "timeline", item: { type: "assistant_message", text: "Plan mode enabled" } },
+      { type: "turn_completed" },
+    ]);
+  });
+
+  test("does not synthesize completion when lifecycle starts before the no-turn probe", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    const { turnId } = await session.startTurn("/custom-template-cmd");
+    fakeSession.emit({
+      type: "extension_ui_request",
+      id: "notify-buffered",
+      method: "notify",
+      message: "Should not appear after turn starts",
+    });
+    fakeSession.emit({ type: "agent_start" });
+
+    await flushTurnScheduling();
+    expect(events.turnCompletedEvents()).toHaveLength(0);
+    expect(events.timelineItems()).toEqual([]);
+
+    fakeSession.finishTurn();
+    await flushTurnScheduling();
+    const completion = await events.nextTurnCompletion();
+    expect(completion).toMatchObject({ type: "turn_completed", turnId });
+    expect(events.turnCompletedEvents()).toHaveLength(1);
+  });
+
+  test("fails slash turns when the no-turn getState barrier errors", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    fakeSession.getStateError = new Error("get_state timed out");
+
+    const { turnId } = await session.startTurn("/local-command on");
+    await flushTurnScheduling();
+
+    await expect(events.nextTurnFailure()).resolves.toMatchObject({
+      turnId,
+      error: "get_state timed out",
+    });
+
+    fakeSession.getStateError = null;
+    const { turnId: recoveryTurnId } = await session.startTurn("hello");
+    fakeSession.finishTurn();
+    await flushTurnScheduling();
+    await expect(events.nextTurnCompletion()).resolves.toMatchObject({
+      type: "turn_completed",
+      turnId: recoveryTurnId,
+    });
+  });
+
+  test("does not probe non-slash prompts when agentInvoked is missing", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+
+    const { turnId } = await session.startTurn("hello");
+    await flushTurnScheduling();
+    expect(events.turnCompletedEvents()).toHaveLength(0);
+
+    fakeSession.finishTurn();
+    await flushTurnScheduling();
+    const completion = await events.nextTurnCompletion();
+    expect(completion).toMatchObject({ type: "turn_completed", turnId });
+    expect(events.turnCompletedEvents()).toHaveLength(1);
   });
 });
 
@@ -1221,7 +1494,21 @@ describe("PiRpcAgentClient", () => {
     expect(pi.latestSession().treeNavigationRequests).toEqual(["entry-1"]);
   });
 
-  test("injects MCP servers through pi-mcp-adapter when the extension is loaded", async () => {
+  test("injects MCP servers without replacing the Pi global MCP config", async () => {
+    const agentDir = mkdtempSync(path.join(tmpdir(), "paseo-pi-agent-"));
+    onTestFinished(() => rmSync(agentDir, { recursive: true, force: true }));
+    writeFileSync(
+      path.join(agentDir, "mcp.json"),
+      JSON.stringify({
+        settings: { toolPrefix: "none", disableProxyTool: true },
+        "mcp-servers": {
+          "brave-search": {
+            url: "https://example.com/mcp/brave",
+            directTools: ["brave_llm_context"],
+          },
+        },
+      }),
+    );
     const pi = new FakePi();
     pi.queueCommands([
       {
@@ -1248,6 +1535,7 @@ describe("PiRpcAgentClient", () => {
           },
         },
       }),
+      { env: { PI_CODING_AGENT_DIR: agentDir } },
     );
 
     expect(pi.recordedLaunches).toHaveLength(2);
@@ -1276,7 +1564,12 @@ describe("PiRpcAgentClient", () => {
       mcpServers: Record<string, unknown>;
     };
     expect(injectedConfig).toEqual({
+      settings: { toolPrefix: "none", disableProxyTool: true },
       mcpServers: {
+        "brave-search": {
+          url: "https://example.com/mcp/brave",
+          directTools: ["brave_llm_context"],
+        },
         paseo: {
           url: "http://127.0.0.1:6767/mcp/agents?callerAgentId=agent-1",
           auth: false,
@@ -1292,6 +1585,27 @@ describe("PiRpcAgentClient", () => {
 
     await session.close();
     expect(existsSync(configPath!)).toBe(false);
+  });
+
+  test("reports the path of a malformed Pi global MCP config", async () => {
+    const agentDir = mkdtempSync(path.join(tmpdir(), "paseo-pi-agent-"));
+    onTestFinished(() => rmSync(agentDir, { recursive: true, force: true }));
+    const configPath = path.join(agentDir, "mcp.json");
+    writeFileSync(configPath, "{ invalid");
+    const pi = new FakePi();
+    pi.queueCommands([{ name: "mcp", source: "extension" }]);
+    const client = createClient(pi);
+
+    await expect(
+      client.createSession(
+        createConfig({
+          mcpServers: {
+            paseo: { type: "http", url: "http://127.0.0.1:6767/mcp/agents" },
+          },
+        }),
+        { env: { PI_CODING_AGENT_DIR: agentDir } },
+      ),
+    ).rejects.toThrow(`Failed to parse Pi MCP config: ${configPath}`);
   });
 
   test("does not pass MCP config when pi-mcp-adapter is not loaded", async () => {

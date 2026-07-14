@@ -618,7 +618,7 @@ export const en = {
           success: "Updated",
         },
         archive: {
-          label: "Archive worktree",
+          label: "Archive workspace",
           pending: "Archiving...",
           success: "Archived",
         },
@@ -667,8 +667,6 @@ export const en = {
             "Update isn't available while you have local changes so commit or stash them first",
           updateCurrent:
             "Update isn't available because this branch is already up to date with {{baseRef}}",
-          archiveNotWorktree:
-            "Archive isn't available here because this workspace was not created as a Paseo worktree",
           mergePrNoGithub: "Merge PR isn't available right now because GitHub isn't connected",
           mergePrMissing: "Merge PR isn't available because there isn't a pull request yet",
           mergePrDraft: "Merge PR isn't available because the pull request is still a draft",
@@ -692,11 +690,9 @@ export const en = {
           baseRefUnavailable: "Base ref unavailable",
           failedMerge: "Failed to merge",
           failedMergeFromBase: "Failed to merge from base",
-          worktreePathUnavailable: "Worktree path unavailable",
-          failedArchive: "Failed to archive worktree",
         },
         archiveWarning: {
-          title: 'Archive "{{worktreeName}}"?',
+          title: 'Archive "{{workspaceName}}"?',
           confirm: "Archive",
           cancel: "Cancel",
           uncommittedChanges: "Uncommitted changes",
@@ -785,6 +781,9 @@ export const en = {
     },
   },
   sidebar: {
+    pinned: {
+      title: "Pinned",
+    },
     host: {
       noHost: "No host",
       switchTitle: "Switch host",
@@ -793,9 +792,24 @@ export const en = {
     actions: {
       addProject: "Add project",
       newWorkspace: "New workspace",
+      hosts: "Hosts",
       home: "Home",
       settings: "Settings",
       closeSidebar: "Close sidebar",
+    },
+    help: {
+      trigger: "Help and support",
+      troubleshoot: "Troubleshoot",
+      diagnostics: "Run diagnostics",
+      diagnosticsDescription: "Collect app and connected host details",
+      shortcuts: "Keyboard shortcuts",
+      shortcutsDescription: "View available keyboard shortcuts",
+      reportIssue: "Report an issue",
+      discord: "Discord",
+      discordDescription: "Best for quick help and discussion",
+      github: "Create GitHub issue",
+      githubDescription: "Report a reproducible bug",
+      version: "Paseo {{version}}",
     },
     sections: {
       sessions: "History",
@@ -845,8 +859,10 @@ export const en = {
         copyPath: "Copy path",
         copyBranchName: "Copy branch name",
         rename: "Rename workspace",
+        pin: "Pin to top",
+        unpin: "Unpin",
         archive: "Archive",
-        archiveWorktree: "Archive worktree",
+        archiveWorkspace: "Archive workspace",
         hideFromSidebar: "Hide from sidebar",
         archiving: "Archiving...",
         hiding: "Hiding...",
@@ -869,7 +885,7 @@ export const en = {
         branchNameCopied: "Branch name copied",
         hostDisconnected: "Host is not connected",
         hideFailed: "Failed to hide workspace",
-        archiveFailed: "Failed to archive worktree",
+        archiveFailed: "Failed to archive workspace",
       },
     },
   },
@@ -1387,6 +1403,36 @@ export const en = {
     input: "Input",
     output: "Output",
   },
+  toolCallGroup: {
+    title: "Tools",
+    accessibilityLabel: "Tools, {{count}} calls",
+    editedFiles: {
+      one: "edited {{count}} file",
+      other: "edited {{count}} files",
+    },
+    commands: {
+      one: "ran {{count}} command",
+      other: "ran {{count}} commands",
+    },
+    readFiles: {
+      one: "read {{count}} file",
+      other: "read {{count}} files",
+    },
+    searches: {
+      one: "searched {{count}} time",
+      other: "searched {{count}} times",
+    },
+    otherTools: {
+      one: "used {{count}} other tool",
+      other: "used {{count}} other tools",
+    },
+    paseoCalls: {
+      one: "called Paseo {{count}} time",
+      other: "called Paseo {{count}} times",
+    },
+    and: "and",
+    failed: "{{count}} failed",
+  },
   renameModal: {
     rename: "Rename",
     saving: "Saving...",
@@ -1482,6 +1528,16 @@ export const en = {
       autoExpandReasoning: {
         label: "Always expand reasoning",
         description: "Show agent thinking and chain-of-thought blocks fully expanded by default",
+      },
+      toolCallDetail: {
+        label: "Tool call detail",
+        description: "How tool activity appears in agent timelines",
+        accessibilityLabel: "Select tool call detail ({{value}})",
+        options: {
+          overview: "Overview",
+          concise: "Concise",
+          detailed: "Detailed",
+        },
       },
       language: {
         label: "Language",
@@ -1612,7 +1668,7 @@ export const en = {
         openProject: "Open project",
         newWorkspace: "New workspace",
         newWorktree: "New worktree",
-        archiveWorktree: "Archive worktree",
+        archiveWorkspace: "Archive workspace",
         newTab: "New tab",
         closeCurrentTab: "Close current tab",
         jumpToWorkspace: "Jump to workspace",

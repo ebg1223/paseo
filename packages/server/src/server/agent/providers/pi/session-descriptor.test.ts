@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 
-import { listPiImportableSessions, readPiImportSessionConfig } from "./session-descriptor.js";
+import {
+  listPiImportableSessions,
+  readPiImportSessionConfig,
+} from "../pi-shared/session-descriptor.js";
 
 async function writeSession(root: string, lines: unknown[]): Promise<string> {
   const sessionsDir = path.join(root, "sessions", "project");
