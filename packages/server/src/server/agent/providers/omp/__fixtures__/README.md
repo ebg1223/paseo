@@ -15,17 +15,11 @@ daemon:
   - `todo_tool_reminder_state.json`
   - `available_commands_update.json`
   - `get_state_context_usage.json`
-  - `get_available_models_reasoning.json`
   - `get_session_stats.json`
 - `omp --mode rpc-ui --no-session --no-skills --no-rules --approval-mode always-ask --provider openai-codex --model gpt-5.5 --thinking low`
   - `rpc_ui_extension_requests.json`
-- `PI_RPC_EMIT_TITLE=1 omp --mode rpc --no-skills --no-rules --approval-mode yolo --provider openai-codex --model gpt-5.5 --thinking low`
-  - `title_emission_probe.json`
 - `omp --mode rpc --no-skills --no-rules --approval-mode yolo --provider openai-codex --model gpt-5.5 --thinking low`
   - `subagent_session_file_paths.json`
-- `omp --mode rpc --no-session --no-skills --no-rules --approval-mode yolo --provider openai-codex --model gpt-5.5 --thinking low`
-  - `host_tool_call_update.json`
-  - `host_tool_cancel.json`
 
 Notes:
 
@@ -34,12 +28,3 @@ Notes:
   explicit `todo rm`/`drop`.
 - Built-in plan approval was not reachable in RPC/RPC-UI. The live RPC-UI
   approval surface for tools is a generic `select` frame with `Approve`/`Deny`.
-- `PI_RPC_EMIT_TITLE=1` did not produce `session_info_update` or `setTitle` for
-  auto-titling in RPC mode.
-- Host-tool dispatch is concurrent with the RPC event loop. During
-  `host_tool_call_update.json`, a deliberately delayed host result left the
-  stream active and a concurrent `get_state` request completed in 16 ms with
-  `isStreaming: true`; a sent `host_tool_update` re-emitted as
-  `tool_execution_update`. During `host_tool_cancel.json`, sending `abort`
-  while the host tool was pending emitted `host_tool_cancel` targeting the
-  pending call and a failed `tool_execution_end`.

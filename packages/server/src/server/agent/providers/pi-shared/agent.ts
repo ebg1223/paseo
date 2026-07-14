@@ -235,7 +235,6 @@ export interface PiDialect {
   commandsRpcName: string;
   protocolMode?: "rpc" | "rpc-ui";
   supportsMcpServers?: boolean;
-  supportsNativePaseoTools?: boolean;
   appendSystemPrompt?: string;
   modes?: readonly AgentMode[];
   defaultModeId?: string;
@@ -284,11 +283,6 @@ export interface PiDialect {
     sessionsDir: string;
   }) => string[];
   onSessionStart?: (runtimeSession: PiRuntimeSession, logger: Logger) => void;
-  configureNativePaseoTools?: (input: {
-    runtimeSession: PiRuntimeSession;
-    catalog: PaseoToolCatalog;
-    logger: Logger;
-  }) => Promise<void>;
   onSessionInterrupt?: (runtimeSession: PiRuntimeSession) => void;
   beforeSessionClose?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
   onSessionProcessExit?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
@@ -316,10 +310,6 @@ export interface PiDialect {
     request: AgentPermissionRequest,
     response: AgentPermissionResponse,
   ) => { value?: string; confirmed?: boolean; cancelled?: boolean } | null;
-  notifyTitleChanged?: (input: {
-    runtimeSession: PiRuntimeSession;
-    title: string;
-  }) => void | Promise<void>;
   onToolExecutionEnd?: (input: {
     event: Extract<PiAgentSessionEvent, { type: "tool_execution_end" }>;
     result: PiToolResult;
@@ -360,17 +350,11 @@ function resolveDialectLaunchMode(
 }
 
 function capabilitiesForClient(dialect: PiDialect): AgentCapabilityFlags {
-  return withPiCapabilities({
-    supportsMcpServers: dialect.supportsMcpServers === true,
-    supportsNativePaseoTools: dialect.supportsNativePaseoTools === true,
-  });
+  return withPiCapabilities(dialect.supportsMcpServers === true);
 }
 
 function capabilitiesForSession(dialect: PiDialect, hasMcpConfig: boolean): AgentCapabilityFlags {
-  return withPiCapabilities({
-    supportsMcpServers: dialect.supportsMcpServers === true || hasMcpConfig,
-    supportsNativePaseoTools: dialect.supportsNativePaseoTools === true,
-  });
+  return withPiCapabilities(dialect.supportsMcpServers === true || hasMcpConfig);
 }
 
 interface StartTurnResult {
@@ -924,18 +908,11 @@ function isPiMcpAdapterCommand(command: PiRpcSlashCommand): boolean {
   return JSON.stringify(command.sourceInfo).includes("pi-mcp-adapter");
 }
 
-function withPiCapabilities(input: {
-  supportsMcpServers: boolean;
-  supportsNativePaseoTools: boolean;
-}): AgentCapabilityFlags {
-  const capabilities: AgentCapabilityFlags = {
+function withPiCapabilities(supportsMcpServers: boolean): AgentCapabilityFlags {
+  return {
     ...PI_CAPABILITIES,
-    supportsMcpServers: input.supportsMcpServers,
+    supportsMcpServers,
   };
-  if (input.supportsNativePaseoTools) {
-    capabilities.supportsNativePaseoTools = true;
-  }
-  return capabilities;
 }
 
 function isPiRequestAbortError(error: unknown): boolean {
@@ -1367,7 +1344,6 @@ function createRuntime(
 export class PiRpcAgentSession implements AgentSession {
   readonly provider: AgentProvider;
   readonly capabilities: AgentCapabilityFlags;
-  readonly notifyTitleChanged?: (title: string) => Promise<void>;
 
   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
   private readonly activeToolCalls = new Map<string, PiTrackedToolCall>();
@@ -1407,14 +1383,6 @@ export class PiRpcAgentSession implements AgentSession {
     this.logger = options.logger;
     this.cleanup = options.cleanup;
     this.paseoTools = options.paseoTools;
-    if (options.dialect.notifyTitleChanged) {
-      this.notifyTitleChanged = async (title: string) => {
-        await options.dialect.notifyTitleChanged?.({
-          runtimeSession: this.runtimeSession,
-          title,
-        });
-      };
-    }
     this.lastKnownThinkingOptionId =
       normalizePiThinkingOption(options.config.thinkingOptionId) ??
       this.state.thinkingLevel ??
@@ -2728,7 +2696,6 @@ export class PiRpcAgentClient implements AgentClient {
         mcpConfigPath: mcpConfig?.path,
         extensionPaths: paseoExtension ? [paseoExtension.path] : undefined,
       });
-      await this.configureNativePaseoTools(runtimeSession, launchContext?.paseoTools);
     } catch (error) {
       mcpConfig?.cleanup();
       paseoExtension?.cleanup();
@@ -2793,7 +2760,6 @@ export class PiRpcAgentClient implements AgentClient {
           paseoExtension,
         }),
       );
-      await this.configureNativePaseoTools(runtimeSession, launchContext?.paseoTools);
     } catch (error) {
       mcpConfig?.cleanup();
       paseoExtension?.cleanup();
@@ -2922,26 +2888,6 @@ export class PiRpcAgentClient implements AgentClient {
       return null;
     }
     return createPiMcpConfigFile(servers, { piGlobalConfigEnv: env });
-  }
-
-  private async configureNativePaseoTools(
-    runtimeSession: PiRuntimeSession,
-    paseoTools: PaseoToolCatalog | undefined,
-  ): Promise<void> {
-    if (!paseoTools) {
-      return;
-    }
-    if (this.dialect.supportsNativePaseoTools !== true) {
-      return;
-    }
-    if (!this.dialect.configureNativePaseoTools) {
-      throw new Error(`${this.dialect.label} native Paseo tool registration is unavailable`);
-    }
-    await this.dialect.configureNativePaseoTools({
-      runtimeSession,
-      catalog: paseoTools,
-      logger: this.logger,
-    });
   }
 
   private async detectMcpAdapter(cwd: string, env?: Record<string, string>): Promise<boolean> {

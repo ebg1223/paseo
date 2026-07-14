@@ -57,8 +57,6 @@ const OMP_SESSION_DIR = "~/.omp/agent/sessions";
 // Fixture-backed Wave 1 parity targets OMP 16.3.9; runtime logic uses capability probing.
 export const MIN_SUPPORTED_OMP_VERSION = "16.3.9";
 const DEFAULT_OMP_MODE_ID = "full";
-export const OMP_PASEO_MCP_SYSTEM_PROMPT =
-  "OMP task tool runs fast in-process helpers inside this OMP session. Paseo tools are available through MCP.";
 export { OMP_MODES };
 
 const OmpProviderParamsSchema = PiProviderParamsSchema.extend({
@@ -315,7 +313,6 @@ function createOmpDialect(
     commandsRpcName: "get_available_commands",
     protocolMode: "rpc-ui",
     supportsMcpServers: false,
-    appendSystemPrompt: OMP_PASEO_MCP_SYSTEM_PROMPT,
     modes: OMP_MODES,
     defaultModeId: DEFAULT_OMP_MODE_ID,
     resolveLaunchMode: (modeId) => resolveOmpLaunchMode(modeId, modelRoleParams),
@@ -378,11 +375,19 @@ function createOmpDialect(
     filterImportableSessionFiles: filterOmpImportableSessionFiles,
     supportsHandoffCommand: true,
     onSessionStart: (runtimeSession, sessionLogger) => {
-      void asOmpRuntimeSession(runtimeSession)
-        .setSubagentSubscription("events")
-        .catch((error: unknown) => {
-          sessionLogger.debug({ err: error }, "OMP subagent subscription unavailable");
+      const ompSession = asOmpRuntimeSession(runtimeSession);
+      void ompSession.setSubagentSubscription("events").catch((eventsError: unknown) => {
+        sessionLogger.debug(
+          { err: eventsError },
+          "OMP subagent event subscription unavailable; falling back to progress",
+        );
+        void ompSession.setSubagentSubscription("progress").catch((progressError: unknown) => {
+          sessionLogger.debug(
+            { err: progressError },
+            "OMP subagent progress subscription unavailable",
+          );
         });
+      });
     },
     onSessionClose: (runtimeSession) => {
       subagentIndex.clear(runtimeSession);

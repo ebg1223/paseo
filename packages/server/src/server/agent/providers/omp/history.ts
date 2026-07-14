@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { basename, extname, join } from "node:path";
 import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
-import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
+import { normalizeProviderReplayTimestamp } from "../../provider-history-timestamps.js";
+import { PiHistoryMapper, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
 import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
 import type { PiRuntimeSession } from "../pi-shared/runtime.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
@@ -20,10 +21,16 @@ export async function* streamOmpHistory(input: {
   sessionFile?: string;
   runtimeSession?: PiRuntimeSession;
   provider: AgentProvider;
+  visitedSessionFiles?: Set<string>;
 }): AsyncGenerator<AgentStreamEvent> {
   if (!input.sessionFile) {
     return;
   }
+  const visitedSessionFiles = input.visitedSessionFiles ?? new Set<string>();
+  if (visitedSessionFiles.has(input.sessionFile)) {
+    return;
+  }
+  visitedSessionFiles.add(input.sessionFile);
   let entries: OmpSessionEntry[];
   try {
     entries = await readActiveOmpEntryChain(
@@ -39,59 +46,84 @@ export async function* streamOmpHistory(input: {
     throw error;
   }
   const messages: PiAgentMessage[] = [];
+  const messageEntries: OmpSessionEntry[] = [];
   const userEntries: PiCapturedUserMessageEntry[] = [];
   for (const entry of entries) {
     const mapped = mapEntryMessage(entry);
     if (!mapped) continue;
     messages.push(mapped);
+    messageEntries.push(entry);
     if (mapped.role === "user" && entry.id) {
       userEntries.push({ id: entry.id, text: textOf(mapped.content) });
     }
   }
-  yield* streamPiHistory(input.provider, messages, userEntries, OMP_HISTORY_MAPPER_HOOKS);
-  for (const transcript of readSubagentTranscripts(messages)) {
-    yield {
-      type: "provider_subagent",
-      provider: input.provider,
-      event: {
-        type: "upsert",
-        id: transcript.id,
-        title: transcript.title,
-        status: "running",
-        toolCallId: transcript.toolCallId,
-      },
-    };
-    for await (const event of streamOmpHistory({
-      sessionFile: transcript.sessionFile,
-      provider: input.provider,
-    })) {
-      if (event.type === "timeline") {
-        yield {
-          type: "provider_subagent",
-          provider: input.provider,
-          event: {
-            type: "timeline",
-            id: transcript.id,
-            item: event.item,
-            ...(event.timestamp ? { timestamp: event.timestamp } : {}),
-          },
-        };
-      } else if (event.type === "provider_subagent") {
-        yield event;
-      }
+  const mapper = new PiHistoryMapper(input.provider, userEntries, OMP_HISTORY_MAPPER_HOOKS);
+  for (let index = 0; index < messages.length; index += 1) {
+    const timestamp = normalizeProviderReplayTimestamp(messageEntries[index]?.timestamp);
+    for (const event of mapper.mapMessages([messages[index]!])) {
+      yield timestamp && event.type === "timeline" ? { ...event, timestamp } : event;
     }
-    yield {
-      type: "provider_subagent",
-      provider: input.provider,
-      event: {
-        type: "upsert",
-        id: transcript.id,
-        title: transcript.title,
-        status: "completed",
-        toolCallId: transcript.toolCallId,
-      },
-    };
   }
+  for (const transcript of readSubagentTranscripts(messages, input.sessionFile)) {
+    yield* replaySubagentTranscript(transcript, input.provider, visitedSessionFiles);
+  }
+}
+
+async function* replaySubagentTranscript(
+  transcript: OmpSubagentTranscript,
+  provider: AgentProvider,
+  visitedSessionFiles: Set<string>,
+): AsyncGenerator<AgentStreamEvent> {
+  const childEntries = await readActiveOmpEntryChain(transcript.sessionFile).catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    },
+  );
+  const firstTimestamp = normalizeProviderReplayTimestamp(childEntries[0]?.timestamp);
+  yield subagentUpsert(transcript, provider, "running", firstTimestamp);
+  for await (const event of streamOmpHistory({
+    sessionFile: transcript.sessionFile,
+    provider,
+    visitedSessionFiles,
+  })) {
+    if (event.type === "timeline") {
+      yield {
+        type: "provider_subagent",
+        provider,
+        event: {
+          type: "timeline",
+          id: transcript.id,
+          item: event.item,
+          ...(event.timestamp ? { timestamp: event.timestamp } : {}),
+        },
+      };
+    } else if (event.type === "provider_subagent") {
+      yield event;
+    }
+  }
+  const lastTimestamp = normalizeProviderReplayTimestamp(childEntries.at(-1)?.timestamp);
+  yield subagentUpsert(transcript, provider, transcript.status, lastTimestamp);
+}
+
+function subagentUpsert(
+  transcript: OmpSubagentTranscript,
+  provider: AgentProvider,
+  status: OmpSubagentTranscript["status"] | "running",
+  timestamp: string | null,
+): AgentStreamEvent {
+  return {
+    type: "provider_subagent",
+    provider,
+    event: {
+      type: "upsert",
+      id: transcript.id,
+      title: transcript.title,
+      status,
+      toolCallId: transcript.toolCallId,
+      ...(timestamp ? { timestamp } : {}),
+    },
+  };
 }
 
 interface OmpSubagentTranscript {
@@ -99,46 +131,139 @@ interface OmpSubagentTranscript {
   title: string;
   toolCallId: string;
   sessionFile: string;
+  status: "completed" | "failed" | "canceled";
 }
 
-function readSubagentTranscripts(messages: readonly PiAgentMessage[]): OmpSubagentTranscript[] {
-  const taskCalls = new Map<string, { title: string }>();
+function readSubagentTranscripts(
+  messages: readonly PiAgentMessage[],
+  parentSessionFile: string,
+): OmpSubagentTranscript[] {
+  const taskCalls = collectTaskCalls(messages);
   const transcripts: OmpSubagentTranscript[] = [];
   for (const message of messages) {
-    if (message.role === "assistant" && Array.isArray(message.content)) {
-      for (const block of message.content) {
-        if (block.type === "toolCall" && block.name === "task" && typeof block.id === "string") {
-          const args = block.arguments;
-          const title =
-            args && typeof args === "object" && typeof Reflect.get(args, "agent") === "string"
-              ? Reflect.get(args, "agent")
-              : "OMP subagent";
-          taskCalls.set(block.id, { title });
-        }
-      }
-      continue;
-    }
     if (message.role !== "toolResult" || message.toolName !== "task") continue;
     const call = taskCalls.get(message.toolCallId);
     if (!call) continue;
-    const text = Array.isArray(message.content)
-      ? message.content
-          .flatMap((block) => (block.type === "text" && block.text ? [block.text] : []))
-          .join("\n")
-      : "";
-    const sessionFile = text.match(/(?:session|transcript)(?: file)?:\s*(?<path>\/\S+\.jsonl)/i)
-      ?.groups?.path;
-    if (!sessionFile) continue;
-    const fileName = basename(sessionFile);
-    const extension = extname(fileName);
-    transcripts.push({
-      id: extension ? fileName.slice(0, -extension.length) : fileName,
-      title: call.title,
-      toolCallId: message.toolCallId,
-      sessionFile,
-    });
+    const results = readTaskResults(message);
+    for (const result of results) {
+      transcripts.push({
+        id: result.id,
+        title: result.agent ?? call.title,
+        toolCallId: message.toolCallId,
+        sessionFile: join(stripExtension(parentSessionFile), `${basename(result.id)}.jsonl`),
+        status: taskResultStatus(result, message.isError === true),
+      });
+    }
+    if (results.length > 0) continue;
+    const legacy = readLegacyTranscript(message, call.title);
+    if (legacy) transcripts.push(legacy);
   }
   return transcripts;
+}
+
+function collectTaskCalls(messages: readonly PiAgentMessage[]): Map<string, { title: string }> {
+  const taskCalls = new Map<string, { title: string }>();
+  for (const message of messages) {
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type !== "toolCall" || block.name !== "task" || typeof block.id !== "string") {
+        continue;
+      }
+      const args = block.arguments;
+      const title =
+        args && typeof args === "object" && typeof Reflect.get(args, "agent") === "string"
+          ? Reflect.get(args, "agent")
+          : "OMP subagent";
+      taskCalls.set(block.id, { title });
+    }
+  }
+  return taskCalls;
+}
+
+function readLegacyTranscript(
+  message: Extract<PiAgentMessage, { role: "toolResult" }>,
+  title: string,
+): OmpSubagentTranscript | null {
+  const text = taskResultText(message);
+  const sessionFile = text.match(/(?:session|transcript)(?: file)?:\s*(?<path>\/\S+\.jsonl)/i)
+    ?.groups?.path;
+  if (!sessionFile) return null;
+  const fileName = basename(sessionFile);
+  const extension = extname(fileName);
+  return {
+    id: extension ? fileName.slice(0, -extension.length) : fileName,
+    title,
+    toolCallId: message.toolCallId,
+    sessionFile,
+    status: message.isError ? "failed" : "completed",
+  };
+}
+
+interface OmpTaskResult {
+  id: string;
+  agent?: string;
+  exitCode?: number;
+  error?: unknown;
+  aborted?: boolean;
+}
+
+function readTaskResults(
+  message: Extract<PiAgentMessage, { role: "toolResult" }>,
+): OmpTaskResult[] {
+  const details =
+    Reflect.get(message, "details") ??
+    (message.content && typeof message.content === "object"
+      ? Reflect.get(message.content, "details")
+      : undefined);
+  const results =
+    details && typeof details === "object" ? Reflect.get(details, "results") : undefined;
+  if (!Array.isArray(results)) return [];
+  return results.flatMap((result) => {
+    if (!result || typeof result !== "object") return [];
+    const id = Reflect.get(result, "id");
+    if (typeof id !== "string" || !id) return [];
+    const agent = Reflect.get(result, "agent");
+    const exitCode = Reflect.get(result, "exitCode");
+    return [
+      {
+        id,
+        ...(typeof agent === "string" ? { agent } : {}),
+        ...(typeof exitCode === "number" ? { exitCode } : {}),
+        error: Reflect.get(result, "error"),
+        aborted: Reflect.get(result, "aborted") === true,
+      },
+    ];
+  });
+}
+
+function taskResultStatus(
+  result: OmpTaskResult,
+  messageIsError: boolean,
+): "completed" | "failed" | "canceled" {
+  if (messageIsError || result.error || (result.exitCode !== undefined && result.exitCode !== 0)) {
+    return "failed";
+  }
+  return result.aborted ? "canceled" : "completed";
+}
+
+function taskResultText(message: Extract<PiAgentMessage, { role: "toolResult" }>): string {
+  return Array.isArray(message.content)
+    ? message.content
+        .flatMap((block) =>
+          block &&
+          typeof block === "object" &&
+          Reflect.get(block, "type") === "text" &&
+          typeof Reflect.get(block, "text") === "string"
+            ? [Reflect.get(block, "text") as string]
+            : [],
+        )
+        .join("\n")
+    : "";
+}
+
+function stripExtension(filePath: string): string {
+  const extension = extname(filePath);
+  return extension ? filePath.slice(0, -extension.length) : filePath;
 }
 
 export async function readActiveOmpEntryChain(

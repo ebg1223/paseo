@@ -15,10 +15,6 @@ import type {
 } from "../rpc-types.js";
 import { buildPiLaunch } from "../runtime.js";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 type FakePiSubagentSubscriptionLevel = "off" | "progress" | "events";
 type FakePiSubagentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
@@ -101,7 +97,6 @@ export class FakePiSession implements PiRuntimeSession {
   readonly treeNavigationRequests: string[] = [];
   readonly handoffRequests: Array<{ customInstructions?: string }> = [];
   readonly sessionNameRequests: string[] = [];
-  readonly hostToolSetRequests: Array<{ tools: unknown[] }> = [];
   readonly rawFrames: Array<object & { type: string }> = [];
   capturedUserEntries: Array<{ id: string; parentId: string | null; text: string }> = [];
   abortRequested = false;
@@ -295,15 +290,6 @@ export class FakePiSession implements PiRuntimeSession {
 
   async request(command: { type: string; [key: string]: unknown }): Promise<unknown> {
     switch (command.type) {
-      case "set_host_tools": {
-        const tools = Array.isArray(command.tools) ? command.tools : [];
-        this.hostToolSetRequests.push({ tools });
-        return {
-          toolNames: tools.flatMap((tool) =>
-            isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [],
-          ),
-        };
-      }
       case "set_subagent_subscription":
         await this.setSubagentSubscription(command.level as FakePiSubagentSubscriptionLevel);
         return {};

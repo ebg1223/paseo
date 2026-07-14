@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
+import pino from "pino";
+import { setImmediate as waitForImmediate } from "node:timers/promises";
 
 import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
+import { OmpRpcAgentClient } from "./agent.js";
 import { asOmpRuntimeSession } from "./runtime.js";
 
 describe("OMP runtime wrapper", () => {
@@ -22,5 +25,31 @@ describe("OMP runtime wrapper", () => {
 
     await expect(runtime.branch("entry-cancelled")).rejects.toThrow("OMP branch was cancelled");
     expect(runtime.activeBranchEntryId).toBeUndefined();
+  });
+  test("falls back to progress when the event subscription is unavailable", async () => {
+    const pi = new FakePi(["omp"]);
+    pi.queueSessionSetup((session) => {
+      const subscribe = session.setSubagentSubscription.bind(session);
+      session.setSubagentSubscription = async (level) => {
+        if (level === "events") {
+          session.subagentSubscriptionRequests.push(level);
+          throw new Error("events unsupported");
+        }
+        await subscribe(level);
+      };
+    });
+    const client = new OmpRpcAgentClient({
+      logger: pino({ level: "silent" }),
+      runtime: pi,
+    });
+
+    const session = await client.createSession({
+      provider: "omp",
+      cwd: "/tmp/paseo-omp-runtime-test",
+    });
+    await waitForImmediate();
+
+    expect(pi.latestSession().subagentSubscriptionRequests).toEqual(["events", "progress"]);
+    await expect(session.getRuntimeInfo()).resolves.toBeDefined();
   });
 });

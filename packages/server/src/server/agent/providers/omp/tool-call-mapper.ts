@@ -21,10 +21,6 @@ export function mapOmpToolDetail(
     const detail = mapOmpTaskDetail(toolCall.args, result);
     return context?.mapSubagentDetail?.(detail) ?? detail;
   }
-  const paseoDetail = mapPaseoHostToolDetail(toolCall, result);
-  if (paseoDetail) {
-    return paseoDetail;
-  }
   if (toolCall.toolName === "edit") {
     return mapOmpEditDetail(toolCall, result);
   }
@@ -32,125 +28,6 @@ export function mapOmpToolDetail(
     return mapOmpReadDetail(toolCall, result);
   }
   return mapPiToolDetail(toolCall, result);
-}
-
-export const PASEO_HOST_TOOL_NAMES = new Set([
-  "archive_agent",
-  "archive_worktree",
-  "browser_back",
-  "browser_click",
-  "browser_close_tab",
-  "browser_drag",
-  "browser_evaluate",
-  "browser_fill",
-  "browser_forward",
-  "browser_hover",
-  "browser_keypress",
-  "browser_list_tabs",
-  "browser_logs",
-  "browser_navigate",
-  "browser_new_tab",
-  "browser_reload",
-  "browser_resize",
-  "browser_screenshot",
-  "browser_scroll",
-  "browser_select",
-  "browser_snapshot",
-  "browser_type",
-  "browser_upload",
-  "browser_wait",
-  "cancel_agent",
-  "capture_terminal",
-  "create_agent",
-  "create_heartbeat",
-  "create_schedule",
-  "create_terminal",
-  "create_worktree",
-  "delete_schedule",
-  "get_agent_activity",
-  "get_agent_status",
-  "inspect_provider",
-  "inspect_schedule",
-  "kill_agent",
-  "kill_terminal",
-  "list_agents",
-  "list_models",
-  "list_pending_permissions",
-  "list_providers",
-  "list_schedules",
-  "list_terminals",
-  "list_worktrees",
-  "pause_schedule",
-  "rename_workspace",
-  "respond_to_permission",
-  "resume_schedule",
-  "schedule_logs",
-  "send_agent_prompt",
-  "send_terminal_keys",
-  "set_agent_mode",
-  "speak",
-  "update_agent",
-  "update_schedule",
-]);
-
-function mapPaseoHostToolDetail(
-  toolCall: PiTrackedToolCall,
-  result: PiToolResult,
-): ToolCallDetail | null {
-  if (toolCall.toolName === "create_agent") {
-    return mapPaseoCreateAgentDetail(toolCall.args, result);
-  }
-  if (!PASEO_HOST_TOOL_NAMES.has(toolCall.toolName)) {
-    return null;
-  }
-  return {
-    type: "plain_text",
-    label: formatPaseoToolLabel(toolCall.toolName),
-    text: formatPaseoHostToolText(toolCall.args, result),
-    icon: toolCall.toolName === "speak" ? "mic_vocal" : "bot",
-  };
-}
-
-function mapPaseoCreateAgentDetail(args: unknown, result: PiToolResult): ToolCallDetail {
-  const argRecord = isRecord(args) ? args : {};
-  const details = resultDetails(result);
-  return {
-    type: "sub_agent",
-    subAgentType: firstString(argRecord.provider, argRecord.model, details?.type),
-    description: firstString(argRecord.title, argRecord.initialPrompt, argRecord.prompt),
-    ...(firstString(details?.agentId) ? { childSessionId: firstString(details?.agentId) } : {}),
-    log: extractTextFromToolResult(result)?.trim() ?? "",
-  };
-}
-
-function formatPaseoHostToolText(args: unknown, result: PiToolResult): string | undefined {
-  const resultText = extractTextFromToolResult(result)?.trim();
-  const argSummary = summarizePaseoToolArgs(args);
-  if (resultText && argSummary) {
-    return `${argSummary}\n\n${resultText}`;
-  }
-  return resultText ?? argSummary;
-}
-
-function summarizePaseoToolArgs(args: unknown): string | undefined {
-  if (!isRecord(args)) {
-    return undefined;
-  }
-  const parts = [
-    firstString(args.agentId) ? `agentId=${firstString(args.agentId)}` : null,
-    firstString(args.terminalId) ? `terminalId=${firstString(args.terminalId)}` : null,
-    firstString(args.scheduleId) ? `scheduleId=${firstString(args.scheduleId)}` : null,
-    firstString(args.browserId) ? `browserId=${firstString(args.browserId)}` : null,
-    firstString(args.text),
-    firstString(args.prompt),
-    firstString(args.command),
-    firstString(args.url),
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-function formatPaseoToolLabel(toolName: string): string {
-  return `Paseo ${toolName.replaceAll("_", " ")}`;
 }
 
 function mapOmpTaskDetail(args: unknown, result: PiToolResult): ToolCallDetail {
