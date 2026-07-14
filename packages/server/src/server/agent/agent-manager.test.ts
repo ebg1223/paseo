@@ -2282,17 +2282,7 @@ test("importProviderSession imports the selected session without listing and pub
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-import-session-"));
   const storagePath = join(workdir, "agents");
   const storage = new AgentStorage(storagePath, logger);
-  const importedPersistence: AgentPersistenceHandle = {
-    provider: "codex",
-    sessionId: "thread-selected",
-    nativeHandle: "thread-selected",
-    metadata: { provider: "codex", cwd: workdir },
-  };
-  const session = new (class extends TestAgentSession {
-    override describePersistence(): AgentPersistenceHandle {
-      return importedPersistence;
-    }
-  })({ provider: "codex", cwd: workdir });
+  const session = new TestAgentSession({ provider: "codex", cwd: workdir });
   const events: AgentManagerEvent[] = [];
 
   class ImportClient extends TestAgentClient {
@@ -2309,7 +2299,12 @@ test("importProviderSession imports the selected session without listing and pub
       return {
         session,
         config: { provider: "codex" as const, cwd: workdir },
-        persistence: importedPersistence,
+        persistence: {
+          provider: "codex" as const,
+          sessionId: input.providerHandleId,
+          nativeHandle: input.providerHandleId,
+          metadata: { provider: "codex", cwd: workdir },
+        },
         timeline: [
           {
             item: { type: "user_message" as const, text: "Trace provider imports" },
