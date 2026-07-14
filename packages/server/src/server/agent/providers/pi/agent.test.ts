@@ -16,8 +16,9 @@ import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { describe, expect, onTestFinished, test } from "vitest";
 
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
-import { PiRpcAgentClient, PiRpcAgentSession, transformPiModels } from "./agent.js";
-import { FakePi } from "./test-utils/fake-pi.js";
+import { PiRpcAgentClient, transformPiModels } from "./agent.js";
+import { PiRpcAgentSession } from "../pi-shared/agent.js";
+import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 
 const ONE_BY_ONE_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -896,6 +897,7 @@ describe("PiRpcAgentSession", () => {
       error: "Pi exited",
     });
   });
+
   test("completes locally handled slash commands when agentInvoked is false", async () => {
     const { pi, session, events } = await createSession();
     const fakeSession = pi.latestSession();

@@ -9,6 +9,11 @@ export interface PiPromptAck {
   agentInvoked?: boolean;
 }
 
+export interface PiPromptAck {
+  requestId?: string;
+  agentInvoked?: boolean;
+}
+
 export interface PiTextContent {
   type: "text";
   text: string;
@@ -88,6 +93,12 @@ export interface PiSessionState {
   sessionName?: string;
   messageCount: number;
   pendingMessageCount: number;
+  contextUsage?: {
+    tokens?: number | null;
+    contextWindow?: number | null;
+    percent?: number | null;
+  };
+  todoPhases?: unknown;
 }
 
 export interface PiSessionStats {
@@ -111,9 +122,8 @@ export interface PiRpcSlashCommand {
   description?: string;
   source: "extension" | "prompt" | "skill";
   sourceInfo?: Record<string, unknown>;
+  input?: { hint?: string };
 }
-
-export type PiCommandsRpcType = "get_commands" | "get_available_commands";
 
 export type PiRpcCommand =
   | { id?: string; type: "prompt"; message: string; images?: PiImageContent[] }
@@ -126,7 +136,7 @@ export type PiRpcCommand =
   | { id?: string; type: "set_model"; provider: string; modelId: string }
   | { id?: string; type: "set_thinking_level"; level: PiThinkingLevel }
   | { id?: string; type: "get_session_stats" }
-  | { id?: string; type: PiCommandsRpcType };
+  | { id?: string; type: string };
 
 export interface PiRpcResponse {
   id?: string;
@@ -191,4 +201,8 @@ export type PiRuntimeEvent =
   | {
       type: "process_exit";
       error: string;
+    }
+  | {
+      type: string;
+      [key: string]: unknown;
     };
