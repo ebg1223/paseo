@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { homedir, tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import type { Logger } from "pino";
+import stripAnsi from "strip-ansi";
 import { z } from "zod";
 
 import {
@@ -1064,6 +1065,9 @@ export class PiRpcAgentSession implements AgentSession {
   private activeAskUserDialog: ActiveAskUserDialog | null = null;
   private pendingCombinedAskUserResponse: PendingCombinedAskUserResponse | null = null;
   private activeTurnId: string | null = null;
+  private activeTurnStarted = false;
+  private activeNoTurnPromptText: string | null = null;
+  private readonly pendingNoTurnOutputs: Array<{ turnId: string; message: string }> = [];
   private activeAssistantMessageId: string | null = null;
   private lastKnownThinkingOptionId: string | null;
   currentLeafOverrideId: string | null | undefined;
@@ -1124,29 +1128,46 @@ export class PiRpcAgentSession implements AgentSession {
     const payload = convertPromptInput(prompt, { model: this.state.model });
     const turnId = randomUUID();
     this.activeTurnId = turnId;
+    this.activeTurnStarted = false;
+    this.clearNoTurnBuffers();
+    this.activeNoTurnPromptText = payload.text;
     this.activeAssistantMessageId = null;
+    const shouldProbeForNoTurnPrompt = this.parseSlashCommandInput(payload.text) !== null;
 
-    void this.runtimeSession.prompt(payload.text, payload.images).catch((error) => {
-      if (this.activeTurnId !== turnId) {
-        return;
-      }
-      this.activeTurnId = null;
-      if (isPiRequestAbortError(error)) {
+    void (async () => {
+      try {
+        const ack = await this.runtimeSession.prompt(payload.text, payload.images);
+        if (ack.agentInvoked === false) {
+          await this.completeNoTurnPrompt(turnId);
+          return;
+        }
+        if (ack.agentInvoked === undefined && shouldProbeForNoTurnPrompt) {
+          await this.completePromptIfHandledWithoutTurn(turnId);
+        }
+      } catch (error) {
+        if (this.activeTurnId !== turnId) {
+          return;
+        }
+        this.activeTurnId = null;
+        this.activeTurnStarted = false;
+        this.clearNoTurnBuffers();
+        if (isPiRequestAbortError(error)) {
+          this.emit({
+            type: "turn_canceled",
+            provider: PI_PROVIDER,
+            turnId,
+            reason: toDiagnosticErrorMessage(error),
+          });
+          return;
+        }
         this.emit({
-          type: "turn_canceled",
+          type: "turn_failed",
           provider: PI_PROVIDER,
           turnId,
-          reason: toDiagnosticErrorMessage(error),
+          error: toDiagnosticErrorMessage(error),
         });
-        return;
       }
-      this.emit({
-        type: "turn_failed",
-        provider: PI_PROVIDER,
-        turnId,
-        error: toDiagnosticErrorMessage(error),
-      });
-    });
+    })();
 
     return { turnId };
   }
@@ -1369,6 +1390,85 @@ export class PiRpcAgentSession implements AgentSession {
 
   private currentTurnIdForEvent(): string | undefined {
     return this.activeTurnId ?? undefined;
+  }
+
+  private async completeNoTurnPrompt(turnId: string): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    if (this.activeTurnId !== turnId || this.activeTurnStarted) {
+      return;
+    }
+    this.emitBufferedNoTurnOutputs(turnId);
+    this.completeTurn(turnId, []);
+  }
+
+  private async completePromptIfHandledWithoutTurn(turnId: string): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+
+    let runtimeState: PiSessionState;
+    try {
+      runtimeState = await this.runtimeSession.getState();
+    } catch (error) {
+      if (this.activeTurnId === turnId && !this.activeTurnStarted) {
+        throw error;
+      }
+      return;
+    }
+    this.state = runtimeState;
+
+    if (this.activeTurnId !== turnId || this.activeTurnStarted || runtimeState.isStreaming) {
+      return;
+    }
+
+    this.emitBufferedNoTurnOutputs(turnId);
+    this.completeTurn(turnId, []);
+  }
+
+  private clearNoTurnBuffers(): void {
+    this.activeNoTurnPromptText = null;
+    this.pendingNoTurnOutputs.splice(0, this.pendingNoTurnOutputs.length);
+  }
+
+  private emitBufferedNoTurnOutputs(turnId: string): void {
+    const promptText = this.activeNoTurnPromptText;
+    const outputs = this.pendingNoTurnOutputs.filter((output) => output.turnId === turnId);
+    this.clearNoTurnBuffers();
+    if (promptText) {
+      this.emit({
+        type: "timeline",
+        provider: PI_PROVIDER,
+        turnId,
+        item: {
+          type: "user_message",
+          text: promptText,
+        },
+      });
+    }
+    for (const output of outputs) {
+      this.emit({
+        type: "timeline",
+        provider: PI_PROVIDER,
+        turnId,
+        item: {
+          type: "assistant_message",
+          text: output.message,
+        },
+      });
+    }
+  }
+
+  private recordNoTurnNotification(message: string): void {
+    this.bufferNoTurnOutput(message);
+  }
+
+  private bufferNoTurnOutput(message: string): void {
+    if (!this.activeTurnId || this.activeTurnStarted) {
+      return;
+    }
+    this.pendingNoTurnOutputs.push({ turnId: this.activeTurnId, message });
   }
 
   private parseSlashCommandInput(text: string): PiSlashCommandInvocation | null {
@@ -1613,6 +1713,7 @@ export class PiRpcAgentSession implements AgentSession {
       if (this.handleEntryCaptureMarker(message) || this.handleCommandResultMarker(message)) {
         return;
       }
+      this.recordNoTurnNotification(message);
     }
 
     if (this.respondToCombinedAskUserFollowUp(event)) {
@@ -1667,6 +1768,23 @@ export class PiRpcAgentSession implements AgentSession {
     return false;
   }
 
+  private handleCommandOutput(textValue: unknown): void {
+    const text = stripAnsi(optionalString(textValue) ?? "").trim();
+    if (!text) {
+      return;
+    }
+    if (this.activeTurnId && !this.activeTurnStarted) {
+      this.bufferNoTurnOutput(text);
+      return;
+    }
+    this.emit({
+      type: "timeline",
+      provider: PI_PROVIDER,
+      turnId: this.currentTurnIdForEvent(),
+      item: { type: "assistant_message", text },
+    });
+  }
+
   private handleRuntimeEvent(event: PiRuntimeEvent): void {
     if (event.type === "extension_ui_request") {
       this.handleExtensionUiRequest(event);
@@ -1674,6 +1792,10 @@ export class PiRpcAgentSession implements AgentSession {
     }
     if (event.type === "process_exit") {
       this.handleProcessExit(event.error);
+      return;
+    }
+    if (event.type === "command_output") {
+      this.handleCommandOutput("text" in event ? event.text : undefined);
       return;
     }
     this.handleSessionEvent(event);
@@ -1686,6 +1808,8 @@ export class PiRpcAgentSession implements AgentSession {
     }
     const turnId = this.activeTurnId;
     this.activeTurnId = null;
+    this.activeTurnStarted = false;
+    this.clearNoTurnBuffers();
     this.emit({
       type: "turn_failed",
       provider: PI_PROVIDER,
@@ -1699,6 +1823,8 @@ export class PiRpcAgentSession implements AgentSession {
 
     switch (event.type) {
       case "agent_start":
+        this.activeTurnStarted = true;
+        this.clearNoTurnBuffers();
         this.emit({
           type: "thread_started",
           provider: PI_PROVIDER,
@@ -1706,6 +1832,8 @@ export class PiRpcAgentSession implements AgentSession {
         });
         return;
       case "turn_start":
+        this.activeTurnStarted = true;
+        this.clearNoTurnBuffers();
         this.emit({
           type: "turn_started",
           provider: PI_PROVIDER,
@@ -1922,6 +2050,8 @@ export class PiRpcAgentSession implements AgentSession {
 
   private completeTurn(turnId: string | undefined, messages: PiAgentMessage[]): void {
     this.activeTurnId = null;
+    this.activeTurnStarted = false;
+    this.clearNoTurnBuffers();
     this.activeAssistantMessageId = null;
     const errorMessage = latestPiErrorMessage(messages);
     if (typeof errorMessage === "string" && errorMessage.length > 0) {
