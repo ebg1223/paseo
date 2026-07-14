@@ -1460,10 +1460,6 @@ export class PiRpcAgentSession implements AgentSession {
     }
   }
 
-  private recordNoTurnNotification(message: string): void {
-    this.bufferNoTurnOutput(message);
-  }
-
   private bufferNoTurnOutput(message: string): void {
     if (!this.activeTurnId || this.activeTurnStarted) {
       return;
@@ -1713,7 +1709,7 @@ export class PiRpcAgentSession implements AgentSession {
       if (this.handleEntryCaptureMarker(message) || this.handleCommandResultMarker(message)) {
         return;
       }
-      this.recordNoTurnNotification(message);
+      this.bufferNoTurnOutput(message);
     }
 
     if (this.respondToCombinedAskUserFollowUp(event)) {
@@ -1769,11 +1765,14 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   private handleCommandOutput(textValue: unknown): void {
+    if (!this.activeTurnId) {
+      return;
+    }
     const text = stripAnsi(optionalString(textValue) ?? "").trim();
     if (!text) {
       return;
     }
-    if (this.activeTurnId && !this.activeTurnStarted) {
+    if (!this.activeTurnStarted) {
       this.bufferNoTurnOutput(text);
       return;
     }
@@ -1795,7 +1794,7 @@ export class PiRpcAgentSession implements AgentSession {
       return;
     }
     if (event.type === "command_output") {
-      this.handleCommandOutput("text" in event ? event.text : undefined);
+      this.handleCommandOutput(event.text);
       return;
     }
     this.handleSessionEvent(event);
