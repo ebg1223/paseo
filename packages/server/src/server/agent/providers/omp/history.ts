@@ -6,6 +6,7 @@ import { PiHistoryMapper, type PiCapturedUserMessageEntry } from "../pi-shared/h
 import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
 import type { PiRuntimeSession } from "../pi-shared/runtime.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import { formatOmpSubagentTitle } from "./subagent-title.js";
 import { asOmpRuntimeSession } from "./runtime.js";
 
 interface OmpSessionEntry {
@@ -15,6 +16,30 @@ interface OmpSessionEntry {
   timestamp?: string | number;
   message?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+function extractOmpSubagentModel(entries: readonly OmpSessionEntry[]): string | null {
+  let resolvedModel: string | null = null;
+  for (const entry of entries) {
+    let candidate: string | null = null;
+    if (entry.type === "model_change") {
+      candidate = buildOmpModelId(entry.provider, entry.modelId);
+    } else if (entry.type === "message" && entry.message?.role === "assistant") {
+      candidate = buildOmpModelId(
+        entry.message.provider,
+        entry.message.responseModel ?? entry.message.model,
+      );
+    }
+    resolvedModel = candidate ?? resolvedModel;
+  }
+  return resolvedModel;
+}
+
+function buildOmpModelId(provider: unknown, model: unknown): string | null {
+  if (typeof provider !== "string" || typeof model !== "string") return null;
+  const normalizedProvider = provider.trim();
+  const normalizedModel = model.trim();
+  return normalizedProvider && normalizedModel ? `${normalizedProvider}/${normalizedModel}` : null;
 }
 
 export async function* streamOmpHistory(input: {
@@ -80,8 +105,9 @@ async function* replaySubagentTranscript(
       throw error;
     },
   );
+  const resolvedModel = extractOmpSubagentModel(childEntries);
   const firstTimestamp = normalizeProviderReplayTimestamp(childEntries[0]?.timestamp);
-  yield subagentUpsert(transcript, provider, "running", firstTimestamp);
+  yield subagentUpsert(transcript, provider, "running", firstTimestamp, resolvedModel);
   for await (const event of streamOmpHistory({
     sessionFile: transcript.sessionFile,
     provider,
@@ -103,7 +129,7 @@ async function* replaySubagentTranscript(
     }
   }
   const lastTimestamp = normalizeProviderReplayTimestamp(childEntries.at(-1)?.timestamp);
-  yield subagentUpsert(transcript, provider, transcript.status, lastTimestamp);
+  yield subagentUpsert(transcript, provider, transcript.status, lastTimestamp, resolvedModel);
 }
 
 function subagentUpsert(
@@ -111,6 +137,7 @@ function subagentUpsert(
   provider: AgentProvider,
   status: OmpSubagentTranscript["status"] | "running",
   timestamp: string | null,
+  resolvedModel: string | null,
 ): AgentStreamEvent {
   return {
     type: "provider_subagent",
@@ -118,7 +145,7 @@ function subagentUpsert(
     event: {
       type: "upsert",
       id: transcript.id,
-      title: transcript.title,
+      title: formatOmpSubagentTitle(transcript.title, resolvedModel),
       status,
       toolCallId: transcript.toolCallId,
       ...(timestamp ? { timestamp } : {}),

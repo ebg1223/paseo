@@ -381,9 +381,17 @@ describe("OMP history mapper", () => {
     writeEntries(echoFile, [
       { type: "session", id: "echo-root", parentId: null, timestamp: "2026-07-07T02:00:00Z" },
       {
+        type: "model_change",
+        id: "echo-model",
+        parentId: "echo-root",
+        timestamp: "2026-07-07T02:00:00.500Z",
+        provider: "openai-codex",
+        modelId: "gpt-5.5",
+      },
+      {
         type: "message",
         id: "echo-answer",
-        parentId: "echo-root",
+        parentId: "echo-model",
         timestamp: "2026-07-07T02:00:01Z",
         message: { role: "assistant", content: [{ type: "text", text: "Found it" }] },
       },
@@ -485,11 +493,13 @@ describe("OMP history mapper", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: echoId,
+          title: "task · gpt-5.5 (openai-codex)",
           status: "running",
           timestamp: "2026-07-07T02:00:00Z",
         }),
         expect.objectContaining({
           id: echoId,
+          title: "task · gpt-5.5 (openai-codex)",
           status: "completed",
           timestamp: "2026-07-07T02:00:03Z",
         }),

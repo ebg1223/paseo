@@ -36,9 +36,39 @@ describe("OMP provider subagent mapper", () => {
         agent: "explore",
         task: "Inspect files",
         parentToolCallId: "task-1",
-        progress: { id: "child-1", status: "completed" },
+        progress: {
+          id: "child-1",
+          status: "running",
+          resolvedModel: "openai-codex/gpt-5.5",
+        },
       })[0],
-    ).toMatchObject({ event: { id: "child-1", status: "completed" } });
+    ).toMatchObject({
+      event: {
+        id: "child-1",
+        status: "running",
+        title: "explore · gpt-5.5 (openai-codex)",
+      },
+    });
+
+    expect(
+      index.handleProgress(parent, {
+        index: 0,
+        agent: "explore",
+        task: "Inspect files",
+        parentToolCallId: "task-1",
+        progress: {
+          id: "child-1",
+          status: "completed",
+          resolvedModel: "anthropic/claude-sonnet-5",
+        },
+      })[0],
+    ).toMatchObject({
+      event: {
+        id: "child-1",
+        status: "completed",
+        title: "explore · claude-sonnet-5 (anthropic)",
+      },
+    });
   });
 
   test("maps child message events onto the descriptor timeline", () => {

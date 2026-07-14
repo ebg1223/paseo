@@ -2,6 +2,7 @@ import type { AgentStreamEvent } from "../../agent-sdk-types.js";
 import { PiHistoryMapper } from "../pi-shared/history-mapper.js";
 import type { PiAgentMessage, PiAgentSessionEvent } from "../pi-shared/rpc-types.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import { formatOmpSubagentTitle } from "./subagent-title.js";
 import type {
   OmpSubagentEventPayload,
   OmpSubagentLifecyclePayload,
@@ -11,6 +12,7 @@ import type {
 interface OmpSubagentState {
   title: string;
   description: string | null;
+  resolvedModel: string | null;
   toolCallId: string | null;
   mapper: PiHistoryMapper;
 }
@@ -31,6 +33,9 @@ export class OmpSubagentIndex {
     const state = this.stateFor(parent, id, payload.agent);
     state.title = payload.agent || state.title;
     state.description = payload.progress.description ?? payload.assignment ?? state.description;
+    if (payload.progress.resolvedModel?.trim()) {
+      state.resolvedModel = payload.progress.resolvedModel;
+    }
     state.toolCallId = payload.parentToolCallId ?? state.toolCallId;
     return [this.upsert(id, mapProgressStatus(payload.progress.status), state)];
   }
@@ -67,6 +72,7 @@ export class OmpSubagentIndex {
     const state: OmpSubagentState = {
       title,
       description: null,
+      resolvedModel: null,
       toolCallId: null,
       mapper: new PiHistoryMapper("omp", [], OMP_HISTORY_MAPPER_HOOKS),
     };
@@ -86,7 +92,7 @@ export class OmpSubagentIndex {
       event: {
         type: "upsert",
         id,
-        title: state.title,
+        title: formatOmpSubagentTitle(state.title, state.resolvedModel),
         description: state.description,
         status,
         toolCallId: state.toolCallId,
