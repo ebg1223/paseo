@@ -329,7 +329,11 @@ describe("OMP history mapper", () => {
     }
     expect(selectedEvents.map((event) => event.item)).toEqual([
       { type: "user_message", text: "old branch", messageId: "user-old" },
-      { type: "assistant_message", text: "old answer" },
+      {
+        type: "assistant_message",
+        text: "old answer",
+        messageId: "omp-history-assistant-1",
+      },
     ]);
   });
 });
