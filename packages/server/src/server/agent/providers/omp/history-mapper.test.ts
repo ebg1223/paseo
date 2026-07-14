@@ -327,9 +327,92 @@ describe("OMP history mapper", () => {
     })) {
       selectedEvents.push(event);
     }
-    expect(selectedEvents.map((event) => event.item)).toEqual([
+    expect(
+      selectedEvents.flatMap((event) => (event.type === "timeline" ? [event.item] : [])),
+    ).toEqual([
       { type: "user_message", text: "old branch", messageId: "user-old" },
-      { type: "assistant_message", text: "old answer" },
+      {
+        type: "assistant_message",
+        text: "old answer",
+        messageId: "omp-history-assistant-1",
+      },
     ]);
+  });
+
+  test("rehydrates task transcripts as provider subagent descriptors and timelines", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "omp-subagent-history-"));
+    const childFile = join(dir, "Explore.jsonl");
+    writeFileSync(
+      childFile,
+      [
+        { type: "session", id: "child-root", parentId: null },
+        {
+          type: "message",
+          id: "child-answer",
+          parentId: "child-root",
+          message: { role: "assistant", content: [{ type: "text", text: "Found it" }] },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n"),
+    );
+    const parentFile = join(dir, "parent.jsonl");
+    writeFileSync(
+      parentFile,
+      [
+        { type: "session", id: "parent-root", parentId: null },
+        {
+          type: "message",
+          id: "task-call",
+          parentId: "parent-root",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "task-1",
+                name: "task",
+                arguments: { agent: "explore" },
+              },
+            ],
+          },
+        },
+        {
+          type: "message",
+          id: "task-result",
+          parentId: "task-call",
+          message: {
+            role: "toolResult",
+            toolCallId: "task-1",
+            toolName: "task",
+            content: [{ type: "text", text: `done\ntranscript: ${childFile}` }],
+          },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n"),
+    );
+
+    const events: AgentStreamEvent[] = [];
+    for await (const event of streamOmpHistory({ sessionFile: parentFile, provider: "omp" })) {
+      events.push(event);
+    }
+    expect(events).toContainEqual({
+      type: "provider_subagent",
+      provider: "omp",
+      event: {
+        type: "timeline",
+        id: "Explore",
+        item: {
+          type: "assistant_message",
+          text: "Found it",
+          messageId: "omp-history-assistant-1",
+        },
+      },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "provider_subagent",
+      event: { type: "upsert", id: "Explore", status: "completed" },
+    });
   });
 });

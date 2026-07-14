@@ -91,7 +91,6 @@ export const PASEO_HOST_TOOL_NAMES = new Set([
   "speak",
   "update_agent",
   "update_schedule",
-  "wait_for_agent",
 ]);
 
 function mapPaseoHostToolDetail(

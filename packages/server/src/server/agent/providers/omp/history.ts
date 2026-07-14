@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-
+import { basename, extname } from "node:path";
 import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
 import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
 import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
@@ -49,6 +49,96 @@ export async function* streamOmpHistory(input: {
     }
   }
   yield* streamPiHistory(input.provider, messages, userEntries, OMP_HISTORY_MAPPER_HOOKS);
+  for (const transcript of readSubagentTranscripts(messages)) {
+    yield {
+      type: "provider_subagent",
+      provider: input.provider,
+      event: {
+        type: "upsert",
+        id: transcript.id,
+        title: transcript.title,
+        status: "running",
+        toolCallId: transcript.toolCallId,
+      },
+    };
+    for await (const event of streamOmpHistory({
+      sessionFile: transcript.sessionFile,
+      provider: input.provider,
+    })) {
+      if (event.type === "timeline") {
+        yield {
+          type: "provider_subagent",
+          provider: input.provider,
+          event: {
+            type: "timeline",
+            id: transcript.id,
+            item: event.item,
+            ...(event.timestamp ? { timestamp: event.timestamp } : {}),
+          },
+        };
+      } else if (event.type === "provider_subagent") {
+        yield event;
+      }
+    }
+    yield {
+      type: "provider_subagent",
+      provider: input.provider,
+      event: {
+        type: "upsert",
+        id: transcript.id,
+        title: transcript.title,
+        status: "completed",
+        toolCallId: transcript.toolCallId,
+      },
+    };
+  }
+}
+
+interface OmpSubagentTranscript {
+  id: string;
+  title: string;
+  toolCallId: string;
+  sessionFile: string;
+}
+
+function readSubagentTranscripts(messages: readonly PiAgentMessage[]): OmpSubagentTranscript[] {
+  const taskCalls = new Map<string, { title: string }>();
+  const transcripts: OmpSubagentTranscript[] = [];
+  for (const message of messages) {
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === "toolCall" && block.name === "task" && typeof block.id === "string") {
+          const args = block.arguments;
+          const title =
+            args && typeof args === "object" && typeof Reflect.get(args, "agent") === "string"
+              ? Reflect.get(args, "agent")
+              : "OMP subagent";
+          taskCalls.set(block.id, { title });
+        }
+      }
+      continue;
+    }
+    if (message.role !== "toolResult" || message.toolName !== "task") continue;
+    const call = taskCalls.get(message.toolCallId);
+    if (!call) continue;
+    const text = Array.isArray(message.content)
+      ? message.content
+          .flatMap((block) => (block.type === "text" && block.text ? [block.text] : []))
+          .join("\n")
+      : "";
+    const sessionFile = text.match(/(?:session|transcript)(?: file)?:\s*(?<path>\/\S+\.jsonl)/i)
+      ?.groups?.path;
+    if (!sessionFile) continue;
+    const fileName = basename(sessionFile);
+    const extension = extname(fileName);
+    transcripts.push({
+      id: extension ? fileName.slice(0, -extension.length) : fileName,
+      title: call.title,
+      toolCallId: message.toolCallId,
+      sessionFile,
+    });
+  }
+  return transcripts;
 }
 
 export async function readActiveOmpEntryChain(

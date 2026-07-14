@@ -155,7 +155,7 @@ export function canRunRealProvider(provider: RealProvider): Promise<boolean> {
   }
 
   const availability = (async () => {
-    if (!getOpenRouterApiKeyOrNull()) {
+    if (provider !== "omp" && !getOpenRouterApiKeyOrNull()) {
       return false;
     }
     return await isCommandAvailable(getProviderBinary(provider));

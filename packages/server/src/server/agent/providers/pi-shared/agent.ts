@@ -23,7 +23,6 @@ import {
   type AgentProvider,
   type AgentRunOptions,
   type AgentRunResult,
-  type AgentRewindResult,
   type AgentRuntimeInfo,
   type AgentSession,
   type AgentSessionConfig,
@@ -255,7 +254,7 @@ export interface PiDialect {
     runtimeSession: PiRuntimeSession;
     state: PiSessionState;
     messageId: string;
-  }) => Promise<void | AgentRewindResult>;
+  }) => Promise<void>;
   resolveUserMessageId?: (input: {
     runtimeSession: PiRuntimeSession;
     state: PiSessionState;
@@ -1337,9 +1336,9 @@ function buildExtensionUiResponse(
   return { value: answer };
 }
 
-function mapPiModel(model: PiModel): AgentModelDefinition {
+function mapPiModel(model: PiModel, provider: AgentProvider): AgentModelDefinition {
   return {
-    provider: PI_PROVIDER,
+    provider,
     id: `${model.provider}/${model.id}`,
     label: `${model.provider}/${model.name ?? model.id}`,
     description: `${model.provider}/${model.id}`,
@@ -1649,21 +1648,21 @@ export class PiRpcAgentSession implements AgentSession {
     }
   }
 
-  async revertConversation(input: { messageId: string }): Promise<void | AgentRewindResult> {
+  async revertConversation(input: { messageId: string }): Promise<void> {
     if (this.activeTurnId) {
       throw new Error(
         `Cannot rewind the ${this.dialect.label} conversation while a turn is active`,
       );
     }
     if (this.dialect.rewindConversation) {
-      const result = await this.dialect.rewindConversation({
+      await this.dialect.rewindConversation({
         runtimeSession: this.runtimeSession,
         state: this.state,
         messageId: input.messageId,
       });
       await this.refreshState();
       this.activeToolCalls.clear();
-      return result;
+      return;
     }
     await this.refreshState().catch(() => undefined);
     await this.requestEntryCapture("rewind");
@@ -2831,7 +2830,9 @@ export class PiRpcAgentClient implements AgentClient {
     });
     try {
       const models = transformPiModels(
-        (await runtimeSession.getAvailableModels(PI_CATALOG_REQUEST_TIMEOUT_MS)).map(mapPiModel),
+        (await runtimeSession.getAvailableModels(PI_CATALOG_REQUEST_TIMEOUT_MS)).map((model) =>
+          mapPiModel(model, this.dialect.providerId),
+        ),
       );
       return { models, modes: [...(this.dialect.modes ?? [])] };
     } finally {

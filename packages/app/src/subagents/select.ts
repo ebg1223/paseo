@@ -14,7 +14,6 @@ export interface PaseoSubagentRow {
   status: Agent["status"];
   requiresAttention: Agent["requiresAttention"];
   createdAt: Agent["createdAt"];
-  canDetach?: false;
 }
 
 export interface ProviderSubagentRow {
@@ -38,10 +37,10 @@ interface SelectSubagentsParams {
   parentAgentId: string;
 }
 
-const EMPTY_SUBAGENT_ROWS: PaseoSubagentRow[] = [];
+const EMPTY_SUBAGENT_ROWS: SubagentRow[] = [];
 const EMPTY_PROVIDER_SUBAGENT_ROWS: ProviderSubagentRow[] = [];
 
-function toSubagentRow(agent: Agent): PaseoSubagentRow {
+function toSubagentRow(agent: Agent): SubagentRow {
   return {
     kind: "paseo",
     id: agent.id,
@@ -50,9 +49,6 @@ function toSubagentRow(agent: Agent): PaseoSubagentRow {
     status: agent.status,
     requiresAttention: agent.requiresAttention,
     createdAt: agent.createdAt,
-    ...(agent.providerChildOwnership != null && agent.providerChildOwnership.owner !== "paseo"
-      ? { canDetach: false as const }
-      : {}),
   };
 }
 
@@ -60,13 +56,13 @@ export function selectSubagentsForParent(
   state: SessionStoreSnapshot,
   params: SelectSubagentsParams,
   pendingArchiveIds: ReadonlySet<string>,
-): PaseoSubagentRow[] {
+): SubagentRow[] {
   const agents = state.sessions[params.serverId]?.agents;
   if (!agents || agents.size === 0) {
     return EMPTY_SUBAGENT_ROWS;
   }
 
-  const rows: PaseoSubagentRow[] = [];
+  const rows: SubagentRow[] = [];
   for (const agent of agents.values()) {
     if (
       agent.archivedAt ||

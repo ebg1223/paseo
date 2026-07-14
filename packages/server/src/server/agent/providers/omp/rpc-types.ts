@@ -1,49 +1,8 @@
 import { z } from "zod";
 
-import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
+import type { PiAgentMessage, PiAgentSessionEvent } from "../pi-shared/rpc-types.js";
 
 export type OmpSubagentSubscriptionLevel = "off" | "progress" | "events";
-
-export interface OmpAgentToolResult {
-  content: Array<{ type: string; text?: string; [key: string]: unknown }>;
-  details?: unknown;
-  isError?: boolean;
-}
-
-export interface OmpRpcHostToolDefinition {
-  name: string;
-  label?: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  hidden?: boolean;
-}
-
-export interface OmpRpcHostToolCallRequest {
-  type: "host_tool_call";
-  id: string;
-  toolCallId: string;
-  toolName: string;
-  arguments: Record<string, unknown>;
-}
-
-export interface OmpRpcHostToolCancelRequest {
-  type: "host_tool_cancel";
-  id: string;
-  targetId: string;
-}
-
-export interface OmpRpcHostToolUpdate {
-  type: "host_tool_update";
-  id: string;
-  partialResult: OmpAgentToolResult;
-}
-
-export interface OmpRpcHostToolResult {
-  type: "host_tool_result";
-  id: string;
-  result: OmpAgentToolResult;
-  isError?: boolean;
-}
 
 export type OmpSubagentStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
@@ -99,6 +58,10 @@ export interface OmpSubagentProgressPayload {
   sessionFile?: string;
   detached?: boolean;
 }
+export interface OmpSubagentEventPayload {
+  id: string;
+  event: PiAgentSessionEvent;
+}
 
 export const OmpSubagentProgressSchema = z
   .object({
@@ -143,9 +106,7 @@ export interface OmpSubagentMessagesSelector {
 export type OmpRuntimeEvent =
   | { type: "subagent_lifecycle"; payload: OmpSubagentLifecyclePayload }
   | { type: "subagent_progress"; payload: OmpSubagentProgressPayload }
-  | OmpRpcHostToolCallRequest
-  | OmpRpcHostToolCancelRequest
-  | OmpRpcHostToolUpdate
+  | { type: "subagent_event"; payload: OmpSubagentEventPayload }
   | OmpTodoReminderEvent
   | OmpNoticeEvent
   | OmpGoalUpdatedEvent

@@ -72,13 +72,6 @@ describe("OmpSubagentCardTracker", () => {
       subAgentType: "task",
       description: "Task arg description wins",
       childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
-      children: [
-        {
-          sessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
-          label: "task — Run echo in subagent",
-          status: "completed",
-        },
-      ],
       log: [
         "EchoSubagent started",
         "[bash] echo subagent-hi",
@@ -140,18 +133,6 @@ describe("OmpSubagentCardTracker", () => {
       subAgentType: "batch",
       description: "Inspect files",
       childSessionId: "/tmp/one.jsonl",
-      children: [
-        {
-          sessionId: "/tmp/one.jsonl",
-          label: "task — Inspect files",
-          status: "running",
-        },
-        {
-          sessionId: "/tmp/two.jsonl",
-          label: "task — Run tests",
-          status: "running",
-        },
-      ],
       log: "[1/6] Explore started\n[6/6] [bash] npm test",
       actions: [],
     });

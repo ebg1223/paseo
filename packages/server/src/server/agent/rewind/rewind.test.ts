@@ -74,7 +74,6 @@ describe("AgentManager rewind", () => {
     await manager.rewind(agentId, "message-1", "conversation");
 
     expect(session.recordedRewinds).toEqual([{ mode: "conversation", messageId: "message-1" }]);
-    expect(manager.getAgent(agentId)?.persistence?.sessionId).toBe("rewound-session");
     expect(session.historyReadCount).toBe(1);
     expect(manager.fetchTimeline(agentId, { limit: 0 }).rows.map((row) => row.item)).toEqual([
       { type: "user_message", text: "before", messageId: "message-1" },

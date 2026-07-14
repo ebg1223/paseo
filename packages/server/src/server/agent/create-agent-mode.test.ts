@@ -199,28 +199,6 @@ describe("resolveAndValidateCreateAgentMode", () => {
     );
   });
 
-  it("passes through an explicit mode when the target provider has no modes at all", () => {
-    const resolved = resolveAndValidateCreateAgentMode({
-      requestedMode: "default",
-      targetProvider: "grok",
-      parent: null,
-      unattended: false,
-      availableModes: [],
-    });
-    expect(resolved).toBe("default");
-  });
-
-  it("allows cross-provider inheritance when the target provider has no modes at all", () => {
-    const resolved = resolveAndValidateCreateAgentMode({
-      requestedMode: undefined,
-      targetProvider: "grok",
-      parent: agentParent("claude", "bypassPermissions"),
-      unattended: false,
-      availableModes: [],
-    });
-    expect(resolved).toBeUndefined();
-  });
-
   it("explicit mode wins over unattended inheritance", () => {
     const resolved = resolveAndValidateCreateAgentMode({
       requestedMode: "auto",

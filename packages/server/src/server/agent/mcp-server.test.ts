@@ -3463,37 +3463,6 @@ describe("send_agent_prompt MCP tool", () => {
   });
 });
 
-describe("wait_for_agent MCP tool", () => {
-  it("waits for the current run and returns its terminal state", async () => {
-    const { agentManager, agentStorage, spies } = createTestDeps();
-    spies.agentManager.waitForAgentEvent.mockResolvedValue({
-      status: "idle",
-      permission: null,
-      lastMessage: "Canceled",
-    });
-    const server = await createAgentMcpServer({
-      agentManager,
-      agentStorage,
-      providerSnapshotManager: createOpenCodeManager().manager,
-      logger: createTestLogger(),
-    });
-
-    const response = await registeredTool(server, "wait_for_agent").handler({
-      agentId: "child-agent",
-    });
-
-    expect(spies.agentManager.waitForAgentEvent).toHaveBeenCalledWith(
-      "child-agent",
-      expect.objectContaining({ waitForActive: undefined }),
-    );
-    expect(response.structuredContent).toEqual({
-      status: "idle",
-      permission: null,
-      lastMessage: "Canceled",
-    });
-  });
-});
-
 describe("update_agent MCP tool", () => {
   const logger = createTestLogger();
 

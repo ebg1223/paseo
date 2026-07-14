@@ -14,6 +14,7 @@ const mockState = vi.hoisted(() => {
   interface ConstructorEntry {
     runtimeSettings?: unknown;
     providerParams?: unknown;
+    commandsRpcType?: unknown;
   }
 
   return {
@@ -226,12 +227,20 @@ vi.mock("./providers/pi/agent.js", () => ({
     readonly provider = "pi";
     readonly runtimeSettings?: unknown;
 
-    constructor(options: { runtimeSettings?: unknown; providerParams?: unknown }) {
+    constructor(options: {
+      runtimeSettings?: unknown;
+      providerParams?: unknown;
+      commandsRpcType?: unknown;
+    }) {
       this.runtimeSettings = options.runtimeSettings;
-      mockState.constructorArgs.pi.push({
+      const entry: ConstructorEntry = {
         runtimeSettings: options.runtimeSettings,
         providerParams: options.providerParams,
-      });
+      };
+      if (options.commandsRpcType !== undefined) {
+        entry.commandsRpcType = options.commandsRpcType;
+      }
+      mockState.constructorArgs.pi.push(entry);
     }
 
     async createSession(): Promise<never> {
@@ -285,7 +294,10 @@ vi.mock("./providers/omp/agent.js", () => ({
     }
 
     async fetchCatalog(): Promise<ProviderCatalog> {
-      return { models: [], modes: [] };
+      return {
+        models: mockState.runtimeModels.get(this.provider) ?? [],
+        modes: [],
+      };
     }
 
     async isAvailable(): Promise<boolean> {
@@ -623,58 +635,6 @@ test("built-in OMP override passes params to the OMP adapter constructor", () =>
     },
     providerParams: {
       sessionDir: "~/.omp/agent/sessions",
-    },
-  });
-});
-
-test("new provider extending omp uses OmpRpcAgentClient with overrides", () => {
-  const registry = buildProviderRegistry(logger, {
-    providerOverrides: {
-      omp: {
-        command: ["omp"],
-        env: {
-          OMP_BASE: "1",
-        },
-        params: {
-          sessionDir: "~/.omp/agent/sessions",
-        },
-      },
-      "work-omp": {
-        extends: "omp",
-        label: "Work OMP",
-        command: ["omp-work", "--profile", "work"],
-        env: {
-          OMP_PROFILE: "work",
-        },
-        params: {
-          sessionDir: "~/.omp-work/agent/sessions",
-          smolModel: "openai/gpt-5-mini",
-        },
-      },
-    },
-  });
-
-  expect(registry["work-omp"]).toMatchObject({
-    id: "work-omp",
-    label: "Work OMP",
-    derivedFromProviderId: "omp",
-  });
-  expect(registry["work-omp"].createClient(logger).provider).toBe("work-omp");
-  expect(mockState.constructorArgs.omp.at(-1)).toEqual({
-    runtimeSettings: {
-      command: {
-        mode: "replace",
-        argv: ["omp-work", "--profile", "work"],
-      },
-      env: {
-        OMP_BASE: "1",
-        OMP_PROFILE: "work",
-      },
-      disallowedTools: undefined,
-    },
-    providerParams: {
-      sessionDir: "~/.omp-work/agent/sessions",
-      smolModel: "openai/gpt-5-mini",
     },
   });
 });

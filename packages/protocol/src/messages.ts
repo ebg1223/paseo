@@ -493,15 +493,6 @@ const ToolCallDetailPayloadSchema: z.ZodType<ToolCallDetail, unknown> = z.discri
       subAgentType: z.string().optional(),
       description: z.string().optional(),
       childSessionId: z.string().optional(),
-      children: z
-        .array(
-          z.object({
-            sessionId: z.string(),
-            label: z.string(),
-            status: z.enum(["pending", "running", "completed", "failed", "aborted"]),
-          }),
-        )
-        .optional(),
       log: z.string(),
       // Compat cruft for clients <= 0.1.65-beta.3 that required this field. Producers still
       // emit `[]`; nothing reads it. Drop the field (and the `[]` emissions) once those
@@ -1419,7 +1410,6 @@ export const AgentRewindResponseMessageSchema = z.object({
     agentId: z.string(),
     ok: z.boolean(),
     error: z.string().nullable(),
-    restoredPrompt: z.string().optional(),
   }),
 });
 

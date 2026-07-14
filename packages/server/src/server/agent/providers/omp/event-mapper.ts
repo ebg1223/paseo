@@ -68,7 +68,9 @@ export function mapOmpRuntimeEventToTimelineItem(event: unknown): OmpRuntimeEven
     case "irc_message":
       return dropIfWellFormed(OmpIrcMessageEventSchema.safeParse(event).success, type);
     case "todo_auto_clear":
-      return dropIfWellFormed(OmpTodoAutoClearEventSchema.safeParse(event).success, type);
+      return OmpTodoAutoClearEventSchema.safeParse(event).success
+        ? { handled: true, item: { type: "todo", items: [] } }
+        : { handled: true, item: null, logReason: "malformed_omp_todo_auto_clear" };
     default:
       if (type && isMemoryEventType(type)) {
         return { handled: true, item: null, logReason: "unsupported_omp_memory_event" };

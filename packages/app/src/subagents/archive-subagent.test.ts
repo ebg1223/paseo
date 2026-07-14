@@ -118,17 +118,6 @@ describe("resolveArchiveSubagentDialog", () => {
       destructive: true,
     });
   });
-  it("describes provider-owned archive as removing only Paseo's copy", () => {
-    expect(
-      resolveArchiveSubagentDialog({
-        title: "Review branch",
-        status: "running",
-        providerChildOwnership: { owner: "provider" },
-      }).message,
-    ).toBe(
-      "Remove Review branch from Paseo. The provider-owned child will keep running until its parent provider session exits.",
-    );
-  });
 });
 
 describe("requestArchiveSubagent", () => {

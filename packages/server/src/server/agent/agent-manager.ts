@@ -7,11 +7,8 @@ import {
 } from "@getpaseo/protocol/agent-lifecycle";
 import {
   getParentAgentIdFromLabels,
-  getProviderChildOwnershipFromLabels,
-  getProviderChildOwnershipLabels,
   isDelegatedAgent,
   PARENT_AGENT_ID_LABEL,
-  type ProviderChildOwnership,
 } from "@getpaseo/protocol/agent-labels";
 import type { Logger } from "pino";
 import { z } from "zod";
@@ -35,7 +32,6 @@ import {
   type AgentProvider,
   type AgentRunOptions,
   type AgentRunResult,
-  type AgentRewindResult,
   type AgentSession,
   type AgentSessionConfig,
   type AgentStreamEvent,
@@ -554,15 +550,6 @@ export class AgentManager {
   private readonly durableTimelineStore?: AgentTimelineStore;
   private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
   private readonly backgroundTasks = new Set<Promise<void>>();
-  private readonly childSessionImportsInFlight = new Map<
-    string,
-    {
-      latestEvent: Extract<AgentStreamEvent, { type: "child_session" }>;
-      parentAgentId: string;
-      revision: number;
-      task: Promise<void>;
-    }
-  >();
   private readonly agentRegistrationTasks = new Set<Promise<void>>();
   private readonly agentStreamCoalescer: AgentStreamCoalescer;
   private mcpBaseUrl: string | null;
@@ -1053,7 +1040,6 @@ export class AgentManager {
       agentId ?? this.idFactory(),
       "resumeAgentFromPersistence",
     );
-    this.assertStandaloneSessionAllowed(options?.labels, "resumed");
     const metadata = (handle.metadata ?? {}) as Partial<AgentSessionConfig>;
     const mergedConfig = {
       ...metadata,
@@ -1084,7 +1070,6 @@ export class AgentManager {
     cwd: string;
     workspaceId: string;
     labels?: Record<string, string>;
-    title?: string;
   }): Promise<ManagedAgent> {
     return this.trackAgentRegistrationOperation(this.importProviderSessionInternal(input));
   }
@@ -1095,7 +1080,6 @@ export class AgentManager {
     cwd: string;
     workspaceId: string;
     labels?: Record<string, string>;
-    title?: string;
   }): Promise<ManagedAgent> {
     this.assertAcceptingAgentRegistrations();
     const resolvedAgentId = validateAgentId(this.idFactory(), "importProviderSession");
@@ -1128,14 +1112,11 @@ export class AgentManager {
         stripInternalPaseoMcpServer(imported.config),
       );
       const timelineRows = buildImportedTimelineRows(imported.timeline);
-      const initialTitle = input.title ?? resolveImportedAgentTitle(importedConfig, timelineRows);
+      const initialTitle = resolveImportedAgentTitle(importedConfig, timelineRows);
 
       handedToRegistration = true;
       const agent = await this.registerSession(imported.session, importedConfig, resolvedAgentId, {
-        labels: {
-          ...input.labels,
-          ...(imported.ownership ? getProviderChildOwnershipLabels(imported.ownership) : {}),
-        },
+        labels: input.labels,
         workspaceId: input.workspaceId,
         timelineRows,
         timelineNextSeq: timelineRows.length + 1,
@@ -1179,7 +1160,6 @@ export class AgentManager {
   ): Promise<ManagedAgent> {
     this.assertAcceptingAgentRegistrations();
     let existing = this.requireSessionAgent(agentId);
-    this.assertStandaloneSessionAllowed(existing.labels, "reloaded");
     if (this.hasInFlightRun(agentId)) {
       await this.cancelAgentRun(agentId);
       existing = this.requireSessionAgent(agentId);
@@ -1209,11 +1189,12 @@ export class AgentManager {
     try {
       this.assertAcceptingAgentRegistrations();
 
-      await this.closeReloadedSession(existing.session, agentId);
-      await this.waitForSessionEvents(agentId);
-      await this.waitForChildSessionImports(agentId);
       const closedExisting = this.prepareAgentForClosure(existing, "agent reloaded");
-      await this.persistSnapshot(closedExisting);
+      try {
+        await this.persistSnapshot(closedExisting);
+      } finally {
+        await this.closeReloadedSession(existing.session, agentId);
+      }
 
       if (rehydrateFromDisk) {
         // Wipe both durable and in-memory timeline so registerSession mints a
@@ -1314,10 +1295,8 @@ export class AgentManager {
       },
       "agent.manager.close.start",
     );
-    await agent.session.close();
-    await this.waitForSessionEvents(agentId);
-    await this.waitForChildSessionImports(agentId);
     const closedAgent = this.prepareAgentForClosure(agent, "agent closed");
+    await agent.session.close();
     this.timelineStore.delete(agentId);
     for (const event of this.providerSubagents.deleteParent(agentId)) {
       this.dispatch({ type: "provider_subagent", event });
@@ -1340,9 +1319,6 @@ export class AgentManager {
       throw new Error("Agent storage is not configured");
     }
 
-    await agent.session.close();
-    await this.waitForSessionEvents(agentId);
-    await this.waitForChildSessionImports(agentId);
     await this.registry.applySnapshot(agent, {
       internal: agent.internal,
     });
@@ -1353,10 +1329,7 @@ export class AgentManager {
 
     const { archivedAt } = await this.markRecordArchived(stored);
     agent.updatedAt = new Date(archivedAt);
-    const closedAgent = this.prepareAgentForClosure(agent, "agent archived");
-    this.timelineStore.delete(agentId);
-    await this.persistSnapshot(closedAgent);
-    this.emitClosedAgent(closedAgent, { persist: false });
+    await this.closeAgent(agentId);
 
     await this.cascadeArchiveChildren(agentId);
 
@@ -1548,22 +1521,6 @@ export class AgentManager {
     this.touchUpdatedAt(agent);
     await this.persistSnapshot(agent, { title: normalizedTitle });
     this.emitState(agent, { persist: false });
-    this.notifyProviderTitleChanged(agent, normalizedTitle);
-  }
-
-  private notifyProviderTitleChanged(agent: ManagedAgent, title: string): void {
-    if (!agent.session?.notifyTitleChanged) {
-      return;
-    }
-    const notifyTitleChanged = agent.session.notifyTitleChanged.bind(agent.session);
-    void Promise.resolve()
-      .then(() => notifyTitleChanged(title))
-      .catch((error: unknown) => {
-        this.logger.debug(
-          { err: error, agentId: agent.id, provider: agent.provider },
-          "Failed to notify provider of title change",
-        );
-      });
   }
 
   async setLabels(agentId: string, labels: Record<string, string>): Promise<void> {
@@ -1612,13 +1569,6 @@ export class AgentManager {
     previousParentAgentId: string | null;
   }> {
     const registry = this.requireRegistry();
-    const ownership = this.getAgentOwnership(agentId);
-    if (ownership?.owner === "provider") {
-      throw new Error("Provider-owned child sessions cannot be detached");
-    }
-    if (ownership?.owner === "none") {
-      throw new Error(ownership.reason);
-    }
     const liveAgent = this.agents.get(agentId);
     if (liveAgent) {
       const previousParentAgentId = getParentAgentIdFromLabels(liveAgent.labels);
@@ -1641,13 +1591,6 @@ export class AgentManager {
     const record = await registry.get(agentId);
     if (!record) {
       throw new Error(`Agent not found: ${agentId}`);
-    }
-    const storedOwnership = getProviderChildOwnershipFromLabels(record.labels);
-    if (storedOwnership?.owner === "provider") {
-      throw new Error("Provider-owned child sessions cannot be detached");
-    }
-    if (storedOwnership?.owner === "none") {
-      throw new Error(storedOwnership.reason);
     }
     const previousParentAgentId = getParentAgentIdFromLabels(record.labels);
     if (!previousParentAgentId) {
@@ -1812,35 +1755,7 @@ export class AgentManager {
    * emitted by the handler flow through dispatchStream so they persist and
    * broadcast like normal timeline events.
    */
-  assertAgentPromptAllowed(agentId: string): void {
-    const ownership = this.getAgentOwnership(agentId);
-    if (ownership?.owner === "provider") {
-      throw new Error("Provider-owned child sessions cannot be prompted");
-    }
-    if (ownership?.owner === "none") {
-      throw new Error(ownership.reason);
-    }
-  }
-
-  private getAgentOwnership(agentId: string): ProviderChildOwnership | null {
-    return getProviderChildOwnershipFromLabels(this.agents.get(agentId)?.labels);
-  }
-
-  private assertStandaloneSessionAllowed(
-    labels: Readonly<Record<string, string>> | undefined,
-    operation: string,
-  ): void {
-    const ownership = getProviderChildOwnershipFromLabels(labels);
-    if (ownership?.owner === "provider") {
-      throw new Error(`Provider-owned child sessions cannot be ${operation}`);
-    }
-    if (ownership?.owner === "none") {
-      throw new Error(ownership.reason);
-    }
-  }
-
   tryRunOutOfBand(agentId: string, prompt: AgentPromptInput): boolean {
-    this.assertAgentPromptAllowed(agentId);
     const agent = this.requireSessionAgent(agentId);
     const handler = agent.session.tryHandleOutOfBand?.(prompt);
     if (!handler) {
@@ -2232,10 +2147,6 @@ export class AgentManager {
   }
 
   async cancelAgentRun(agentId: string): Promise<boolean> {
-    const ownership = this.getAgentOwnership(agentId);
-    if (ownership?.owner === "provider") {
-      throw new Error("Provider-owned child sessions cannot be interrupted");
-    }
     const agent = this.requireSessionAgent(agentId);
     const pendingRun = this.foregroundRuns.getPendingRun(agentId);
     const foregroundTurnId = agent.activeForegroundTurnId;
@@ -2381,11 +2292,7 @@ export class AgentManager {
     await this.hydrateTimelineFromLegacyProviderHistory(agent, options);
   }
 
-  async rewind(
-    agentId: string,
-    messageId: string,
-    mode: RewindMode,
-  ): Promise<void | AgentRewindResult> {
+  async rewind(agentId: string, messageId: string, mode: RewindMode): Promise<void> {
     const agent = this.requireSessionAgent(agentId);
     const hadActiveRun =
       Boolean(agent.activeForegroundTurnId) || this.foregroundRuns.hasPendingRun(agentId);
@@ -2399,7 +2306,7 @@ export class AgentManager {
         { agentId, provider: agent.provider, messageId, mode },
         "agent.rewind.start",
       );
-      const result = await invokeRewindCapability(agent.session, { messageId, mode });
+      await invokeRewindCapability(agent.session, { messageId, mode });
       if (mode !== "files") {
         await this.hydrateTimelineFromProvider(agentId, { force: true, broadcast: true });
       }
@@ -2409,7 +2316,6 @@ export class AgentManager {
         { agentId, provider: agent.provider, messageId, mode },
         "agent.rewind.complete",
       );
-      return result;
     } catch (error) {
       this.logger.warn(
         { err: error, agentId, provider: agent.provider, messageId, mode },
@@ -2731,9 +2637,6 @@ export class AgentManager {
       this.assertAgentRegistrationActive(managed);
       if (!options?.publishWhenReady) {
         this.emitState(managed, { persist: false });
-      }
-      if (initialPersistedTitle) {
-        this.notifyProviderTitleChanged(managed, initialPersistedTitle);
       }
 
       await this.refreshSessionState(managed, { emit: false });
@@ -3093,14 +2996,7 @@ export class AgentManager {
         newInfo.sessionId !== agent.runtimeInfo?.sessionId ||
         newInfo.modeId !== agent.runtimeInfo?.modeId;
       agent.runtimeInfo = newInfo;
-      const describedPersistence = agent.session.describePersistence();
-      if (
-        describedPersistence &&
-        (describedPersistence.sessionId !== agent.persistence?.sessionId ||
-          describedPersistence.nativeHandle !== agent.persistence?.nativeHandle)
-      ) {
-        agent.persistence = attachPersistenceCwd(describedPersistence, agent.cwd);
-      } else if (!agent.persistence && newInfo.sessionId) {
+      if (!agent.persistence && newInfo.sessionId) {
         agent.persistence = attachPersistenceCwd(
           { provider: agent.provider, sessionId: newInfo.sessionId },
           agent.cwd,
@@ -3405,10 +3301,6 @@ export class AgentManager {
         flags.shouldDispatchEvent = false;
         this.emitState(agent);
         return undefined;
-      case "child_session":
-        flags.shouldDispatchEvent = false;
-        this.onStreamChildSession({ agent, event, options });
-        return undefined;
       case "timeline":
         return this.onStreamTimelineEvent({ agent, event, options, isForegroundEvent, flags });
       case "turn_completed":
@@ -3440,264 +3332,15 @@ export class AgentManager {
   }
 
   private onStreamThreadStarted(agent: ActiveManagedAgent): void {
-    const previousPersistence = agent.persistence;
+    const previousSessionId = agent.persistence?.sessionId ?? null;
     const handle = agent.session.describePersistence();
     if (handle) {
       agent.persistence = attachPersistenceCwd(handle, agent.cwd);
-      if (
-        handle.sessionId !== previousPersistence?.sessionId ||
-        handle.nativeHandle !== previousPersistence?.nativeHandle
-      ) {
+      if (agent.persistence?.sessionId !== previousSessionId) {
         this.emitState(agent);
       }
     }
     void this.refreshRuntimeInfo(agent);
-  }
-
-  private onStreamChildSession(params: {
-    agent: ActiveManagedAgent;
-    event: Extract<AgentStreamEvent, { type: "child_session" }>;
-    options: HandleStreamEventOptions | undefined;
-  }): void {
-    const { agent, event, options } = params;
-    if (options?.fromHistory) {
-      this.trackBackgroundTask(this.reparentHistoricalChildSession(agent, event));
-      return;
-    }
-
-    const importKey = this.toProviderSessionHandleKey(event.provider, event.childSessionId);
-    const inFlight = this.childSessionImportsInFlight.get(importKey);
-    if (inFlight) {
-      inFlight.latestEvent = event;
-      inFlight.revision += 1;
-      return;
-    }
-
-    const entry = {
-      latestEvent: event,
-      parentAgentId: agent.id,
-      revision: 0,
-      task: Promise.resolve(),
-    };
-    entry.task = this.importChildProviderSession(agent, importKey, entry);
-    this.childSessionImportsInFlight.set(importKey, entry);
-    this.trackBackgroundTask(entry.task);
-  }
-
-  private async importChildProviderSession(
-    agent: ActiveManagedAgent,
-    importKey: string,
-    entry: {
-      latestEvent: Extract<AgentStreamEvent, { type: "child_session" }>;
-      parentAgentId: string;
-      revision: number;
-    },
-  ): Promise<void> {
-    try {
-      const initialEvent = entry.latestEvent;
-      if (!agent.workspaceId) {
-        this.logger.warn(
-          {
-            agentId: agent.id,
-            provider: initialEvent.provider,
-            childSessionId: initialEvent.childSessionId,
-          },
-          "Skipping child session import because parent agent has no workspaceId",
-        );
-        return;
-      }
-
-      let parentAgentId: string | null = agent.id;
-      if (initialEvent.parentChildSessionId) {
-        const parentImportKey = this.toProviderSessionHandleKey(
-          initialEvent.provider,
-          initialEvent.parentChildSessionId,
-        );
-        const parentImport = this.childSessionImportsInFlight.get(parentImportKey);
-        if (parentImport && parentImportKey !== importKey) {
-          await parentImport.task;
-        }
-        parentAgentId =
-          (await this.findImportedProviderSessionHandle(
-            initialEvent.provider,
-            initialEvent.parentChildSessionId,
-          )) ?? parentAgentId;
-      }
-
-      let importedAgentId = await this.findImportedProviderSessionHandle(
-        initialEvent.provider,
-        initialEvent.childSessionId,
-      );
-      let appliedRevision = -1;
-      if (!importedAgentId) {
-        const imported = await this.importProviderSession({
-          provider: initialEvent.provider,
-          providerHandleId: initialEvent.childSessionId,
-          cwd: agent.cwd,
-          workspaceId: agent.workspaceId,
-          labels: {
-            ...(parentAgentId ? { [PARENT_AGENT_ID_LABEL]: parentAgentId } : {}),
-            ...getProviderChildOwnershipLabels(initialEvent.ownership),
-          },
-          title: initialEvent.title,
-        });
-        importedAgentId = imported.id;
-      }
-
-      while (appliedRevision !== entry.revision) {
-        const revision = entry.revision;
-        const event = entry.latestEvent;
-        let resolvedParentAgentId: string | null = agent.id;
-        if (event.parentChildSessionId) {
-          resolvedParentAgentId =
-            (await this.findImportedProviderSessionHandle(
-              event.provider,
-              event.parentChildSessionId,
-            )) ?? resolvedParentAgentId;
-        }
-        await this.writeLabels(importedAgentId, {
-          [PARENT_AGENT_ID_LABEL]: resolvedParentAgentId,
-          ...getProviderChildOwnershipLabels(event.ownership),
-        });
-        if (event.title) {
-          await this.updateAgentMetadata(importedAgentId, { title: event.title });
-        }
-        await this.applyChildSessionStatus(importedAgentId, event);
-        appliedRevision = revision;
-      }
-    } catch (error) {
-      this.logger.warn(
-        {
-          err: error,
-          agentId: agent.id,
-          provider: entry.latestEvent.provider,
-          childSessionId: entry.latestEvent.childSessionId,
-        },
-        "Failed to import child provider session",
-      );
-    } finally {
-      this.childSessionImportsInFlight.delete(importKey);
-    }
-  }
-  private async reparentHistoricalChildSession(
-    agent: ActiveManagedAgent,
-    event: Extract<AgentStreamEvent, { type: "child_session" }>,
-  ): Promise<void> {
-    const importedAgentId = await this.findImportedProviderSessionHandle(
-      event.provider,
-      event.childSessionId,
-    );
-    if (!importedAgentId) return;
-
-    let parentAgentId: string | null = agent.id;
-    if (event.parentChildSessionId) {
-      parentAgentId =
-        (await this.findImportedProviderSessionHandle(
-          event.provider,
-          event.parentChildSessionId,
-        )) ?? parentAgentId;
-    }
-    await this.writeLabels(importedAgentId, { [PARENT_AGENT_ID_LABEL]: parentAgentId });
-  }
-
-  private async applyChildSessionStatus(
-    agentId: string,
-    event: Extract<AgentStreamEvent, { type: "child_session" }>,
-  ): Promise<void> {
-    if (event.status === "running") {
-      return;
-    }
-
-    const imported = this.agents.get(agentId);
-    const lifecycle = event.status === "failed" ? "error" : "idle";
-    const lastError = event.status === "failed" ? "Provider child session failed" : undefined;
-    if (imported) {
-      imported.activeForegroundTurnId = null;
-      imported.lifecycle = lifecycle;
-      imported.lastError = lastError;
-      await this.persistSnapshot(imported);
-      this.emitState(imported, { persist: false });
-      return;
-    }
-
-    const registry = this.requireRegistry();
-    const record = await registry.get(agentId);
-    if (!record) {
-      throw new Error(`Agent not found: ${agentId}`);
-    }
-    await registry.upsert({
-      ...record,
-      lastStatus: lifecycle,
-      lastError,
-      updatedAt: this.nextStoredUpdatedAt(record),
-    });
-  }
-
-  private async waitForSessionEvents(agentId: string): Promise<void> {
-    while (true) {
-      const tail = this.sessionEventTails.get(agentId);
-      if (!tail) {
-        return;
-      }
-      await tail;
-    }
-  }
-  private async waitForChildSessionImports(parentAgentId: string): Promise<void> {
-    while (true) {
-      const tasks = [...this.childSessionImportsInFlight.values()]
-        .filter((entry) => entry.parentAgentId === parentAgentId)
-        .map((entry) => entry.task);
-      if (tasks.length === 0) return;
-      await Promise.all(tasks);
-    }
-  }
-
-  private async findImportedProviderSessionHandle(
-    provider: AgentProvider,
-    providerHandleId: string,
-  ): Promise<string | null> {
-    for (const agent of this.agents.values()) {
-      if (
-        this.matchesProviderSessionHandle(
-          agent.provider,
-          agent.persistence,
-          provider,
-          providerHandleId,
-        )
-      ) {
-        return agent.id;
-      }
-    }
-    for (const record of (await this.registry?.list()) ?? []) {
-      if (
-        this.matchesProviderSessionHandle(
-          record.provider,
-          record.persistence,
-          provider,
-          providerHandleId,
-        )
-      ) {
-        return record.id;
-      }
-    }
-    return null;
-  }
-
-  private matchesProviderSessionHandle(
-    recordProvider: string,
-    persistence: AgentPersistenceHandle | null | undefined,
-    provider: AgentProvider,
-    providerHandleId: string,
-  ): boolean {
-    return (
-      recordProvider === provider &&
-      persistence != null &&
-      (persistence.sessionId === providerHandleId || persistence.nativeHandle === providerHandleId)
-    );
-  }
-
-  private toProviderSessionHandleKey(provider: AgentProvider, providerHandleId: string): string {
-    return `${provider}\0${providerHandleId}`;
   }
 
   private async onStreamTimelineEvent(params: {

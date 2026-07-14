@@ -1,232 +1,115 @@
-import type { PiRuntimeSession } from "../pi-shared/runtime.js";
-import type { OmpSubagentStatus } from "./rpc-types.js";
+import type { AgentStreamEvent } from "../../agent-sdk-types.js";
+import { PiHistoryMapper } from "../pi-shared/history-mapper.js";
+import type { PiAgentMessage, PiAgentSessionEvent } from "../pi-shared/rpc-types.js";
+import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
+import type {
+  OmpSubagentEventPayload,
+  OmpSubagentLifecyclePayload,
+  OmpSubagentProgressPayload,
+} from "./rpc-types.js";
 
-export type OmpTerminalSubagentStatus = "completed" | "failed" | "aborted";
-
-export interface OmpLiveSubagentEntry {
-  sessionFile: string;
-  subagentId: string;
-  status: OmpSubagentStatus;
-  parentRuntime: PiRuntimeSession;
-  ownership: "provider" | "released";
-  title?: string;
-  model?: string;
-  classifyRelease?: () => Promise<{ resumable: boolean; reason: string }>;
-  releaseClassification?: { resumable: boolean; reason: string };
-  emitOwnership?: (entry: OmpLiveSubagentEntry) => void | Promise<void>;
-}
-
-export type OmpSubagentIndexEvent =
-  | { type: "progress"; entry: OmpLiveSubagentEntry }
-  | { type: "terminal"; status: OmpTerminalSubagentStatus }
-  | { type: "released"; entry: OmpLiveSubagentEntry };
-
-type OmpSubagentIndexSubscriber = (event: OmpSubagentIndexEvent) => void | Promise<void>;
-
-interface OmpSubagentUpsertInput {
-  sessionFile: string;
-  subagentId: string;
-  status: OmpSubagentStatus;
-  parentRuntime: PiRuntimeSession;
-  title?: string;
-  model?: string;
-  classifyRelease?: () => Promise<{ resumable: boolean; reason: string }>;
-  emitOwnership?: (entry: OmpLiveSubagentEntry) => void | Promise<void>;
-}
-
-function buildLiveEntry(
-  input: OmpSubagentUpsertInput,
-  existing: OmpLiveSubagentEntry | undefined,
-): OmpLiveSubagentEntry {
-  const title = input.title ?? existing?.title;
-  const model = input.model ?? existing?.model;
-  const classifyRelease = input.classifyRelease ?? existing?.classifyRelease;
-  const emitOwnership = input.emitOwnership ?? existing?.emitOwnership;
-  return {
-    sessionFile: input.sessionFile,
-    subagentId: input.subagentId,
-    status: input.status,
-    parentRuntime: input.parentRuntime,
-    ownership: "provider",
-    ...(title ? { title } : {}),
-    ...(model ? { model } : {}),
-    ...(classifyRelease ? { classifyRelease } : {}),
-    ...(emitOwnership ? { emitOwnership } : {}),
-  };
+interface OmpSubagentState {
+  title: string;
+  description: string | null;
+  toolCallId: string | null;
+  mapper: PiHistoryMapper;
 }
 
 export class OmpSubagentIndex {
-  private readonly entriesByParent = new WeakMap<
-    PiRuntimeSession,
-    Map<string, OmpLiveSubagentEntry>
-  >();
-  private readonly entriesBySessionFile = new Map<string, Set<OmpLiveSubagentEntry>>();
-  private readonly subscribersByEntry = new WeakMap<
-    PiRuntimeSession,
-    Map<string, Set<OmpSubagentIndexSubscriber>>
-  >();
-  private readonly releasingParents = new WeakMap<
-    PiRuntimeSession,
-    Promise<OmpLiveSubagentEntry[]>
-  >();
-  private readonly releasedParents = new WeakSet<PiRuntimeSession>();
-  private readonly historicalSessionFiles = new Set<string>();
+  private readonly statesByParent = new WeakMap<object, Map<string, OmpSubagentState>>();
 
-  recordHistorical(sessionFile: string): void {
-    this.historicalSessionFiles.add(sessionFile);
+  handleLifecycle(parent: object, payload: OmpSubagentLifecyclePayload): AgentStreamEvent[] {
+    const state = this.stateFor(parent, payload.id, payload.agent);
+    state.title = payload.agent || state.title;
+    state.description = payload.description ?? state.description;
+    state.toolCallId = payload.parentToolCallId ?? state.toolCallId;
+    return [this.upsert(payload.id, mapLifecycleStatus(payload.status), state)];
   }
 
-  isHistorical(sessionFile: string): boolean {
-    return this.historicalSessionFiles.has(sessionFile);
+  handleProgress(parent: object, payload: OmpSubagentProgressPayload): AgentStreamEvent[] {
+    const id = payload.progress.id;
+    const state = this.stateFor(parent, id, payload.agent);
+    state.title = payload.agent || state.title;
+    state.description = payload.progress.description ?? payload.assignment ?? state.description;
+    state.toolCallId = payload.parentToolCallId ?? state.toolCallId;
+    return [this.upsert(id, mapProgressStatus(payload.progress.status), state)];
   }
 
-  get(sessionFile: string): OmpLiveSubagentEntry | null {
-    const entries = this.entriesBySessionFile.get(sessionFile);
-    if (!entries || entries.size !== 1) {
-      return null;
-    }
-    return entries.values().next().value ?? null;
+  handleEvent(parent: object, payload: OmpSubagentEventPayload): AgentStreamEvent[] {
+    const state = this.stateFor(parent, payload.id, "OMP subagent");
+    const messages = messagesFromSessionEvent(payload.event);
+    return state.mapper.mapMessages(messages).flatMap((mapped) =>
+      mapped.type === "timeline"
+        ? [
+            {
+              type: "provider_subagent" as const,
+              provider: "omp",
+              event: {
+                type: "timeline" as const,
+                id: payload.id,
+                item: mapped.item,
+                ...(mapped.timestamp ? { timestamp: mapped.timestamp } : {}),
+              },
+            },
+          ]
+        : [],
+    );
   }
 
-  getForParent(parentRuntime: PiRuntimeSession, sessionFile: string): OmpLiveSubagentEntry | null {
-    return this.entriesByParent.get(parentRuntime)?.get(sessionFile) ?? null;
+  clear(parent: object): void {
+    this.statesByParent.delete(parent);
   }
 
-  upsert(input: OmpSubagentUpsertInput): void {
-    if (
-      this.historicalSessionFiles.has(input.sessionFile) ||
-      this.releasingParents.has(input.parentRuntime) ||
-      this.releasedParents.has(input.parentRuntime)
-    ) {
-      return;
-    }
-    const parentEntries = this.entriesByParent.get(input.parentRuntime) ?? new Map();
-    const existing = parentEntries.get(input.sessionFile);
-    if (
-      existing?.ownership === "released" ||
-      (existing && isTerminalOmpSubagentStatus(existing.status))
-    ) {
-      return;
-    }
-    const entry = buildLiveEntry(input, existing);
-    if (existing) {
-      this.entriesBySessionFile.get(input.sessionFile)?.delete(existing);
-    }
-    parentEntries.set(input.sessionFile, entry);
-    this.entriesByParent.set(input.parentRuntime, parentEntries);
-    const byFile = this.entriesBySessionFile.get(input.sessionFile) ?? new Set();
-    byFile.add(entry);
-    this.entriesBySessionFile.set(input.sessionFile, byFile);
-  }
-
-  updateProgress(input: OmpSubagentUpsertInput): void {
-    const existing = this.getForParent(input.parentRuntime, input.sessionFile);
-    if (existing && isTerminalOmpSubagentStatus(existing.status)) {
-      return;
-    }
-    this.upsert(input);
-    const entry = this.getForParent(input.parentRuntime, input.sessionFile);
-    if (entry?.ownership === "provider" && !isTerminalOmpSubagentStatus(entry.status)) {
-      this.notify(input.parentRuntime, input.sessionFile, { type: "progress", entry });
-    }
-  }
-
-  terminal(
-    parentRuntime: PiRuntimeSession,
-    sessionFile: string,
-    status: OmpTerminalSubagentStatus,
-  ): void {
-    const entry = this.getForParent(parentRuntime, sessionFile);
-    if (!entry || entry.ownership !== "provider" || isTerminalOmpSubagentStatus(entry.status)) {
-      return;
-    }
-    entry.status = status;
-    this.notify(parentRuntime, sessionFile, { type: "terminal", status });
-  }
-
-  async releaseParent(parentRuntime: PiRuntimeSession): Promise<OmpLiveSubagentEntry[]> {
-    const inFlight = this.releasingParents.get(parentRuntime);
-    if (inFlight) {
-      return await inFlight;
-    }
-    if (this.releasedParents.has(parentRuntime)) {
-      return [];
-    }
-    const release = this.releaseParentOnce(parentRuntime);
-    this.releasingParents.set(parentRuntime, release);
-    try {
-      const released = await release;
-      this.releasedParents.add(parentRuntime);
-      return released;
-    } finally {
-      this.releasingParents.delete(parentRuntime);
-    }
-  }
-
-  private async releaseParentOnce(
-    parentRuntime: PiRuntimeSession,
-  ): Promise<OmpLiveSubagentEntry[]> {
-    const entries = this.entriesByParent.get(parentRuntime);
-    if (!entries) {
-      return [];
-    }
-    const released: OmpLiveSubagentEntry[] = [];
-    for (const [sessionFile, entry] of entries) {
-      if (entry.ownership === "released") {
-        continue;
-      }
-      entry.ownership = "released";
-      released.push(entry);
-      entry.releaseClassification = await entry.classifyRelease?.();
-      await this.notify(parentRuntime, sessionFile, { type: "released", entry });
-      await entry.emitOwnership?.(entry);
-      this.entriesBySessionFile.get(sessionFile)?.delete(entry);
-      if (this.entriesBySessionFile.get(sessionFile)?.size === 0) {
-        this.entriesBySessionFile.delete(sessionFile);
-      }
-    }
-    this.entriesByParent.delete(parentRuntime);
-    this.subscribersByEntry.delete(parentRuntime);
-    return released;
-  }
-
-  subscribe(
-    parentRuntime: PiRuntimeSession,
-    sessionFile: string,
-    subscriber: OmpSubagentIndexSubscriber,
-  ): () => void {
-    const byFile = this.subscribersByEntry.get(parentRuntime) ?? new Map();
-    const subscribers = byFile.get(sessionFile) ?? new Set();
-    subscribers.add(subscriber);
-    byFile.set(sessionFile, subscribers);
-    this.subscribersByEntry.set(parentRuntime, byFile);
-    const entry = this.getForParent(parentRuntime, sessionFile);
-    if (entry && isTerminalOmpSubagentStatus(entry.status)) {
-      void subscriber({ type: "terminal", status: entry.status });
-    }
-    return () => {
-      subscribers.delete(subscriber);
-      if (subscribers.size === 0) {
-        byFile.delete(sessionFile);
-      }
+  private stateFor(parent: object, id: string, title: string): OmpSubagentState {
+    const states = this.statesByParent.get(parent) ?? new Map<string, OmpSubagentState>();
+    const existing = states.get(id);
+    if (existing) return existing;
+    const state: OmpSubagentState = {
+      title,
+      description: null,
+      toolCallId: null,
+      mapper: new PiHistoryMapper("omp", [], OMP_HISTORY_MAPPER_HOOKS),
     };
+    states.set(id, state);
+    this.statesByParent.set(parent, states);
+    return state;
   }
 
-  private async notify(
-    parentRuntime: PiRuntimeSession,
-    sessionFile: string,
-    event: OmpSubagentIndexEvent,
-  ): Promise<void> {
-    const subscribers = this.subscribersByEntry.get(parentRuntime)?.get(sessionFile);
-    if (!subscribers) {
-      return;
-    }
-    await Promise.all([...subscribers].map(async (subscriber) => await subscriber(event)));
+  private upsert(
+    id: string,
+    status: "running" | "completed" | "failed" | "canceled",
+    state: OmpSubagentState,
+  ): AgentStreamEvent {
+    return {
+      type: "provider_subagent",
+      provider: "omp",
+      event: {
+        type: "upsert",
+        id,
+        title: state.title,
+        description: state.description,
+        status,
+        toolCallId: state.toolCallId,
+      },
+    };
   }
 }
 
-export function isTerminalOmpSubagentStatus(
-  status: OmpSubagentStatus,
-): status is OmpTerminalSubagentStatus {
-  return status === "completed" || status === "failed" || status === "aborted";
+function messagesFromSessionEvent(event: PiAgentSessionEvent): PiAgentMessage[] {
+  if (event.type === "message_end") return [event.message];
+  return [];
+}
+
+function mapLifecycleStatus(
+  status: OmpSubagentLifecyclePayload["status"],
+): "running" | "completed" | "failed" | "canceled" {
+  if (status === "started") return "running";
+  return status === "aborted" ? "canceled" : status;
+}
+
+function mapProgressStatus(
+  status: OmpSubagentProgressPayload["progress"]["status"],
+): "running" | "completed" | "failed" | "canceled" {
+  if (status === "completed" || status === "failed") return status;
+  return status === "aborted" ? "canceled" : "running";
 }

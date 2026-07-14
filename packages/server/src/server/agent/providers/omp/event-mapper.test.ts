@@ -284,6 +284,13 @@ describe("OMP runtime event mapper", () => {
     });
   });
 
+  test("clears the visible checklist for todo_auto_clear", () => {
+    expect(mapOmpRuntimeEventToTimelineItem({ type: "todo_auto_clear" })).toEqual({
+      handled: true,
+      item: { type: "todo", items: [] },
+    });
+  });
+
   test("log-drops malformed known OMP events", () => {
     expect(
       mapOmpRuntimeEventToTimelineItem({

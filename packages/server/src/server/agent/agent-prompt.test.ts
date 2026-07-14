@@ -146,45 +146,6 @@ test("sendPromptToAgent forwards the client message id as run options", async ()
   });
 });
 
-test.each([
-  [
-    {
-      "paseo.provider-child-owner": "provider",
-      "paseo.provider-child-resumable": "false",
-    },
-    "Provider-owned child sessions cannot be prompted",
-  ],
-  [
-    {
-      "paseo.provider-child-owner": "none",
-      "paseo.provider-child-resumable": "false",
-      "paseo.provider-child-reason": "Provider process exited",
-    },
-    "Provider process exited",
-  ],
-])("sendPromptToAgent rejects stored child ownership before loading", async (labels, message) => {
-  const agentManager: AgentManager = Object.create(AgentManager.prototype);
-  const getAgent = vi.fn(() => null);
-  Reflect.set(agentManager, "getAgent", getAgent);
-  const agentStorage: AgentStorage = Object.create(AgentStorage.prototype);
-  Reflect.set(
-    agentStorage,
-    "get",
-    vi.fn(async () => ({ id: "child", labels, archivedAt: "now" })),
-  );
-
-  await expect(
-    sendPromptToAgent({
-      agentManager,
-      agentStorage,
-      agentId: "child",
-      prompt: "hello",
-      logger: createTestLogger(),
-    }),
-  ).rejects.toThrow(message);
-  expect(getAgent).not.toHaveBeenCalled();
-});
-
 test("finish notifications tell the parent the child's last assistant message", async () => {
   const scenario = createFinishNotificationScenario({
     childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
