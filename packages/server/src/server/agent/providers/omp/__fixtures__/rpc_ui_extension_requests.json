@@ -1,0 +1,153 @@
+[
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3c7a73a2b4",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1b3a2b9",
+    "method": "notify",
+    "message": "probe notify",
+    "notifyType": "info"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1b3a2ba",
+    "method": "setStatus",
+    "statusKey": "probe",
+    "statusText": "working"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1b3a2bb",
+    "method": "setWidget",
+    "widgetKey": "probe-widget",
+    "widgetLines": ["line one", "line two"],
+    "widgetPlacement": "belowEditor"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1b3a2bc",
+    "method": "setTitle",
+    "title": "Probe Title"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1b3a2bd",
+    "method": "set_editor_text",
+    "text": "prefilled editor text"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1b3a2be",
+    "method": "select",
+    "title": "Probe select",
+    "options": ["first", "second"]
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1f3a2bf",
+    "method": "confirm",
+    "title": "Probe confirm",
+    "message": "Continue with probe?"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db1f3a2c0",
+    "method": "input",
+    "title": "Probe input",
+    "placeholder": "type here"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db273a2c1",
+    "method": "editor",
+    "title": "Probe editor",
+    "prefill": "seed"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db273a2c2",
+    "method": "notify",
+    "message": "{\"selected\":\"second\",\"confirmed\":true,\"input\":\"typed value\",\"edited\":\"edited value\\nsecond line\"}",
+    "notifyType": "info"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db273a2c3",
+    "method": "setStatus",
+    "statusKey": "probe"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a3db273a2c4",
+    "method": "setWidget",
+    "widgetKey": "probe-widget"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a42be33a2c5",
+    "method": "select",
+    "title": "Allow tool: bash\nCommand: echo rpc-ui-hi",
+    "options": ["Approve", "Deny"]
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a441f73a2c6",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a49d8f3a2c7",
+    "method": "select",
+    "title": "Allow tool: edit\nFile: fixture.txt",
+    "options": ["Approve", "Deny"]
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a4b2a33a2c8",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a659f553df7",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a6839953dfc",
+    "method": "select",
+    "title": "Allow tool: write\nPath: created.txt\nContent:\nhello write",
+    "options": ["Approve", "Deny"]
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270a6e98d53dfd",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270b3bc9a4ef5b",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270b401324ef60",
+    "method": "select",
+    "title": "Pick a path",
+    "options": ["A", "B", "Other (type your own)"]
+  },
+  {
+    "type": "extension_ui_request",
+    "id": "15270b416f64ef61",
+    "method": "setWidget",
+    "widgetKey": "autoresearch"
+  }
+]
