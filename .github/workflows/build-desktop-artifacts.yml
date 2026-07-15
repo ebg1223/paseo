@@ -1,0 +1,79 @@
+name: Build Desktop Artifacts
+
+on:
+  push:
+    branches:
+      - build-artifacts
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            runner: macos-14
+            build_args: --mac --arm64 -c.mac.identity=null -c.mac.notarize=false
+            artifact_name: desktop-macos-arm64
+            artifact_paths: |
+              packages/desktop/release/*.dmg
+              packages/desktop/release/*.zip
+          - name: macOS (Intel)
+            runner: macos-15-intel
+            build_args: --mac --x64 -c.mac.identity=null -c.mac.notarize=false
+            artifact_name: desktop-macos-x64
+            artifact_paths: |
+              packages/desktop/release/*.dmg
+              packages/desktop/release/*.zip
+          - name: Linux (x64)
+            runner: ubuntu-22.04
+            build_args: --linux --x64
+            artifact_name: desktop-linux-x64
+            artifact_paths: |
+              packages/desktop/release/*.AppImage
+              packages/desktop/release/*.deb
+              packages/desktop/release/*.rpm
+              packages/desktop/release/*.tar.gz
+          - name: Windows (x64 and ARM64)
+            runner: windows-latest
+            build_args: --win --x64 --arm64
+            artifact_name: desktop-windows
+            artifact_paths: |
+              packages/desktop/release/*.exe
+              packages/desktop/release/*.zip
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Build unsigned installers
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run build:desktop -- --publish never ${{ matrix.build_args }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_paths }}
+          if-no-files-found: error
+          retention-days: 30
