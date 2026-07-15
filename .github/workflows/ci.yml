@@ -309,6 +309,11 @@ jobs:
           PASEO_CLI_TEST_SHARD_TOTAL: "3"
 
   omp-real-e2e:
+    name: OMP real E2E (OMP ${{ matrix.omp_version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        omp_version: ["16.3.9", "17.0.0"]
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -336,21 +341,23 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: steps.credentials.outputs.available == 'true'
         with:
-          bun-version: "1.3.9"
+          bun-version: "1.3.14"
 
       - name: Install dependencies
         if: steps.credentials.outputs.available == 'true'
         run: node scripts/npm-retry.mjs ci
 
-      - name: Install pinned OMP CLI
+      - name: Install OMP CLI ${{ matrix.omp_version }}
         if: steps.credentials.outputs.available == 'true'
-        run: npm install -g @oh-my-pi/pi-coding-agent@16.3.9
+        env:
+          OMP_VERSION: ${{ matrix.omp_version }}
+        run: npm install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}"
 
       - name: Build server dependencies
         if: steps.credentials.outputs.available == 'true'
         run: npm run build:server-deps
 
-      - name: Run OMP real E2E matrix
+      - name: Run OMP real E2E (OMP ${{ matrix.omp_version }})
         if: steps.credentials.outputs.available == 'true'
         working-directory: packages/server
         run: npx vitest run src/server/daemon-e2e/omp.real.e2e.test.ts

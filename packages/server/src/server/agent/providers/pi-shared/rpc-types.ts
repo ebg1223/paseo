@@ -58,6 +58,7 @@ export type PiAgentMessage =
       toolName: string;
       content: unknown;
       isError?: boolean;
+      details?: unknown;
     }
   | {
       role: "bashExecution";

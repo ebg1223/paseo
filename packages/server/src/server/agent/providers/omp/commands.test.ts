@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import commandFrames from "./__fixtures__/available_commands_update.json" with { type: "json" };
+import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 import { mapOmpAvailableCommandsUpdate, mapOmpSlashCommands } from "./commands.js";
 
 describe("OMP slash command mapper", () => {
@@ -22,6 +23,25 @@ describe("OMP slash command mapper", () => {
       kind: "command",
     });
     expect(commands?.some((command) => command.name === "handoff")).toBe(true);
+  });
+
+  test("maps the source-attributed OMP 17 prewalk command", () => {
+    const frame = (v17Frames as readonly unknown[]).find(
+      (candidate) =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        !Array.isArray(candidate) &&
+        (candidate as Record<string, unknown>).type === "available_commands_update",
+    );
+
+    expect(
+      mapOmpAvailableCommandsUpdate(frame)?.find((command) => command.name === "prewalk"),
+    ).toEqual({
+      name: "prewalk",
+      description: "Prewalk at the next action",
+      argumentHint: "",
+      kind: "command",
+    });
   });
 
   test("drops malformed command update frames without throwing", () => {

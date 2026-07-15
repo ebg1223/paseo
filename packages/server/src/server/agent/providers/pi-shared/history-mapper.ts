@@ -5,6 +5,7 @@ import {
   mapToolDetail,
   parseToolArgs,
   parseToolResult,
+  resolveToolCallName,
   type PiToolResult,
   type PiTrackedToolCall,
 } from "./tool-call-mapper.js";
@@ -185,7 +186,7 @@ export class PiHistoryMapper {
     const tracked =
       this.pendingToolCalls.get(message.toolCallId) ?? parseToolArgs(message.toolName, null);
     this.pendingToolCalls.delete(message.toolCallId);
-    const result = parseToolResult({ content: message.content });
+    const result = parseToolResult({ content: message.content, details: message.details });
     const detail = this.mapToolDetail(message.toolCallId, tracked, result);
     if (!detail) {
       return null;
@@ -195,7 +196,7 @@ export class PiHistoryMapper {
       provider: this.provider,
       item: toToolResultTimelineItem({
         callId: this.resolveToolCallId(message.toolCallId, tracked),
-        name: tracked.toolName,
+        name: resolveToolCallName(tracked, result),
         isError: Boolean(message.isError),
         detail,
         errorText: extractTextFromToolResult(result) ?? "Tool call failed",

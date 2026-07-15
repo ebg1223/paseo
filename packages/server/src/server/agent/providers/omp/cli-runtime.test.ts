@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { PiCliRuntime } from "../pi-shared/cli-runtime.js";
 import type { PiRuntimeLaunch } from "../pi-shared/runtime.js";
 import { asOmpRuntimeSession } from "./runtime.js";
+import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 
 type PiChild = ChildProcessWithoutNullStreams & {
   stdin: PassThrough;
@@ -76,20 +77,37 @@ function withoutRequestId(command: Record<string, unknown>): Record<string, unkn
   return rest;
 }
 
+function fixtureResponseData(command: string): unknown {
+  const frame = (v17Frames as readonly unknown[]).find(
+    (candidate) =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      !Array.isArray(candidate) &&
+      (candidate as Record<string, unknown>).type === "response" &&
+      (candidate as Record<string, unknown>).command === command,
+  ) as Record<string, unknown> | undefined;
+  if (!frame || frame.success !== true) {
+    throw new Error(`Missing successful OMP 17 response fixture for ${command}`);
+  }
+  return frame.data;
+}
+
 describe("OMP CLI runtime", () => {
   test("lists commands through get_available_commands", async () => {
     const child = createPiChild();
     const commandTypes: string[] = [];
     replyToCommands(child, (command) => {
       commandTypes.push(String(command.type));
-      return {
-        commands: [{ name: "skill:ctx-stats", description: "Show context stats", source: "skill" }],
-      };
+      return fixtureResponseData("get_available_commands");
     });
     const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
 
     await expect(session.getCommands()).resolves.toEqual([
-      { name: "skill:ctx-stats", description: "Show context stats", source: "skill" },
+      {
+        name: "prewalk",
+        description: "Prewalk at the next action",
+        source: "builtin",
+      },
     ]);
     expect(commandTypes).toEqual(["get_available_commands"]);
   });
@@ -99,7 +117,7 @@ describe("OMP CLI runtime", () => {
     const commands: Record<string, unknown>[] = [];
     replyToCommands(child, (command) => {
       commands.push(command);
-      return { level: command.level };
+      return fixtureResponseData("set_subagent_subscription");
     });
     const session = asOmpRuntimeSession(
       await createRuntime(child).startSession({ cwd: "/workspace/project" }),

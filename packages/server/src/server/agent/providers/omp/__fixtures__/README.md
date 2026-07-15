@@ -21,6 +21,17 @@ daemon:
 - `omp --mode rpc --no-skills --no-rules --approval-mode yolo --provider openai-codex --model gpt-5.5 --thinking low`
   - `subagent_session_file_paths.json`
 
+## OMP 17 compatibility capture
+
+`rpc_compat_17_0_0.json` combines a compact `omp/17.0.0` RPC-UI startup capture
+with synthetic tool frames derived from the upstream v17 wire types at tag
+`d5cd24f`. The captured frames retain only the fields Paseo consumes: the
+source-attributed `prewalk` command in both `available_commands_update` and
+`get_available_commands`, plus the `set_subagent_subscription` response. The
+synthetic cases cover a subscribed `hub` tool event and `details.xdev` metadata
+for an executed discoverable `browser` device. Request and child IDs are
+deterministic; no system-prompt content is included.
+
 Notes:
 
 - `todo_auto_clear` was not emitted. Upstream source says auto-clear was removed

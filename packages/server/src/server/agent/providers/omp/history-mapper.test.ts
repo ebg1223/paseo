@@ -8,6 +8,7 @@ import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/h
 import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
 import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
 import subagentSessionFixture from "./__fixtures__/subagent_session_file_paths.json" with { type: "json" };
+import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { streamOmpHistory } from "./history.js";
 import { asOmpRuntimeSession } from "./runtime.js";
@@ -234,6 +235,60 @@ describe("OMP history mapper", () => {
       },
     ]);
   });
+  test("replays OMP 17 xd writes as the executed inner tool", async () => {
+    const fixtureResult = (v17Frames as readonly unknown[]).find(
+      (candidate) =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        !Array.isArray(candidate) &&
+        (candidate as Record<string, unknown>).type === "tool_execution_end" &&
+        (candidate as Record<string, unknown>).toolCallId === "xd-write-call",
+    ) as Record<string, unknown> | undefined;
+    if (!fixtureResult) throw new Error("Missing OMP 17 xd write result fixture");
+    const result = fixtureResult.result as { content: unknown; details?: unknown };
+
+    const events = await collectHistory([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "xd-write-call",
+            name: "write",
+            arguments: {
+              path: "xd://browser",
+              content: '{"action":"open","name":"docs","url":"https://example.com"}',
+            },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "xd-write-call",
+        toolName: "write",
+        content: result.content,
+        details: result.details,
+      } as PiAgentMessage,
+    ]);
+
+    expect(events.at(-1)).toMatchObject({
+      item: {
+        type: "tool_call",
+        callId: "xd-write-call",
+        name: "browser",
+        status: "completed",
+        detail: {
+          type: "unknown",
+          input: { action: "open", name: "docs", url: "https://example.com" },
+          output: {
+            content: [{ type: "text", text: "Opened Example Domain" }],
+            details: { action: "open", name: "docs", url: "https://example.com" },
+          },
+        },
+      },
+    });
+  });
+
   test("maps only the active JSONL chain with native user ids and visible unknown roles", async () => {
     const dir = mkdtempSync(join(tmpdir(), "omp-history-"));
     const sessionFile = join(dir, "session.jsonl");
