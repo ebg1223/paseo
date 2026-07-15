@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -12,6 +12,17 @@ async function writeSession(root: string, lines: unknown[]): Promise<string> {
   const sessionsDir = path.join(root, "sessions", "project");
   await mkdir(sessionsDir, { recursive: true });
   const filePath = path.join(sessionsDir, "2026-06-09T00-00-00-000Z_session.jsonl");
+  await writeFile(filePath, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, "utf8");
+  return filePath;
+}
+
+async function writeNamedSession(
+  root: string,
+  relativePath: string,
+  lines: unknown[],
+): Promise<string> {
+  const filePath = path.join(root, "sessions", relativePath);
+  await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, "utf8");
   return filePath;
 }
@@ -172,4 +183,103 @@ test("Pi import config preserves thinking before a later model in large sessions
     model: "openrouter/google/gemini-2.5-pro",
     thinkingOptionId: "low",
   });
+});
+
+test("OMP import accepts title-first sessions and combined model identifiers", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-omp-session-title-first-"));
+  const cwd = path.join(root, "repo");
+  const sessionFile = await writeSession(root, [
+    {
+      type: "title",
+      id: "title-1",
+      timestamp: "2026-06-09T00:00:00.000Z",
+      title: "Deploy Paseo and verify",
+    },
+    {
+      type: "session",
+      version: 3,
+      id: "session-title-first",
+      timestamp: "2026-06-09T00:00:00.100Z",
+      cwd,
+    },
+    {
+      type: "model_change",
+      id: "model-1",
+      timestamp: "2026-06-09T00:00:00.200Z",
+      model: "openai-codex/gpt-5.1",
+    },
+    {
+      type: "message",
+      id: "user-1",
+      timestamp: "2026-06-09T00:00:01.000Z",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "import me" }],
+      },
+    },
+  ]);
+
+  const sessions = await listPiImportableSessions({ sessionDir: path.join(root, "sessions") });
+  const importConfig = await readPiImportSessionConfig(sessionFile);
+
+  expect(sessions).toEqual([
+    expect.objectContaining({
+      providerHandleId: sessionFile,
+      cwd,
+      title: "Deploy Paseo and verify",
+      firstPromptPreview: "import me",
+    }),
+  ]);
+  expect(importConfig).toEqual({
+    model: "openai-codex/gpt-5.1",
+  });
+});
+
+test("import listing prefers recent nested OMP sessions without parsing every transcript", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "paseo-omp-session-recent-limit-"));
+  const cwd = path.join(root, "repo");
+  const parent = await writeNamedSession(root, "project/parent.jsonl", [
+    {
+      type: "session",
+      version: 3,
+      id: "parent",
+      timestamp: "2026-06-10T00:00:00.000Z",
+      cwd,
+    },
+    {
+      type: "message",
+      id: "parent-user",
+      timestamp: "2026-06-10T00:00:01.000Z",
+      message: { role: "user", content: "parent prompt" },
+    },
+  ]);
+  const child = await writeNamedSession(root, "project/parent/Explore.jsonl", [
+    {
+      type: "session",
+      version: 3,
+      id: "child",
+      timestamp: "2026-06-09T00:00:00.000Z",
+      cwd,
+    },
+    {
+      type: "message",
+      id: "child-user",
+      timestamp: "2026-06-09T00:00:01.000Z",
+      message: { role: "user", content: "child prompt" },
+    },
+  ]);
+  await utimes(parent, new Date("2026-06-08T00:00:00.000Z"), new Date("2026-06-08T00:00:00.000Z"));
+  await utimes(child, new Date("2026-06-09T00:00:00.000Z"), new Date("2026-06-09T00:00:00.000Z"));
+
+  const sessions = await listPiImportableSessions({
+    sessionDir: path.join(root, "sessions"),
+    limit: 1,
+  });
+
+  expect(sessions).toEqual([
+    expect.objectContaining({
+      providerHandleId: child,
+      firstPromptPreview: "child prompt",
+    }),
+  ]);
 });
