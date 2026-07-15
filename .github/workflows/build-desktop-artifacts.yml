@@ -1,4 +1,4 @@
-name: Build Desktop Artifacts
+name: Build Installable Artifacts
 
 on:
   push:
@@ -75,5 +75,53 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_paths }}
+          if-no-files-found: error
+          retention-days: 30
+
+  cli:
+    name: CLI npm packages
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Build CLI dependency stack
+        run: npm run build:server
+
+      - name: Pack CLI and internal dependencies
+        shell: bash
+        run: |
+          mkdir cli-artifacts
+          npm pack --ignore-scripts --pack-destination cli-artifacts --workspace=@getpaseo/highlight
+          npm pack --ignore-scripts --pack-destination cli-artifacts --workspace=@getpaseo/relay
+          npm pack --ignore-scripts --pack-destination cli-artifacts --workspace=@getpaseo/protocol
+          npm pack --ignore-scripts --pack-destination cli-artifacts --workspace=@getpaseo/client
+          npm pack --ignore-scripts --pack-destination cli-artifacts --workspace=@getpaseo/server
+          npm pack --ignore-scripts --pack-destination cli-artifacts --workspace=@getpaseo/cli
+          cat > cli-artifacts/INSTALL.txt <<'EOF'
+          Install every package together so npm uses this fork's matching internal dependencies.
+
+          macOS/Linux:
+            npm install --global ./*.tgz
+
+          Windows PowerShell:
+            $packages = Get-ChildItem *.tgz | ForEach-Object FullName
+            npm install --global $packages
+          EOF
+
+      - name: Upload CLI packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-npm-packages
+          path: cli-artifacts
           if-no-files-found: error
           retention-days: 30

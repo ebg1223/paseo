@@ -54,7 +54,7 @@ The Docker workflow builds images from the checked-out source tree on pull reque
 
 ### Fork artifact builds
 
-The fork-only `build-artifacts` branch builds unsigned desktop installers whenever it is pushed. Its Actions run uploads separate macOS Apple Silicon, macOS Intel, Linux x64, and Windows x64/ARM64 artifacts for 30 days without publishing a release or requiring signing secrets. macOS and Windows users must explicitly allow these unsigned packages through the operating system's security warning.
+The fork-only `build-artifacts` branch builds installable artifacts whenever it is pushed. Its Actions run uploads unsigned desktop packages for macOS Apple Silicon, macOS Intel, Linux x64, and Windows x64/ARM64, plus a `cli-npm-packages` artifact containing the CLI and every matching internal dependency. Artifacts are retained for 30 days without publishing a release or requiring signing secrets. Extract the CLI artifact and follow its `INSTALL.txt`; all `.tgz` files must be installed together so npm does not substitute upstream packages. macOS and Windows users must explicitly allow the unsigned desktop packages through the operating system's security warning.
 
 Relay deployment is manual-only while `relay.paseo.sh` bridges traffic to the Fly deployment. Releases and pushes to `main` do not deploy the Cloudflare relay worker. Deploy it explicitly with `gh workflow run deploy-relay.yml` only when the production bridge should change.
 
