@@ -54,12 +54,13 @@ export const ja: TranslationResources = {
       close: "メニューを閉じる",
     },
     commandCenter: {
-      placeholder: "コマンドを入力またはエージェントを検索...",
+      placeholder: "コマンド、ワークスペース、エージェントを検索...",
       noMatches: "一致なし",
       actions: "アクション",
+      workspaces: "ワークスペース",
       agents: "エージェント",
       newAgent: "新しいエージェント",
-      openProject: "プロジェクトを開く",
+      addProject: "プロジェクトを追加",
       home: "ホーム",
     },
   },
@@ -1387,6 +1388,8 @@ export const ja: TranslationResources = {
     detachTooltip: "サブエージェントを切り離す",
     archiveAction: "{{label}}をアーカイブ",
     archiveTooltip: "サブエージェントをアーカイブ",
+    archiveFinishedAction: "完了したサブエージェントをアーカイブ",
+    archiveFinishedTooltip: "完了した項目をアーカイブ",
   },
   panels: {
     draft: {
@@ -1435,7 +1438,6 @@ export const ja: TranslationResources = {
       other: "Paseoを{{count}}回呼び出し",
     },
     and: "および",
-    failed: "{{count}}件失敗",
   },
   renameModal: {
     rename: "名前を変更",
@@ -1504,6 +1506,17 @@ export const ja: TranslationResources = {
     },
     general: {
       title: "一般",
+      browserData: {
+        title: "ブラウザーデータ",
+        siteData: "Cookie とサイトデータ",
+        description: "ブラウザータブ間でログイン情報とサイトデータが共有されます。",
+        clear: "ブラウザーデータを消去",
+        clearing: "消去中...",
+        confirmTitle: "ブラウザーデータを消去しますか？",
+        confirmMessage: "サイトからログアウトし、開いているブラウザータブを再読み込みします。",
+        success: "ブラウザーデータを消去しました。",
+        error: "ブラウザーデータを消去できませんでした。",
+      },
       defaultSend: {
         label: "デフォルトの送信",
         descriptions: {

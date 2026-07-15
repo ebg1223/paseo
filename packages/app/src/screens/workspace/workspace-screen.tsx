@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
@@ -61,6 +62,7 @@ import {
 import { ExplorerSidebar } from "@/components/explorer-sidebar";
 import { SplitContainer } from "@/components/split-container";
 import { RetainedPanel } from "@/components/retained-panel";
+import { WindowChromeRegion } from "@/utils/desktop-window";
 import { SourceControlPanelIcon } from "@/components/icons/source-control-panel-icon";
 import { WorkspaceActions } from "@/git/workspace-actions";
 import { WorkspaceOpenInEditorButton } from "@/screens/workspace/workspace-open-in-editor-button";
@@ -1566,6 +1568,46 @@ function shouldShowWorkspaceExplorerSidebar(input: {
   return !input.isMobile && input.isRouteFocused && shouldShowWorkspaceScreenHeader(input);
 }
 
+interface WorkspaceChromeRowProps extends Omit<
+  ComponentProps<typeof ExplorerSidebar>,
+  "workspaceRoot"
+> {
+  children: ReactNode;
+  explorerOpen: boolean;
+  portalHostName: string;
+  showExplorerSidebar: boolean;
+  workspaceRoot: string | null;
+}
+
+function WorkspaceChromeRow({
+  children,
+  explorerOpen,
+  portalHostName,
+  showExplorerSidebar,
+  workspaceRoot,
+  ...explorerProps
+}: WorkspaceChromeRowProps) {
+  const explorerRendered = showExplorerSidebar && explorerOpen && workspaceRoot !== null;
+
+  return (
+    <View style={styles.threePaneRow}>
+      <WindowChromeRegion corners={explorerRendered ? "top-left" : "both"}>
+        <FloatingPanelPortalHostNameProvider hostName={portalHostName}>
+          {children}
+        </FloatingPanelPortalHostNameProvider>
+      </WindowChromeRegion>
+
+      <FloatingPanelPortalHost name={portalHostName} />
+
+      {showExplorerSidebar && workspaceRoot ? (
+        <WindowChromeRegion corners="top-right">
+          <ExplorerSidebar {...explorerProps} workspaceRoot={workspaceRoot} />
+        </WindowChromeRegion>
+      ) : null}
+    </View>
+  );
+}
+
 function buildWorkspaceTerminalScopeKey(serverId: string, workspaceId: string): string | null {
   if (!serverId || !workspaceId) {
     return null;
@@ -1928,7 +1970,7 @@ function WorkspaceScreenContent({
         const { browserId } = input.target;
         useBrowserStore.getState().removeBrowser(browserId);
         removeResidentBrowserWebview(browserId);
-        void getDesktopHost()?.browser?.clearPartition?.(browserId);
+        void getDesktopHost()?.browser?.unregisterWorkspaceBrowser?.(browserId);
       }
       closeWorkspaceTab(persistenceKey, normalizedTabId);
     },
@@ -3624,23 +3666,18 @@ function WorkspaceScreenContent({
               workspaceId={normalizedWorkspaceId}
               isRouteFocused={isRouteFocused}
             />
-            <View style={styles.threePaneRow}>
-              <FloatingPanelPortalHostNameProvider hostName={workspaceFloatingPanelPortalHostName}>
-                {workspaceCenterColumn}
-              </FloatingPanelPortalHostNameProvider>
-
-              <FloatingPanelPortalHost name={workspaceFloatingPanelPortalHostName} />
-
-              {showExplorerSidebar && workspaceDirectory ? (
-                <ExplorerSidebar
-                  serverId={normalizedServerId}
-                  workspaceId={normalizedWorkspaceId}
-                  workspaceRoot={workspaceDirectory}
-                  isGit={isGitCheckout}
-                  onOpenFile={handleOpenFileFromExplorer}
-                />
-              ) : null}
-            </View>
+            <WorkspaceChromeRow
+              portalHostName={workspaceFloatingPanelPortalHostName}
+              showExplorerSidebar={showExplorerSidebar}
+              explorerOpen={isExplorerOpen}
+              serverId={normalizedServerId}
+              workspaceId={normalizedWorkspaceId}
+              workspaceRoot={workspaceDirectory}
+              isGit={isGitCheckout}
+              onOpenFile={handleOpenFileFromExplorer}
+            >
+              {workspaceCenterColumn}
+            </WorkspaceChromeRow>
             <ImportSessionSheet
               visible={isImportSheetVisible}
               client={client}

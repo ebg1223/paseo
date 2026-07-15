@@ -1,6 +1,6 @@
 {
   "name": "@getpaseo/desktop",
-  "version": "0.1.107",
+  "version": "0.1.108",
   "private": true,
   "description": "Paseo desktop app (Electron wrapper)",
   "homepage": "https://paseo.sh",
@@ -20,6 +20,7 @@
     "capture-harness": "./capture-harness/run.sh",
     "dev": "./scripts/dev.sh",
     "dev:win": "powershell ./scripts/dev.ps1",
+    "verify:electron-cdp": "node ./scripts/verify-electron-cdp.mjs",
     "test": "vitest run",
     "typecheck": "tsgo --noEmit -p tsconfig.json"
   },
