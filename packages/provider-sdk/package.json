@@ -1,0 +1,53 @@
+{
+  "name": "@getpaseo/provider-sdk",
+  "version": "0.1.107",
+  "private": true,
+  "description": "Paseo provider SDK",
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./launch": {
+      "types": "./dist/launch/index.d.ts",
+      "source": "./src/launch/index.ts",
+      "default": "./dist/launch/index.js"
+    },
+    "./history": {
+      "types": "./dist/history/index.d.ts",
+      "source": "./src/history/index.ts",
+      "default": "./dist/history/index.js"
+    },
+    "./pi-rpc": {
+      "types": "./dist/pi-rpc/index.d.ts",
+      "source": "./src/pi-rpc/index.ts",
+      "default": "./dist/pi-rpc/index.js"
+    }
+  },
+  "scripts": {
+    "clean": "node ../../scripts/clean-package-dist.mjs",
+    "build": "tsc -p tsconfig.json --incremental false",
+    "build:clean": "npm run clean && npm run build",
+    "prepack": "npm run build:clean",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@getpaseo/protocol": "0.1.107",
+    "pino": "^10.2.0",
+    "strip-ansi": "^7.1.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.0",
+    "typescript": "^5.2.2",
+    "vitest": "^4.1.6"
+  }
+}

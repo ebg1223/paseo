@@ -25,6 +25,7 @@
     "packages/highlight",
     "packages/protocol",
     "packages/client",
+    "packages/provider-sdk",
     "packages/server",
     "packages/app",
     "packages/relay",

@@ -5,6 +5,15 @@
       "entry": ["scripts/**/*.{js,mjs,cjs,ts}"],
       "project": ["scripts/**/*.{js,mjs,cjs,ts}"]
     },
+    "packages/provider-sdk": {
+      "entry": [
+        "src/index.ts",
+        "src/launch/index.ts",
+        "src/history/index.ts",
+        "src/pi-rpc/index.ts"
+      ],
+      "project": ["src/**/*.ts"]
+    },
     "packages/server": {
       "entry": [
         "src/server/index.ts",
