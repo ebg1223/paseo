@@ -35,6 +35,33 @@ export interface AgentProviderDefinition {
   };
 }
 
+const AgentProviderModeDefinitionSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+    icon: z.string(),
+    colorTier: z.string(),
+    isUnattended: z.boolean().optional(),
+  })
+  .passthrough();
+
+export const AgentProviderDefinitionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  enabledByDefault: z.boolean().optional(),
+  defaultModeId: z.string().nullable(),
+  modes: z.array(AgentProviderModeDefinitionSchema),
+  voice: z
+    .object({
+      enabled: z.boolean(),
+      defaultModeId: z.string(),
+      defaultModel: z.string().optional(),
+    })
+    .optional(),
+});
+
 // Ids + labels of the providers bundled with the daemon, in historical order.
 // Used for offline CLI listings and reserved-id checks; full definitions live
 // in each provider's module (packages/server .../providers/*/module.ts).
