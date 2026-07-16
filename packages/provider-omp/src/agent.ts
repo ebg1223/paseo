@@ -11,12 +11,9 @@ import type {
   AgentPersistenceHandle,
   AgentSessionConfig,
   ImportedTimelineEntry,
-} from "../../agent-sdk-types.js";
-import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
-import {
-  checkProviderLaunchAvailable,
-  resolveProviderLaunch,
-} from "../../provider-launch-config.js";
+} from "@getpaseo/provider-sdk";
+import type { ProviderRuntimeSettings } from "@getpaseo/provider-sdk";
+import { checkProviderLaunchAvailable, resolveProviderLaunch } from "@getpaseo/provider-sdk";
 import {
   PiProviderParamsSchema,
   PiRpcAgentClient as SharedPiRpcAgentClient,
@@ -50,7 +47,7 @@ import {
   buildCommandResolutionDiagnosticRows,
   formatProviderDiagnostic,
   formatProviderDiagnosticError,
-} from "../diagnostic-utils.js";
+} from "@getpaseo/provider-sdk";
 
 const OMP_PROVIDER = "omp";
 const OMP_SESSION_DIR = "~/.omp/agent/sessions";

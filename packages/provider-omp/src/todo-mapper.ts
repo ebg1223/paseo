@@ -1,4 +1,4 @@
-import type { AgentTimelineItem } from "../../agent-sdk-types.js";
+import type { AgentTimelineItem } from "@getpaseo/provider-sdk";
 import type { PiSessionState } from "@getpaseo/provider-sdk/pi-rpc";
 import type { PiToolResult } from "@getpaseo/provider-sdk/pi-rpc";
 import {

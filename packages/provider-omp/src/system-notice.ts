@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { AgentTimelineItem } from "../../agent-sdk-types.js";
+import type { AgentTimelineItem } from "@getpaseo/provider-sdk";
 
 const SYSTEM_NOTICE_OPEN_TAG = "<system-notice>";
 const SYSTEM_NOTICE_CLOSE_TAG = "</system-notice>";

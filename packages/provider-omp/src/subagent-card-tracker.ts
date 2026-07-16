@@ -1,4 +1,4 @@
-import type { ToolCallDetail } from "../../agent-sdk-types.js";
+import type { ToolCallDetail } from "@getpaseo/provider-sdk";
 import type { OmpSubagentLifecyclePayload, OmpSubagentProgressPayload } from "./rpc-types.js";
 
 export interface OmpSubagentCardTimer {

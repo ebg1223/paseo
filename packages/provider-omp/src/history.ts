@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
-import { normalizeProviderReplayTimestamp } from "../../provider-history-timestamps.js";
+import type { AgentProvider, AgentStreamEvent } from "@getpaseo/provider-sdk";
+import { normalizeProviderReplayTimestamp } from "@getpaseo/provider-sdk/history";
 import { PiHistoryMapper, type PiCapturedUserMessageEntry } from "@getpaseo/provider-sdk/pi-rpc";
 import type { PiAgentMessage } from "@getpaseo/provider-sdk/pi-rpc";
 import type { PiRuntimeSession } from "@getpaseo/provider-sdk/pi-rpc";

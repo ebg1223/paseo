@@ -26,6 +26,7 @@
     "packages/protocol",
     "packages/client",
     "packages/provider-sdk",
+    "packages/provider-omp",
     "packages/server",
     "packages/app",
     "packages/relay",

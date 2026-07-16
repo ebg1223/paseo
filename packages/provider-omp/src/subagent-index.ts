@@ -1,4 +1,4 @@
-import type { AgentStreamEvent } from "../../agent-sdk-types.js";
+import type { AgentStreamEvent } from "@getpaseo/provider-sdk";
 import { PiHistoryMapper } from "@getpaseo/provider-sdk/pi-rpc";
 import type { PiAgentMessage, PiAgentSessionEvent } from "@getpaseo/provider-sdk/pi-rpc";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";

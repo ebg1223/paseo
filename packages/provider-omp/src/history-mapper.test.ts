@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import type { AgentStreamEvent } from "../../agent-sdk-types.js";
+import type { AgentStreamEvent } from "@getpaseo/provider-sdk";
 import { streamPiHistory, type PiCapturedUserMessageEntry } from "@getpaseo/provider-sdk/pi-rpc";
 import type { PiAgentMessage } from "@getpaseo/provider-sdk/pi-rpc";
 import { FakePi } from "@getpaseo/provider-sdk/pi-rpc";

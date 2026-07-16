@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { AgentTimelineItem, ToolCallIconName } from "../../agent-sdk-types.js";
+import type { AgentTimelineItem, ToolCallIconName } from "@getpaseo/provider-sdk";
 import {
   OmpAutoCompactionEndEventSchema,
   OmpAutoCompactionStartEventSchema,

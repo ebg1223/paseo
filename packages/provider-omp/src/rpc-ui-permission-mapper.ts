@@ -4,7 +4,7 @@ import type {
   AgentPermissionResponse,
   AgentProvider,
   ToolCallDetail,
-} from "../../agent-sdk-types.js";
+} from "@getpaseo/provider-sdk";
 import type { PiRuntimeEvent } from "@getpaseo/provider-sdk/pi-rpc";
 
 const OMP_PROVIDER = "omp";

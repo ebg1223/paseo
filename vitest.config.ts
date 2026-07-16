@@ -46,6 +46,10 @@ export default defineConfig({
         find: /^@getpaseo\/provider-sdk$/,
         replacement: path.resolve(__dirname, "packages/provider-sdk/src/index.ts"),
       },
+      {
+        find: /^@getpaseo\/provider-omp$/,
+        replacement: path.resolve(__dirname, "packages/provider-omp/src/index.ts"),
+      },
       { find: "@", replacement: path.resolve(appDir, "src") },
       { find: "@server", replacement: path.resolve(__dirname, "packages/server/src") },
       {

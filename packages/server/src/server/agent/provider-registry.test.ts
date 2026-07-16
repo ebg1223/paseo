@@ -264,7 +264,7 @@ vi.mock("./providers/pi/agent.js", () => ({
   },
 }));
 
-vi.mock("./providers/omp/agent.js", () => ({
+vi.mock("../../../../provider-omp/src/agent.js", () => ({
   OmpRpcAgentClient: class OmpRpcAgentClient {
     readonly capabilities = {
       supportsStreaming: true,
