@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import type { Logger } from "pino";
+import type { ProviderModule } from "@getpaseo/provider-sdk";
 
 import { expandTilde } from "../../utils/path.js";
 import { withTimeout } from "../../utils/promise-timeout.js";
@@ -33,6 +34,7 @@ import {
   formatProviderDiagnosticError,
 } from "./providers/diagnostic-utils.js";
 import type { MutableDaemonConfig } from "../daemon-config-store.js";
+import type { ProviderLoadFailure } from "./provider-module-loader.js";
 
 const DEFAULT_REFRESH_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 120_000;
@@ -76,6 +78,8 @@ export interface ProviderSnapshotManagerOptions {
   extraClients?: Partial<Record<AgentProvider, AgentClient>>;
   refreshTimeoutMs?: number;
   diagnosticTimeoutMs?: number;
+  modules?: ProviderModule[];
+  loadFailures?: ProviderLoadFailure[];
 }
 
 interface ProviderSnapshotRefreshOptions {
@@ -166,6 +170,9 @@ export class ProviderSnapshotManager {
   private readonly baseProviderOverrides: Record<string, ProviderOverride> | undefined;
   private providerRegistry: Record<AgentProvider, ProviderDefinition>;
   private providerClients: Record<AgentProvider, AgentClient>;
+  private readonly modules: ProviderModule[] | undefined;
+  private readonly loadFailureEntries: ProviderSnapshotEntry[];
+  private readonly loadFailureIds: Set<string>;
 
   constructor(options: ProviderSnapshotManagerOptions) {
     this.logger = options.logger;
@@ -176,6 +183,15 @@ export class ProviderSnapshotManager {
     this.runtimeSettings = options.runtimeSettings;
     this.providerOverrides = options.providerOverrides;
     this.baseProviderOverrides = options.providerOverrides;
+    this.modules = options.modules;
+    this.loadFailureEntries = (options.loadFailures ?? []).map((failure) => ({
+      provider: failure.id,
+      status: "error",
+      enabled: false,
+      error: failure.error,
+      label: failure.id,
+    }));
+    this.loadFailureIds = new Set((options.loadFailures ?? []).map((failure) => failure.id));
     this.refreshTimeoutMs = resolveRefreshTimeoutMs(options.refreshTimeoutMs);
     this.diagnosticTimeoutMs = resolveDiagnosticTimeoutMs(
       options.diagnosticTimeoutMs,
@@ -417,10 +433,18 @@ export class ProviderSnapshotManager {
   private buildRegistry(): Record<AgentProvider, ProviderDefinition> {
     const registry = buildProviderRegistry(this.logger, {
       runtimeSettings: this.runtimeSettings,
-      providerOverrides: this.providerOverrides,
+      providerOverrides:
+        this.loadFailureIds.size === 0
+          ? this.providerOverrides
+          : Object.fromEntries(
+              Object.entries(this.providerOverrides ?? {}).filter(
+                ([provider]) => !this.loadFailureIds.has(provider),
+              ),
+            ),
       workspaceGitService: this.workspaceGitService,
       managedProcesses: this.managedProcesses,
       isDev: this.isDev,
+      modules: this.modules,
     });
 
     for (const [provider, client] of Object.entries(this.extraClients) as Array<
@@ -461,7 +485,7 @@ export class ProviderSnapshotManager {
     if (providersToWarm.length > 0) {
       void this.warmUp(target, providersToWarm);
     }
-    return entriesToArray(this.getOrCreateSnapshot(target.snapshotCwd));
+    return this.entriesToArray(this.getOrCreateSnapshot(target.snapshotCwd));
   }
 
   private async getReadyProvider(
@@ -823,7 +847,7 @@ export class ProviderSnapshotManager {
     if (!snapshot) {
       return;
     }
-    this.events.emit("change", entriesToArray(snapshot), cwdKey);
+    this.events.emit("change", this.entriesToArray(snapshot), cwdKey);
   }
 
   private getOrCreateSnapshot(cwdKey: string): Map<AgentProvider, ProviderSnapshotEntry> {
@@ -872,6 +896,11 @@ export class ProviderSnapshotManager {
     return snapshot;
   }
 
+  private entriesToArray(
+    entries: Map<AgentProvider, ProviderSnapshotEntry>,
+  ): ProviderSnapshotEntry[] {
+    return [...entriesToArray(entries), ...this.loadFailureEntries.map(cloneEntry)];
+  }
   private getProviderIds(): AgentProvider[] {
     return Object.keys(this.providerRegistry);
   }

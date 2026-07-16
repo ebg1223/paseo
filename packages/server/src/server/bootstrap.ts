@@ -111,6 +111,8 @@ import {
 } from "./agent/tools/paseo-tools.js";
 import type { PaseoToolRuntimeContext } from "./agent/tools/types.js";
 import { ProviderSnapshotManager } from "./agent/provider-snapshot-manager.js";
+import { BUILTIN_PROVIDER_MODULES } from "./agent/builtin-provider-modules.js";
+import { loadProviderModules } from "./agent/provider-module-loader.js";
 import { bootstrapWorkspaceRegistries } from "./workspace-registry-bootstrap.js";
 import { WorkspaceReconciliationService } from "./workspace-reconciliation-service.js";
 import { FileBackedProjectRegistry, FileBackedWorkspaceRegistry } from "./workspace-registry.js";
@@ -743,10 +745,17 @@ export async function createPaseoDaemon(
     },
   });
   const providerSnapshotLogger = logger.child({ module: "provider-snapshot-manager" });
+  const { modules, failures } = await loadProviderModules(
+    config.providerOverrides ?? {},
+    config.paseoHome,
+    logger,
+  );
   const providerSnapshotManager = new ProviderSnapshotManager({
     logger: providerSnapshotLogger,
     runtimeSettings: config.agentProviderSettings,
     providerOverrides: config.providerOverrides,
+    modules: [...BUILTIN_PROVIDER_MODULES, ...modules],
+    loadFailures: failures,
     workspaceGitService,
     managedProcesses,
     isDev: config.isDev === true,

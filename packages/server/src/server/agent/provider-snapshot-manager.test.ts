@@ -125,6 +125,31 @@ describe("ProviderSnapshotManager public surface", () => {
     }
   });
 
+  test("keeps provider module load failures as error entries across refreshes", async () => {
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      loadFailures: [{ id: "broken-plugin", error: "Failed to load provider module" }],
+      extraClients: { claude: createExtraClient("claude") },
+    });
+    try {
+      const assertFailure = () => {
+        expect(manager.getSnapshot("/tmp/project")).toContainEqual({
+          provider: "broken-plugin",
+          status: "error",
+          enabled: false,
+          label: "broken-plugin",
+          error: "Failed to load provider module",
+        });
+      };
+
+      assertFailure();
+      await manager.refresh({ cwd: "/tmp/project", providers: ["claude"] });
+      assertFailure();
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("ready entries carry registry icon and command metadata", async () => {
     const manager = new ProviderSnapshotManager({
       logger: createTestLogger(),
