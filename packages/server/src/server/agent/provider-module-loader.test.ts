@@ -45,6 +45,18 @@ describe("loadProviderModules", () => {
     expect(result.failures[0]?.error).toContain("createClient must be a function");
   });
 
+  test("captures a module that throws an unstringifiable value", async () => {
+    const result = await loadProviderModules(
+      { hostile: { module: fixturePath("throws-unstringifiable.mjs") } },
+      "/unused",
+      createTestLogger(),
+    );
+
+    expect(result.modules).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.error).toContain("could not be stringified");
+  });
+
   test("captures a module that throws during import", async () => {
     const result = await loadProviderModules(
       { throws: { module: fixturePath("throws-on-import.mjs") } },

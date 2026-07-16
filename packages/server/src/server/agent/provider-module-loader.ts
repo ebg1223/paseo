@@ -53,7 +53,14 @@ export async function loadProviderModules(
 
       modules.push({ ...candidate, definition } as ProviderModule);
     } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : String(cause);
+      // A hostile module can throw a value whose toString itself throws;
+      // detail extraction must never let that escape the loader boundary.
+      let detail: string;
+      try {
+        detail = cause instanceof Error ? cause.message : String(cause);
+      } catch {
+        detail = "threw a value that could not be stringified";
+      }
       const error = `Failed to load provider module "${specifier}": ${detail}`;
       failures.push({ id, error });
       try {

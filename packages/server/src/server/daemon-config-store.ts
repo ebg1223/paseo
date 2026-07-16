@@ -72,9 +72,15 @@ export function applyMutableProviderConfigToOverrides(
 
   const nextOverrides: Record<string, ProviderOverride> = { ...baseOverrides };
   for (const [providerId, providerConfig] of Object.entries(mutableProviders ?? {})) {
+    const parsed = ProviderOverrideSchema.strip().parse(providerConfig);
+    // SECURITY: `module` designates code the daemon executes at startup. It may
+    // only come from the local config file, never from the settings RPC — a
+    // remote client must not be able to persist an arbitrary module path.
+    delete parsed.module;
     nextOverrides[providerId] = {
       ...nextOverrides[providerId],
-      ...ProviderOverrideSchema.strip().parse(providerConfig),
+      ...parsed,
+      ...(nextOverrides[providerId]?.module ? { module: nextOverrides[providerId].module } : {}),
     };
   }
 
