@@ -186,7 +186,7 @@ afterEach(() => {
   roots.clear();
 });
 
-describe("credentialed real OMP 16.3.9+ matrix", () => {
+describe("daemon E2E (real OMP)", () => {
   test(
     "prompt, native tool, and resumed follow-up",
     async () => {
