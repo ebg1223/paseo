@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
-import { formatOmpVersionSupport, OmpRpcAgentClient, resolveOmpDiagnosticPaths } from "./agent.js";
+import { formatOmpVersionSupport, OmpAgentClient, resolveOmpDiagnosticPaths } from "./agent.js";
 
 const tempDirs: string[] = [];
 
@@ -75,7 +75,7 @@ describe("OMP diagnostics", () => {
     await mkdir(agentDir);
     await writeFile(path.join(agentDir, "agent.db"), "", "utf8");
 
-    const client = new OmpRpcAgentClient({
+    const client = new OmpAgentClient({
       logger: createTestLogger(),
       runtimeSettings: {
         command: { mode: "replace", argv: [process.execPath, script] },

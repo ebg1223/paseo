@@ -1,21 +1,17 @@
 import { describe, expect, test } from "vitest";
 
-import toolExecutionFrames from "./__fixtures__/tool_execution_bash_read_edit_write.json" with { type: "json" };
-import { parseToolArgs, parseToolResult } from "../pi-shared/tool-call-mapper.js";
+import { parseToolArgs, parseToolResult } from "./tool-call-detail.js";
 import { mapOmpToolDetail } from "./tool-call-mapper.js";
 
 describe("OMP tool call mapper", () => {
-  test("maps bash, read, hashline edit, and write frames from OMP 16.3.9 fixtures", () => {
-    const bashStart = fixtureToolEvent("tool_execution_start", "bash");
-    const bashEnd = fixtureToolEvent("tool_execution_end", "bash");
-    const readStart = fixtureToolEvent("tool_execution_start", "read");
-    const readEnd = fixtureToolEvent("tool_execution_end", "read");
-    const editStart = fixtureToolEvent("tool_execution_start", "edit");
-    const editEnd = fixtureToolEvent("tool_execution_end", "edit");
-    const writeStart = fixtureToolEvent("tool_execution_start", "write");
-
+  test("maps OMP bash, read, hashline edit, and write calls", () => {
     expect(
-      mapOmpToolDetail(parseToolArgs("bash", bashStart.args), parseToolResult(bashEnd.result)),
+      mapOmpToolDetail(
+        parseToolArgs("bash", { command: "echo hi" }),
+        parseToolResult({
+          content: [{ type: "text", text: "hi\n\n\nWall time: 0.02 seconds" }],
+        }),
+      ),
     ).toEqual({
       type: "shell",
       command: "echo hi",
@@ -23,7 +19,13 @@ describe("OMP tool call mapper", () => {
       exitCode: null,
     });
     expect(
-      mapOmpToolDetail(parseToolArgs("read", readStart.args), parseToolResult(readEnd.result)),
+      mapOmpToolDetail(
+        parseToolArgs("read", { path: "fixture.txt" }),
+        parseToolResult({
+          content: [{ type: "text", text: "[fixture.txt#0063]\n1:alpha\n2:beta\n3:" }],
+          details: { displayContent: { text: "alpha\nbeta\n" } },
+        }),
+      ),
     ).toEqual({
       type: "read",
       filePath: "fixture.txt",
@@ -32,7 +34,20 @@ describe("OMP tool call mapper", () => {
       limit: undefined,
     });
     expect(
-      mapOmpToolDetail(parseToolArgs("edit", editStart.args), parseToolResult(editEnd.result)),
+      mapOmpToolDetail(
+        parseToolArgs("edit", {
+          input: "*** Begin Patch\n[fixture.txt#0063]\nSWAP 2.=2:\n+gamma\n*** End Patch\n",
+        }),
+        parseToolResult({
+          content: [],
+          details: {
+            path: "fixture.txt",
+            oldText: "alpha\nbeta\n",
+            newText: "alpha\ngamma\n",
+            diff: " 1|alpha\n-2|beta\n+2|gamma",
+          },
+        }),
+      ),
     ).toEqual({
       type: "edit",
       filePath: "fixture.txt",
@@ -40,7 +55,12 @@ describe("OMP tool call mapper", () => {
       newString: "alpha\ngamma\n",
       unifiedDiff: " 1|alpha\n-2|beta\n+2|gamma",
     });
-    expect(mapOmpToolDetail(parseToolArgs("write", writeStart.args), null)).toEqual({
+    expect(
+      mapOmpToolDetail(
+        parseToolArgs("write", { path: "created.txt", content: "hello write" }),
+        null,
+      ),
+    ).toEqual({
       type: "write",
       filePath: "created.txt",
       content: "hello write",
@@ -98,18 +118,3 @@ describe("OMP tool call mapper", () => {
     });
   });
 });
-
-function fixtureToolEvent(type: string, toolName: string): Record<string, unknown> {
-  const event = (toolExecutionFrames as readonly unknown[]).find(
-    (candidate) =>
-      isRecord(candidate) && candidate.type === type && candidate.toolName === toolName,
-  );
-  if (!isRecord(event)) {
-    throw new Error(`Missing fixture event ${type}:${toolName}`);
-  }
-  return event;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

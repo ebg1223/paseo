@@ -1,42 +1,51 @@
 import { describe, expect, test } from "vitest";
 
-import commandFrames from "./__fixtures__/available_commands_update.json" with { type: "json" };
-import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 import { mapOmpAvailableCommandsUpdate, mapOmpSlashCommands } from "./commands.js";
 
 describe("OMP slash command mapper", () => {
-  test("maps available_commands_update frames and preserves OMP input hints", () => {
-    const commands = mapOmpAvailableCommandsUpdate((commandFrames as readonly unknown[])[0]);
-    const todo = commands?.find((command) => command.name === "todo");
-    const fast = commands?.find((command) => command.name === "fast");
+  test("maps command updates and preserves input hints", () => {
+    const commands = mapOmpAvailableCommandsUpdate({
+      type: "available_commands_update",
+      commands: [
+        { name: "todo", description: "Manage todos", input: { hint: "<subcommand>" } },
+        { name: "fast", description: "Toggle fast mode", input: { hint: "[on|off|status]" } },
+        { name: "handoff", description: "Start a handoff" },
+      ],
+    });
 
-    expect(todo).toEqual({
+    expect(commands?.find((command) => command.name === "todo")).toEqual({
       name: "todo",
       description: "Manage todos",
       argumentHint: "<subcommand>",
       kind: "command",
     });
-    expect(fast).toEqual({
+    expect(commands?.find((command) => command.name === "fast")).toEqual({
       name: "fast",
       description: "Toggle fast mode",
       argumentHint: "[on|off|status]",
       kind: "command",
     });
-    expect(commands?.some((command) => command.name === "handoff")).toBe(true);
+    expect(commands?.find((command) => command.name === "handoff")).toEqual({
+      name: "handoff",
+      description: "Start a handoff",
+      argumentHint: "[instructions]",
+      kind: "command",
+    });
   });
 
-  test("maps the source-attributed OMP 17 prewalk command", () => {
-    const frame = (v17Frames as readonly unknown[]).find(
-      (candidate) =>
-        typeof candidate === "object" &&
-        candidate !== null &&
-        !Array.isArray(candidate) &&
-        (candidate as Record<string, unknown>).type === "available_commands_update",
-    );
+  test("maps source-attributed OMP 17 commands", () => {
+    const commands = mapOmpAvailableCommandsUpdate({
+      type: "available_commands_update",
+      commands: [
+        {
+          name: "prewalk",
+          description: "Prewalk at the next action",
+          source: "builtin",
+        },
+      ],
+    });
 
-    expect(
-      mapOmpAvailableCommandsUpdate(frame)?.find((command) => command.name === "prewalk"),
-    ).toEqual({
+    expect(commands?.find((command) => command.name === "prewalk")).toEqual({
       name: "prewalk",
       description: "Prewalk at the next action",
       argumentHint: "",
@@ -44,7 +53,7 @@ describe("OMP slash command mapper", () => {
     });
   });
 
-  test("drops malformed command update frames without throwing", () => {
+  test("drops malformed command updates", () => {
     expect(
       mapOmpAvailableCommandsUpdate({ type: "available_commands_update", commands: [{}] }),
     ).toBeNull();

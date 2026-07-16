@@ -2,12 +2,11 @@ import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
 import { normalizeProviderReplayTimestamp } from "../../provider-history-timestamps.js";
-import { PiHistoryMapper, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
-import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
-import type { PiRuntimeSession } from "../pi-shared/runtime.js";
+import { OmpHistoryMapper, type OmpCapturedUserMessageEntry } from "./message-history.js";
+import type { OmpAgentMessage } from "./rpc-types.js";
+import type { OmpRuntimeSession } from "./runtime.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { formatOmpSubagentTitle } from "./subagent-title.js";
-import { asOmpRuntimeSession } from "./runtime.js";
 
 interface OmpSessionEntry {
   type?: string;
@@ -44,7 +43,7 @@ function buildOmpModelId(provider: unknown, model: unknown): string | null {
 
 export async function* streamOmpHistory(input: {
   sessionFile?: string;
-  runtimeSession?: PiRuntimeSession;
+  runtimeSession?: OmpRuntimeSession;
   provider: AgentProvider;
   visitedSessionFiles?: Set<string>;
 }): AsyncGenerator<AgentStreamEvent> {
@@ -60,9 +59,7 @@ export async function* streamOmpHistory(input: {
   try {
     entries = await readActiveOmpEntryChain(
       input.sessionFile,
-      input.runtimeSession
-        ? asOmpRuntimeSession(input.runtimeSession).activeBranchEntryId
-        : undefined,
+      input.runtimeSession?.activeBranchEntryId,
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -70,9 +67,9 @@ export async function* streamOmpHistory(input: {
     }
     throw error;
   }
-  const messages: PiAgentMessage[] = [];
+  const messages: OmpAgentMessage[] = [];
   const messageEntries: OmpSessionEntry[] = [];
-  const userEntries: PiCapturedUserMessageEntry[] = [];
+  const userEntries: OmpCapturedUserMessageEntry[] = [];
   for (const entry of entries) {
     const mapped = mapEntryMessage(entry);
     if (!mapped) continue;
@@ -82,7 +79,7 @@ export async function* streamOmpHistory(input: {
       userEntries.push({ id: entry.id, text: textOf(mapped.content) });
     }
   }
-  const mapper = new PiHistoryMapper(input.provider, userEntries, OMP_HISTORY_MAPPER_HOOKS);
+  const mapper = new OmpHistoryMapper(input.provider, userEntries, OMP_HISTORY_MAPPER_HOOKS);
   for (let index = 0; index < messages.length; index += 1) {
     const timestamp = normalizeProviderReplayTimestamp(messageEntries[index]?.timestamp);
     for (const event of mapper.mapMessages([messages[index]!])) {
@@ -162,7 +159,7 @@ interface OmpSubagentTranscript {
 }
 
 function readSubagentTranscripts(
-  messages: readonly PiAgentMessage[],
+  messages: readonly OmpAgentMessage[],
   parentSessionFile: string,
 ): OmpSubagentTranscript[] {
   const taskCalls = collectTaskCalls(messages);
@@ -188,7 +185,7 @@ function readSubagentTranscripts(
   return transcripts;
 }
 
-function collectTaskCalls(messages: readonly PiAgentMessage[]): Map<string, { title: string }> {
+function collectTaskCalls(messages: readonly OmpAgentMessage[]): Map<string, { title: string }> {
   const taskCalls = new Map<string, { title: string }>();
   for (const message of messages) {
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
@@ -208,7 +205,7 @@ function collectTaskCalls(messages: readonly PiAgentMessage[]): Map<string, { ti
 }
 
 function readLegacyTranscript(
-  message: Extract<PiAgentMessage, { role: "toolResult" }>,
+  message: Extract<OmpAgentMessage, { role: "toolResult" }>,
   title: string,
 ): OmpSubagentTranscript | null {
   const text = taskResultText(message);
@@ -235,7 +232,7 @@ interface OmpTaskResult {
 }
 
 function readTaskResults(
-  message: Extract<PiAgentMessage, { role: "toolResult" }>,
+  message: Extract<OmpAgentMessage, { role: "toolResult" }>,
 ): OmpTaskResult[] {
   const details =
     Reflect.get(message, "details") ??
@@ -273,7 +270,7 @@ function taskResultStatus(
   return result.aborted ? "canceled" : "completed";
 }
 
-function taskResultText(message: Extract<PiAgentMessage, { role: "toolResult" }>): string {
+function taskResultText(message: Extract<OmpAgentMessage, { role: "toolResult" }>): string {
   return Array.isArray(message.content)
     ? message.content
         .flatMap((block) =>
@@ -323,14 +320,14 @@ export async function readActiveOmpEntryChain(
   return chain.toReversed();
 }
 
-function mapEntryMessage(entry: OmpSessionEntry): PiAgentMessage | null {
+function mapEntryMessage(entry: OmpSessionEntry): OmpAgentMessage | null {
   const message = entry.message;
   if (message && typeof message.role === "string") {
     if (message.role === "system") {
       return null;
     }
     if (["user", "assistant", "toolResult", "custom", "bashExecution"].includes(message.role)) {
-      return message as unknown as PiAgentMessage;
+      return message as unknown as OmpAgentMessage;
     }
     return visibleFallback(message.role, message);
   }
@@ -356,14 +353,14 @@ function isControlEntryType(type: string): boolean {
   );
 }
 
-function visibleFallback(role: string, value: Record<string, unknown>): PiAgentMessage {
+function visibleFallback(role: string, value: Record<string, unknown>): OmpAgentMessage {
   let text = "Unsupported history record";
   if (typeof value.content === "string") {
     text = value.content;
   } else if (typeof value.text === "string") {
     text = value.text;
   }
-  return { role: "custom", content: `[${role}] ${text}` } as PiAgentMessage;
+  return { role: "custom", content: `[${role}] ${text}` } as OmpAgentMessage;
 }
 
 function textOf(content: unknown): string {

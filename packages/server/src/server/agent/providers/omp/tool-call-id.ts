@@ -1,4 +1,4 @@
-import type { PiTrackedToolCall } from "../pi-shared/tool-call-mapper.js";
+import type { OmpTrackedToolCall } from "./tool-call-detail.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -29,7 +29,7 @@ export function readPollTargets(args: unknown): string[] | null {
 
 export function resolveOmpEmittedToolCallId(
   toolCallId: string,
-  toolCall: PiTrackedToolCall,
+  toolCall: OmpTrackedToolCall,
 ): string {
   if (toolCall.toolName !== "subagent") {
     return toolCallId;

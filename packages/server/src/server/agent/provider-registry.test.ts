@@ -33,7 +33,6 @@ const mockState = vi.hoisted(() => {
         providerParams?: unknown;
       }>,
       pi: [] as ConstructorEntry[],
-      omp: [] as ConstructorEntry[],
       genericAcp: [] as Array<{
         command: string[];
         env?: Record<string, string>;
@@ -52,7 +51,6 @@ const mockState = vi.hoisted(() => {
       this.constructorArgs.cursor = [];
       this.constructorArgs.trae = [];
       this.constructorArgs.pi = [];
-      this.constructorArgs.omp = [];
       this.constructorArgs.genericAcp = [];
       this.isCommandAvailable.mockReset();
       this.isCommandAvailable.mockImplementation(async (_command: string) => false);
@@ -241,48 +239,6 @@ vi.mock("./providers/pi/agent.js", () => ({
         entry.commandsRpcType = options.commandsRpcType;
       }
       mockState.constructorArgs.pi.push(entry);
-    }
-
-    async createSession(): Promise<never> {
-      throw new Error("not implemented");
-    }
-
-    async resumeSession(): Promise<never> {
-      throw new Error("not implemented");
-    }
-
-    async fetchCatalog(): Promise<ProviderCatalog> {
-      return {
-        models: mockState.runtimeModels.get(this.provider) ?? [],
-        modes: [],
-      };
-    }
-
-    async isAvailable(): Promise<boolean> {
-      return true;
-    }
-  },
-}));
-
-vi.mock("./providers/omp/agent.js", () => ({
-  OmpRpcAgentClient: class OmpRpcAgentClient {
-    readonly capabilities = {
-      supportsStreaming: true,
-      supportsSessionPersistence: true,
-      supportsDynamicModes: true,
-      supportsMcpServers: true,
-      supportsReasoningStream: true,
-      supportsToolInvocations: true,
-    };
-    readonly provider = "omp";
-    readonly runtimeSettings?: unknown;
-
-    constructor(options: { runtimeSettings?: unknown; providerParams?: unknown }) {
-      this.runtimeSettings = options.runtimeSettings;
-      mockState.constructorArgs.omp.push({
-        runtimeSettings: options.runtimeSettings,
-        providerParams: options.providerParams,
-      });
     }
 
     async createSession(): Promise<never> {
@@ -500,6 +456,7 @@ import {
   buildProviderRegistry,
   createAllClients,
 } from "./provider-registry.js";
+import { FakeOmp } from "./providers/omp/test-utils/fake-omp.js";
 
 const logger = createTestLogger();
 
@@ -567,8 +524,9 @@ test("built-in override applies env", () => {
   });
 });
 
-test("OMP is a disabled built-in backed by the OMP adapter", () => {
-  const registry = buildProviderRegistry(logger);
+test("OMP is a disabled built-in backed by the real OMP adapter", async () => {
+  const omp = new FakeOmp();
+  const registry = buildProviderRegistry(logger, { ompRuntime: omp });
 
   expect(registry.omp).toMatchObject({
     id: "omp",
@@ -576,11 +534,17 @@ test("OMP is a disabled built-in backed by the OMP adapter", () => {
     enabled: false,
     derivedFromProviderId: null,
   });
-  expect(registry.omp.createClient(logger).provider).toBe("omp");
-  expect(mockState.constructorArgs.omp.at(-1)).toEqual({
-    runtimeSettings: undefined,
-    providerParams: undefined,
-  });
+  const client = registry.omp.createClient(logger);
+  expect(client.provider).toBe("omp");
+  const session = await client.createSession({ provider: "omp", cwd: "/tmp/registry-omp" });
+  expect(omp.recordedLaunches).toEqual([
+    expect.objectContaining({
+      cwd: "/tmp/registry-omp",
+      protocolMode: "rpc-ui",
+      argv: ["omp", "--mode", "rpc-ui", "--approval-mode", "yolo", "--thinking", "medium"],
+    }),
+  ]);
+  await session.close();
 });
 
 test("OMP can be enabled without custom provider boilerplate", () => {
@@ -610,8 +574,10 @@ test("new provider extending claude appears in registry", () => {
   expect(registry.zai.createClient(logger).provider).toBe("zai");
 });
 
-test("built-in OMP override passes params to the OMP adapter constructor", () => {
+test("built-in OMP override keeps the real OMP adapter enabled and launchable", async () => {
+  const omp = new FakeOmp(["custom-omp"]);
   const registry = buildProviderRegistry(logger, {
+    ompRuntime: omp,
     providerOverrides: {
       omp: {
         label: "OMP",
@@ -623,20 +589,19 @@ test("built-in OMP override passes params to the OMP adapter constructor", () =>
     },
   });
 
-  expect(registry.omp.createClient(logger).provider).toBe("omp");
-  expect(mockState.constructorArgs.omp.at(-1)).toEqual({
-    runtimeSettings: {
-      command: {
-        mode: "replace",
-        argv: ["omp"],
-      },
-      env: undefined,
-      disallowedTools: undefined,
-    },
-    providerParams: {
-      sessionDir: "~/.omp/agent/sessions",
-    },
-  });
+  const client = registry.omp.createClient(logger);
+  const session = await client.createSession({ provider: "omp", cwd: "/tmp/registry-override" });
+  expect(client.provider).toBe("omp");
+  expect(omp.recordedLaunches[0]?.argv).toEqual([
+    "custom-omp",
+    "--mode",
+    "rpc-ui",
+    "--approval-mode",
+    "yolo",
+    "--thinking",
+    "medium",
+  ]);
+  await session.close();
 });
 
 test("new provider extending acp uses GenericACPAgentClient", () => {

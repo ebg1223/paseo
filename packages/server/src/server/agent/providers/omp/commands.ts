@@ -1,5 +1,5 @@
 import type { AgentSlashCommand, AgentSlashCommandKind } from "../../agent-sdk-types.js";
-import type { PiRpcSlashCommand } from "../pi-shared/rpc-types.js";
+import type { OmpRpcSlashCommand } from "./rpc-types.js";
 import { OmpAvailableCommandsUpdateEventSchema, type OmpAvailableCommand } from "./rpc-types.js";
 
 export const OMP_HANDLED_BUILTIN_SLASH_COMMANDS: readonly AgentSlashCommand[] = [
@@ -52,7 +52,7 @@ export function mapOmpSlashCommands(commands: readonly OmpAvailableCommand[]): A
 }
 
 export function mapOmpRuntimeSlashCommands(
-  commands: readonly PiRpcSlashCommand[],
+  commands: readonly OmpRpcSlashCommand[],
 ): AgentSlashCommand[] {
   return mapOmpSlashCommands(
     commands.map((command) => ({

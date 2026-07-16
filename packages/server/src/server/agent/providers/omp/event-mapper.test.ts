@@ -248,46 +248,9 @@ describe("OMP runtime event mapper", () => {
     });
   });
 
-  test("drops exotic OMP events and leaves unknown non-OMP events unhandled", () => {
-    expect(
-      mapOmpRuntimeEventToTimelineItem({
-        type: "ttsr_triggered",
-        rules: [{ id: "rule-1" }],
-      }),
-    ).toEqual({
-      handled: true,
-      item: null,
-      logReason: "unsupported_omp_ttsr_triggered",
-    });
-    expect(
-      mapOmpRuntimeEventToTimelineItem({
-        type: "irc_message",
-        message: { customType: "irc:incoming" },
-      }),
-    ).toEqual({
-      handled: true,
-      item: null,
-      logReason: "unsupported_omp_irc_message",
-    });
-    expect(
-      mapOmpRuntimeEventToTimelineItem({
-        type: "memory_added",
-        payload: {},
-      }),
-    ).toEqual({
-      handled: true,
-      item: null,
-      logReason: "unsupported_omp_memory_event",
-    });
+  test("leaves unknown events unhandled", () => {
     expect(mapOmpRuntimeEventToTimelineItem({ type: "message_start" })).toEqual({
       handled: false,
-    });
-  });
-
-  test("clears the visible checklist for todo_auto_clear", () => {
-    expect(mapOmpRuntimeEventToTimelineItem({ type: "todo_auto_clear" })).toEqual({
-      handled: true,
-      item: { type: "todo", items: [] },
     });
   });
 

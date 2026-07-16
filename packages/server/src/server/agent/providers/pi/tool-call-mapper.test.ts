@@ -5,7 +5,7 @@ import {
   parseToolArgs,
   parseToolResult,
   resolveToolCallName,
-} from "../pi-shared/tool-call-mapper.js";
+} from "./tool-call-mapper.js";
 
 describe("Pi tool call mapper", () => {
   test("maps bash args and result to shell detail", () => {

@@ -1,15 +1,40 @@
 import { describe, expect, test } from "vitest";
 
-import todoFrames from "./__fixtures__/todo_tool_reminder_state.json" with { type: "json" };
-import { parseToolResult } from "../pi-shared/tool-call-mapper.js";
+import { parseToolResult } from "./tool-call-detail.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
 
-describe("OMP todo mapper", () => {
-  test("maps todo tool results and collapses OMP statuses to completed booleans", () => {
-    const firstTodoToolEnd = fixtureRecord(0);
-    const secondTodoToolEnd = fixtureRecord(1);
+const TODO_PHASES = [
+  {
+    name: "Tasks",
+    tasks: [
+      { content: "alpha task", status: "completed" },
+      { content: "beta task", status: "in_progress" },
+      { content: "gamma task", status: "pending" },
+    ],
+  },
+] as const;
 
-    expect(mapOmpTodoToolResult(parseToolResult(firstTodoToolEnd.result))).toEqual({
+describe("OMP todo mapper", () => {
+  test("maps todo tool results and collapses statuses to completed booleans", () => {
+    expect(
+      mapOmpTodoToolResult(
+        parseToolResult({
+          content: [],
+          details: {
+            phases: [
+              {
+                name: "Tasks",
+                tasks: [
+                  { content: "alpha task", status: "in_progress" },
+                  { content: "beta task", status: "pending" },
+                  { content: "gamma task", status: "pending" },
+                ],
+              },
+            ],
+          },
+        }),
+      ),
+    ).toEqual({
       type: "todo",
       items: [
         { text: "alpha task", completed: false },
@@ -17,7 +42,10 @@ describe("OMP todo mapper", () => {
         { text: "gamma task", completed: false },
       ],
     });
-    expect(mapOmpTodoToolResult(parseToolResult(secondTodoToolEnd.result))).toEqual({
+
+    expect(
+      mapOmpTodoToolResult(parseToolResult({ content: [], details: { phases: TODO_PHASES } })),
+    ).toEqual({
       type: "todo",
       items: [
         { text: "alpha task", completed: true },
@@ -28,7 +56,15 @@ describe("OMP todo mapper", () => {
   });
 
   test("maps todo reminder events", () => {
-    expect(mapOmpTodoReminderEvent(fixtureRecord(2))).toEqual({
+    expect(
+      mapOmpTodoReminderEvent({
+        type: "todo_reminder",
+        todos: [
+          { content: "beta task", status: "in_progress" },
+          { content: "gamma task", status: "pending" },
+        ],
+      }),
+    ).toEqual({
       type: "todo",
       items: [
         { text: "beta task", completed: false },
@@ -37,9 +73,19 @@ describe("OMP todo mapper", () => {
     });
   });
 
-  test("hydrates current todos from get_state.todoPhases", () => {
-    const stateResponse = fixtureRecord(3);
-    expect(mapOmpTodoState(readState(stateResponse))).toEqual([
+  test("hydrates current todos from session state", () => {
+    expect(
+      mapOmpTodoState({
+        model: null,
+        thinkingLevel: "medium",
+        isStreaming: false,
+        isCompacting: false,
+        sessionId: "session",
+        messageCount: 0,
+        queuedMessageCount: 0,
+        todoPhases: TODO_PHASES,
+      }),
+    ).toEqual([
       {
         type: "todo",
         items: [
@@ -51,38 +97,10 @@ describe("OMP todo mapper", () => {
     ]);
   });
 
-  test("drops malformed todo frames without throwing", () => {
+  test("drops malformed todo inputs", () => {
     expect(mapOmpTodoReminderEvent({ type: "todo_reminder", todos: [{ content: 1 }] })).toBeNull();
     expect(
       mapOmpTodoToolResult({ details: { phases: [{ name: "Bad", tasks: [{}] }] } }),
     ).toBeNull();
   });
 });
-
-function fixtureRecord(index: number): Record<string, unknown> {
-  const value = (todoFrames as readonly unknown[])[index];
-  if (!isRecord(value)) {
-    throw new Error(`Missing todo fixture record ${index}`);
-  }
-  return value;
-}
-
-function readState(response: Record<string, unknown>) {
-  if (!isRecord(response.data)) {
-    throw new Error("Fixture response is missing data");
-  }
-  return {
-    model: null,
-    thinkingLevel: "medium" as const,
-    isStreaming: false,
-    isCompacting: false,
-    sessionId: "session",
-    messageCount: 0,
-    pendingMessageCount: 0,
-    todoPhases: response.data.todoPhases,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

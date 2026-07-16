@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { setTimeout as sleep } from "node:timers/promises";
 
 import pino from "pino";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
@@ -17,8 +16,6 @@ import {
 import { DaemonClient } from "../test-utils/daemon-client.js";
 import { createTestPaseoDaemon, type TestPaseoDaemon } from "../test-utils/paseo-daemon.js";
 import { createRealProviderClients, getRealProviderConfig } from "./real-provider-test-config.js";
-
-process.env.PASEO_SUPERVISED = "0";
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 300_000;
@@ -105,7 +102,7 @@ function toolResult(item: Extract<AgentTimelineItem, { type: "tool_call" }>): st
   if (item.detail.type === "shell") return item.detail.output ?? "";
   if (item.detail.type === "fetch") return item.detail.result ?? "";
   if (item.detail.type === "plain_text") return item.detail.text ?? "";
-  return JSON.stringify(item.detail);
+  return "";
 }
 
 function completedTools(items: AgentTimelineItem[], pattern: RegExp) {
@@ -138,15 +135,49 @@ async function waitForProviderSubagent(
   client: DaemonClient,
   parentAgentId: string,
   status: "running" | "completed",
-) {
-  const deadline = Date.now() + TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const { subagents } = await client.listProviderSubagents(parentAgentId);
-    const match = subagents.find((subagent) => subagent.status === status);
-    if (match) return match;
-    await sleep(250);
-  }
-  throw new Error(`Timed out waiting for OMP provider subagent status ${status}`);
+): Promise<Awaited<ReturnType<DaemonClient["listProviderSubagents"]>>["subagents"][number]> {
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (
+      subagent: Awaited<ReturnType<DaemonClient["listProviderSubagents"]>>["subagents"][number],
+    ): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      unsubscribe();
+      resolve(subagent);
+    };
+    const unsubscribe = client.on("agent.provider_subagents.update", (message) => {
+      if (
+        message.payload.kind === "upsert" &&
+        message.payload.subagent.parentAgentId === parentAgentId &&
+        message.payload.subagent.status === status
+      ) {
+        finish(message.payload.subagent);
+      }
+    });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      reject(new Error(`Timed out waiting for OMP provider subagent status ${status}`));
+    }, TIMEOUT_MS);
+    void client
+      .listProviderSubagents(parentAgentId)
+      .then(({ subagents }) => {
+        const match = subagents.find((subagent) => subagent.status === status);
+        if (match) finish(match);
+        return undefined;
+      })
+      .catch((error: unknown) => {
+        if (settled) return undefined;
+        settled = true;
+        clearTimeout(timeout);
+        unsubscribe();
+        reject(error);
+        return undefined;
+      });
+  });
 }
 
 beforeAll(preflight, 15_000);
@@ -167,14 +198,15 @@ describe("credentialed real OMP 16.3.9+ matrix", () => {
           agent.id,
           "Run exactly this bash command: printf 'OMP_FIRST\\n'",
         );
-        const items = await promptAndFinish(
-          harness,
-          agent.id,
-          "Run exactly this bash command: printf 'OMP_RESUMED\\n'",
-        );
+        const items = await promptAndFinish(harness, agent.id, "Reply exactly OMP_RESUMED");
         const outputs = completedTools(items, SHELL_TOOL_PATTERN).map(toolResult);
-        expect(outputs.some((output) => output.includes("OMP_FIRST"))).toBe(true);
-        expect(outputs.some((output) => output.includes("OMP_RESUMED"))).toBe(true);
+        expect(outputs).toEqual(expect.arrayContaining([expect.stringContaining("OMP_FIRST")]));
+        const assistantText = items
+          .filter((item) => item.type === "assistant_message")
+          .map((item) => item.text);
+        expect(assistantText).toEqual(
+          expect.arrayContaining([expect.stringContaining("OMP_RESUMED")]),
+        );
       } finally {
         await closeHarness(harness);
       }
@@ -198,8 +230,11 @@ describe("credentialed real OMP 16.3.9+ matrix", () => {
           TIMEOUT_MS,
         );
         const permission = pending.pendingPermissions[0];
-        expect(JSON.stringify(permission.detail)).toContain("line one");
-        expect(JSON.stringify(permission.detail)).toContain("line two");
+        if (permission.detail?.type !== "shell") {
+          throw new Error("Expected OMP shell permission detail");
+        }
+        expect(permission.detail.command).toContain("line one");
+        expect(permission.detail.command).toContain("line two");
         await harness.client.respondToPermission(agent.id, permission.id, {
           behavior: "allow",
         });
@@ -320,7 +355,12 @@ describe("credentialed real OMP 16.3.9+ matrix", () => {
           },
         );
         expect(childTimeline.rows.length).toBeGreaterThan(0);
-        expect(JSON.stringify(childTimeline.rows)).toContain("TRACK_CHILD_OK");
+        const childToolOutput = childTimeline.rows
+          .map((row) => row.item)
+          .filter((item) => item.type === "tool_call")
+          .map(toolResult)
+          .join("\n");
+        expect(childToolOutput).toContain("TRACK_CHILD_OK");
       } finally {
         await closeHarness(harness);
       }
@@ -344,7 +384,7 @@ describe("credentialed real OMP 16.3.9+ matrix", () => {
           parent.id,
           "completed",
         );
-        expect(completedChild.title).toContain("ImportChild");
+        expect(completedChild.parentAgentId).toBe(parent.id);
         const recent = await harness.client.fetchRecentProviderSessions({
           cwd: harness.cwd,
           providers: ["omp"],
@@ -352,14 +392,17 @@ describe("credentialed real OMP 16.3.9+ matrix", () => {
         const childSession = recent.entries.find(
           (entry) =>
             entry.providerId === "omp" &&
-            (entry.title?.includes("ImportChild") ||
+            (path.basename(entry.providerHandleId) === `${completedChild.id}.jsonl` ||
+              entry.title?.includes("ImportChild") ||
               entry.firstPromptPreview?.includes("ImportChild") ||
               entry.lastPromptPreview?.includes("IMPORT_CHILD_DONE")),
         );
-        expect(childSession).toBeDefined();
+        if (!childSession) {
+          throw new Error("Expected completed OMP child session to be importable");
+        }
         const imported = await harness.client.importAgent({
           provider: "omp",
-          sessionId: childSession!.providerHandleId,
+          sessionId: childSession.providerHandleId,
           cwd: harness.cwd,
         });
         expect(imported.id).not.toBe(parent.id);
@@ -371,6 +414,75 @@ describe("credentialed real OMP 16.3.9+ matrix", () => {
         expect(completedTools(items, SHELL_TOOL_PATTERN).map(toolResult).join("\n")).toContain(
           "IMPORTED_CHILD_RESUMED",
         );
+      } finally {
+        await closeHarness(harness);
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "native Paseo host tools execute through RPC-UI",
+    async () => {
+      const harness = await createHarness();
+      try {
+        const agent = await createAgent(harness, "native-host-tool");
+        const items = await promptAndFinish(
+          harness,
+          agent.id,
+          "Use the Paseo host tool list_agents exactly once. Find the agent titled native-host-tool in the result, then reply exactly HOST_TOOL_OK:<its id>.",
+        );
+        const hostTools = completedTools(items, /^list_agents$/i);
+        expect(hostTools).toHaveLength(1);
+        expect(
+          items
+            .filter((item) => item.type === "assistant_message")
+            .map((item) => item.text.trim())
+            .join("")
+            .replace(/\s/g, ""),
+        ).toContain(`HOST_TOOL_OK:${agent.id}`);
+      } finally {
+        await closeHarness(harness);
+      }
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "native branch rewinds conversation history and keeps the session usable",
+    async () => {
+      const harness = await createHarness();
+      try {
+        const agent = await createAgent(harness, "native-branch");
+        await promptAndFinish(harness, agent.id, "Reply exactly OMP_BRANCH_FIRST");
+        await promptAndFinish(harness, agent.id, "Reply exactly OMP_BRANCH_REMOVED");
+        const before = await timeline(harness.client, agent.id);
+        const firstMessage = before.find(
+          (item) => item.type === "user_message" && item.text.includes("OMP_BRANCH_FIRST"),
+        );
+        if (firstMessage?.type !== "user_message" || !firstMessage.messageId) {
+          throw new Error("Expected the first OMP prompt to have a provider message id");
+        }
+
+        await harness.client.rewindAgent(agent.id, firstMessage.messageId, "conversation");
+        const after = await timeline(harness.client, agent.id);
+        expect(
+          after.some(
+            (item) => item.type === "user_message" && item.text.includes("OMP_BRANCH_REMOVED"),
+          ),
+        ).toBe(false);
+
+        const continued = await promptAndFinish(
+          harness,
+          agent.id,
+          "Reply exactly OMP_BRANCH_CONTINUED",
+        );
+        expect(
+          continued
+            .filter((item) => item.type === "assistant_message")
+            .map((item) => item.text)
+            .join(""),
+        ).toContain("OMP_BRANCH_CONTINUED");
       } finally {
         await closeHarness(harness);
       }

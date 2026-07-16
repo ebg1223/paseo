@@ -1,14 +1,14 @@
 import type { ToolCallDetail } from "../../agent-sdk-types.js";
 import {
   extractTextFromToolResult,
-  mapToolDetail as mapPiToolDetail,
-  type PiToolResult,
-  type PiTrackedToolCall,
-} from "../pi-shared/tool-call-mapper.js";
+  mapToolDetail as mapOmpCoreToolDetail,
+  type OmpToolResult,
+  type OmpTrackedToolCall,
+} from "./tool-call-detail.js";
 
 export function mapOmpToolDetail(
-  toolCall: PiTrackedToolCall,
-  result: PiToolResult,
+  toolCall: OmpTrackedToolCall,
+  result: OmpToolResult,
   context?: {
     toolCallId: string;
     mapSubagentDetail?: (baseDetail: ToolCallDetail) => ToolCallDetail;
@@ -27,10 +27,10 @@ export function mapOmpToolDetail(
   if (toolCall.toolName === "read") {
     return mapOmpReadDetail(toolCall, result);
   }
-  return mapPiToolDetail(toolCall, result);
+  return mapOmpCoreToolDetail(toolCall, result);
 }
 
-function mapOmpTaskDetail(args: unknown, result: PiToolResult): ToolCallDetail {
+function mapOmpTaskDetail(args: unknown, result: OmpToolResult): ToolCallDetail {
   const argRecord = isRecord(args) ? args : {};
   const resultText = extractTextFromToolResult(result);
   const childSessionId = readChildSessionId(result);
@@ -53,8 +53,11 @@ function mapOmpTaskDetail(args: unknown, result: PiToolResult): ToolCallDetail {
   };
 }
 
-function mapOmpEditDetail(toolCall: PiTrackedToolCall, result: PiToolResult): ToolCallDetail {
-  const fallback = mapPiToolDetail(toolCall, result);
+function mapOmpEditDetail(
+  toolCall: OmpTrackedToolCall,
+  result: OmpToolResult,
+): ToolCallDetail | null {
+  const fallback = mapOmpCoreToolDetail(toolCall, result);
   const details = resultDetails(result);
   const filePath =
     firstString(details?.path, details?.filePath) ?? readPatchInputPath(toolCall.args);
@@ -70,9 +73,12 @@ function mapOmpEditDetail(toolCall: PiTrackedToolCall, result: PiToolResult): To
   };
 }
 
-function mapOmpReadDetail(toolCall: PiTrackedToolCall, result: PiToolResult): ToolCallDetail {
-  const fallback = mapPiToolDetail(toolCall, result);
-  if (fallback.type !== "read") {
+function mapOmpReadDetail(
+  toolCall: OmpTrackedToolCall,
+  result: OmpToolResult,
+): ToolCallDetail | null {
+  const fallback = mapOmpCoreToolDetail(toolCall, result);
+  if (!fallback || fallback.type !== "read") {
     return fallback;
   }
   const details = resultDetails(result);
@@ -87,14 +93,14 @@ function mapOmpReadDetail(toolCall: PiTrackedToolCall, result: PiToolResult): To
   };
 }
 
-function resultDetails(result: PiToolResult): Record<string, unknown> | null {
+function resultDetails(result: OmpToolResult): Record<string, unknown> | null {
   if (typeof result === "string" || result === null) {
     return null;
   }
   return isRecord(result.details) ? result.details : null;
 }
 
-function readChildSessionId(result: PiToolResult): string | undefined {
+function readChildSessionId(result: OmpToolResult): string | undefined {
   const details = resultDetails(result);
   const direct = firstString(details?.sessionFile, details?.session_file, details?.childSessionId);
   if (direct) {

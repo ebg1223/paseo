@@ -7,12 +7,9 @@ import {
   OmpAutoRetryEndEventSchema,
   OmpAutoRetryStartEventSchema,
   OmpGoalUpdatedEventSchema,
-  OmpIrcMessageEventSchema,
   OmpNoticeEventSchema,
   OmpRetryFallbackAppliedEventSchema,
   OmpRetryFallbackSucceededEventSchema,
-  OmpTodoAutoClearEventSchema,
-  OmpTtsrTriggeredEventSchema,
   type OmpGoal,
   type OmpGoalUpdatedEvent,
 } from "./rpc-types.js";
@@ -63,18 +60,7 @@ export function mapOmpRuntimeEventToTimelineItem(event: unknown): OmpRuntimeEven
       return mapAutoCompactionStartEvent(event);
     case "auto_compaction_end":
       return mapAutoCompactionEndEvent(event);
-    case "ttsr_triggered":
-      return dropIfWellFormed(OmpTtsrTriggeredEventSchema.safeParse(event).success, type);
-    case "irc_message":
-      return dropIfWellFormed(OmpIrcMessageEventSchema.safeParse(event).success, type);
-    case "todo_auto_clear":
-      return OmpTodoAutoClearEventSchema.safeParse(event).success
-        ? { handled: true, item: { type: "todo", items: [] } }
-        : { handled: true, item: null, logReason: "malformed_omp_todo_auto_clear" };
     default:
-      if (type && isMemoryEventType(type)) {
-        return { handled: true, item: null, logReason: "unsupported_omp_memory_event" };
-      }
       return { handled: false };
   }
 }
@@ -312,14 +298,6 @@ function formatGoalText(event: OmpGoalUpdatedEvent, goal: OmpGoal | null): strin
   return parts.join("\n");
 }
 
-function dropIfWellFormed(isWellFormed: boolean, type: string): OmpRuntimeEventMapping {
-  return {
-    handled: true,
-    item: null,
-    logReason: isWellFormed ? `unsupported_omp_${type}` : `malformed_omp_${type}`,
-  };
-}
-
 function readEventType(value: unknown): string | null {
   if (!isRecord(value)) {
     return null;
@@ -332,11 +310,6 @@ function readCompactionPreTokens(value: unknown): number | undefined {
     return undefined;
   }
   return typeof value.tokensBefore === "number" ? value.tokensBefore : undefined;
-}
-
-function isMemoryEventType(type: string): boolean {
-  const normalizedType = type.toLowerCase();
-  return normalizedType.startsWith("memory_") || normalizedType.startsWith("mnemopi_");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

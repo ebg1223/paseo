@@ -1,6 +1,6 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import path, { join } from "node:path";
 
 import type { Logger } from "pino";
 
@@ -9,7 +9,7 @@ import type { ProviderRuntimeSettings } from "../agent/provider-launch-config.js
 import { ClaudeAgentClient } from "../agent/providers/claude/agent.js";
 import { CodexAppServerAgentClient } from "../agent/providers/codex-app-server-agent.js";
 import { OpenCodeAgentClient } from "../agent/providers/opencode-agent.js";
-import { OmpRpcAgentClient } from "../agent/providers/omp/agent.js";
+import { OmpAgentClient } from "../agent/providers/omp/agent.js";
 import { PiRpcAgentClient } from "../agent/providers/pi/agent.js";
 import { isCommandAvailable } from "../../executable-resolution/executable-resolution.js";
 
@@ -22,10 +22,13 @@ export type RealProviderConfig = Pick<
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 const OPENROUTER_OPENAI_BASE_URL = "https://openrouter.ai/api";
+const PI_AUTH_CONFIG_PATH = join(homedir(), ".pi", "agent", "auth.json");
+const CODEX_AUTH_CONFIG_PATH = join(homedir(), ".codex", "auth.json");
 const CLAUDE_REAL_TEST_MODEL = "haiku";
 const CODEX_REAL_TEST_MODEL = "~openai/gpt-latest";
 const OPENCODE_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
-const PI_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
+const PI_OPENROUTER_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
+const PI_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-5.4";
 const OMP_OPENROUTER_REAL_TEST_MODEL = "openrouter/google/gemini-2.5-flash-lite";
 const OMP_CODEX_REAL_TEST_MODEL = "openai-codex/gpt-5.6-sol";
 
@@ -55,7 +58,7 @@ export function getRealProviderConfig(provider: RealProvider): RealProviderConfi
     case "pi":
       return {
         provider,
-        model: PI_REAL_TEST_MODEL,
+        model: getPiRealTestModel(),
         thinkingOptionId: "medium",
       };
     case "omp":
@@ -69,9 +72,25 @@ export function getRealProviderConfig(provider: RealProvider): RealProviderConfi
 }
 
 export function getRealProviderRuntimeSettings(provider: RealProvider): ProviderRuntimeSettings {
-  if (provider === "omp") {
+  if (provider === "omp" || provider === "pi") {
+    if (hasCodexAuthTokens()) {
+      return {
+        env: {
+          // Clear stale shell-level keys so the local CLI auth stores win.
+          OPENAI_API_KEY: "",
+        },
+      };
+    }
     const apiKey = getOpenRouterApiKeyOrNull();
-    return apiKey ? { env: { OPENROUTER_API_KEY: apiKey } } : {};
+    if (apiKey) {
+      return {
+        env: {
+          OPENROUTER_API_KEY: apiKey,
+          OPENAI_API_KEY: "",
+        },
+      };
+    }
+    return {};
   }
   const apiKey = getOpenRouterApiKey();
   switch (provider) {
@@ -109,11 +128,7 @@ export function getRealProviderRuntimeSettings(provider: RealProvider): Provider
       };
     }
     case "pi":
-      return {
-        env: {
-          OPENROUTER_API_KEY: apiKey,
-        },
-      };
+      return {};
   }
 }
 
@@ -135,7 +150,7 @@ export function createRealProviderClient(provider: RealProvider, logger: Logger)
     case "pi":
       return new PiRpcAgentClient({ logger, runtimeSettings });
     case "omp":
-      return new OmpRpcAgentClient({ logger, runtimeSettings });
+      return new OmpAgentClient({ logger, runtimeSettings });
   }
 }
 
@@ -155,7 +170,7 @@ export function canRunRealProvider(provider: RealProvider): Promise<boolean> {
   }
 
   const availability = (async () => {
-    if (provider !== "omp" && !getOpenRouterApiKeyOrNull()) {
+    if (provider !== "omp" && provider !== "pi" && !getOpenRouterApiKeyOrNull()) {
       return false;
     }
     return await isCommandAvailable(getProviderBinary(provider));
@@ -170,7 +185,15 @@ function getOmpRealTestModel(): string {
   if (configured) {
     return configured;
   }
-  return getOpenRouterApiKeyOrNull() ? OMP_OPENROUTER_REAL_TEST_MODEL : OMP_CODEX_REAL_TEST_MODEL;
+  return hasCodexAuthTokens() ? OMP_CODEX_REAL_TEST_MODEL : OMP_OPENROUTER_REAL_TEST_MODEL;
+}
+
+function getPiRealTestModel(): string {
+  const configured = process.env.PI_REAL_TEST_MODEL?.trim();
+  if (configured) {
+    return configured;
+  }
+  return hasCodexAuthTokens() ? PI_CODEX_REAL_TEST_MODEL : PI_OPENROUTER_REAL_TEST_MODEL;
 }
 
 function getOpenRouterApiKey(): string {
@@ -182,8 +205,44 @@ function getOpenRouterApiKey(): string {
 }
 
 function getOpenRouterApiKeyOrNull(): string | null {
-  const value = process.env.OPENROUTER_API_KEY?.trim();
+  const value = readPiOpenRouterApiKey() ?? process.env.OPENROUTER_API_KEY?.trim();
   return value && value.length > 0 ? value : null;
+}
+
+function readPiOpenRouterApiKey(): string | null {
+  const auth = readJsonFile(PI_AUTH_CONFIG_PATH);
+  const value =
+    auth && typeof auth === "object" && "openrouter" in auth ? auth.openrouter : undefined;
+  if (!value || typeof value !== "object" || value === null || !("key" in value)) {
+    return null;
+  }
+  return typeof value.key === "string" && value.key.trim().length > 0 ? value.key.trim() : null;
+}
+
+function hasCodexAuthTokens(): boolean {
+  const auth = readJsonFile(CODEX_AUTH_CONFIG_PATH);
+  if (!auth || typeof auth !== "object" || !("tokens" in auth)) {
+    return false;
+  }
+  const tokens = auth.tokens;
+  if (!tokens || typeof tokens !== "object") {
+    return false;
+  }
+  return (
+    (typeof tokens.access_token === "string" && tokens.access_token.length > 0) ||
+    (typeof tokens.refresh_token === "string" && tokens.refresh_token.length > 0)
+  );
+}
+
+function readJsonFile(filePath: string): unknown {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 function getProviderBinary(provider: RealProvider): string {

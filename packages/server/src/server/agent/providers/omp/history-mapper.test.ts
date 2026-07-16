@@ -4,21 +4,18 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
-import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
-import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
-import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
-import subagentSessionFixture from "./__fixtures__/subagent_session_file_paths.json" with { type: "json" };
-import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
+import { streamOmpCoreHistory, type OmpCapturedUserMessageEntry } from "./message-history.js";
+import type { OmpAgentMessage } from "./rpc-types.js";
+import { FakeOmp } from "./test-utils/fake-omp.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { streamOmpHistory } from "./history.js";
-import { asOmpRuntimeSession } from "./runtime.js";
 
 async function collectHistory(
-  messages: PiAgentMessage[],
-  userEntries: PiCapturedUserMessageEntry[] = [],
+  messages: OmpAgentMessage[],
+  userEntries: OmpCapturedUserMessageEntry[] = [],
 ): Promise<AgentStreamEvent[]> {
   const events: AgentStreamEvent[] = [];
-  for await (const event of streamPiHistory(
+  for await (const event of streamOmpCoreHistory(
     "omp",
     messages,
     userEntries,
@@ -236,17 +233,6 @@ describe("OMP history mapper", () => {
     ]);
   });
   test("replays OMP 17 xd writes as the executed inner tool", async () => {
-    const fixtureResult = (v17Frames as readonly unknown[]).find(
-      (candidate) =>
-        typeof candidate === "object" &&
-        candidate !== null &&
-        !Array.isArray(candidate) &&
-        (candidate as Record<string, unknown>).type === "tool_execution_end" &&
-        (candidate as Record<string, unknown>).toolCallId === "xd-write-call",
-    ) as Record<string, unknown> | undefined;
-    if (!fixtureResult) throw new Error("Missing OMP 17 xd write result fixture");
-    const result = fixtureResult.result as { content: unknown; details?: unknown };
-
     const events = await collectHistory([
       {
         role: "assistant",
@@ -266,9 +252,16 @@ describe("OMP history mapper", () => {
         role: "toolResult",
         toolCallId: "xd-write-call",
         toolName: "write",
-        content: result.content,
-        details: result.details,
-      } as PiAgentMessage,
+        content: [{ type: "text", text: "Opened Example Domain" }],
+        details: {
+          xdev: {
+            tool: "browser",
+            mode: "execute",
+            args: { action: "open", name: "docs", url: "https://example.com" },
+            inner: { action: "open", name: "docs", url: "https://example.com" },
+          },
+        },
+      } as OmpAgentMessage,
     ]);
 
     expect(events.at(-1)).toMatchObject({
@@ -372,9 +365,9 @@ describe("OMP history mapper", () => {
       { type: "assistant_message", text: "[developer] developer note" },
     ]);
 
-    const pi = new FakePi(["omp"]);
-    const runtimeSession = await pi.startSession({ cwd: dir });
-    asOmpRuntimeSession(runtimeSession).activeBranchEntryId = "assistant-old";
+    const omp = new FakeOmp();
+    const runtimeSession = await omp.startSession({ cwd: dir });
+    runtimeSession.activeBranchEntryId = "assistant-old";
     const selectedEvents: AgentStreamEvent[] = [];
     for await (const event of streamOmpHistory({
       sessionFile,
@@ -396,24 +389,10 @@ describe("OMP history mapper", () => {
   });
 
   test("rehydrates structured batch and nested task transcripts with stable status and time", async () => {
-    const fixture = subagentSessionFixture as Array<{
-      type: string;
-      data?: { sessionFile?: string };
-      payload?: { id?: string; sessionFile?: string };
-    }>;
-    const capturedParent = fixture.find((frame) => frame.data?.sessionFile)?.data?.sessionFile;
-    const capturedChild = fixture.find(
-      (frame) => frame.type === "subagent_lifecycle" && frame.payload?.sessionFile,
-    )?.payload;
-    expect(capturedParent).toBeTruthy();
-    expect(capturedChild?.sessionFile).toBe(
-      `${capturedParent!.slice(0, -".jsonl".length)}/${capturedChild!.id}.jsonl`,
-    );
-
     const dir = mkdtempSync(join(tmpdir(), "omp-subagent-history-"));
     const parentFile = join(dir, "parent.jsonl");
     const parentStem = parentFile.slice(0, -".jsonl".length);
-    const echoId = capturedChild!.id!;
+    const echoId = "EchoChild";
     const echoFile = join(parentStem, `${echoId}.jsonl`);
     const failedFile = join(parentStem, "FailedChild.jsonl");
     const abortedFile = join(parentStem, "AbortedChild.jsonl");

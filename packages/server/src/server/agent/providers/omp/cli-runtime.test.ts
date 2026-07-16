@@ -4,19 +4,17 @@ import { PassThrough } from "node:stream";
 import pino from "pino";
 import { describe, expect, test } from "vitest";
 
-import { PiCliRuntime } from "../pi-shared/cli-runtime.js";
-import type { PiRuntimeLaunch } from "../pi-shared/runtime.js";
-import { asOmpRuntimeSession } from "./runtime.js";
-import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
+import { OmpCliRuntime } from "./cli-runtime.js";
+import type { OmpRuntimeLaunch } from "./runtime.js";
 
-type PiChild = ChildProcessWithoutNullStreams & {
+type OmpChild = ChildProcessWithoutNullStreams & {
   stdin: PassThrough;
   stdout: PassThrough;
   stderr: PassThrough;
   killedSignals: Array<NodeJS.Signals | number | undefined>;
 };
 
-function createPiChild(): PiChild {
+function createOmpChild(): OmpChild {
   const child = Object.assign(new EventEmitter(), {
     stdin: new PassThrough(),
     stdout: new PassThrough(),
@@ -24,7 +22,7 @@ function createPiChild(): PiChild {
     exitCode: null,
     signalCode: null,
     killedSignals: [],
-  }) as PiChild;
+  }) as OmpChild;
   child.kill = ((signal?: NodeJS.Signals | number) => {
     child.killedSignals.push(signal);
     queueMicrotask(() => child.emit("exit", null, signal ?? null));
@@ -33,8 +31,8 @@ function createPiChild(): PiChild {
   return child;
 }
 
-function createRuntime(child: PiChild, launches: PiRuntimeLaunch[] = []): PiCliRuntime {
-  return new PiCliRuntime({
+function createRuntime(child: OmpChild, launches: OmpRuntimeLaunch[] = []): OmpCliRuntime {
+  return new OmpCliRuntime({
     logger: pino({ level: "silent" }),
     command: ["omp"],
     commandsRpcName: "get_available_commands",
@@ -46,7 +44,7 @@ function createRuntime(child: PiChild, launches: PiRuntimeLaunch[] = []): PiCliR
 }
 
 function replyToCommands(
-  child: PiChild,
+  child: OmpChild,
   handler: (command: Record<string, unknown>) => unknown,
 ): void {
   let buffer = "";
@@ -77,28 +75,64 @@ function withoutRequestId(command: Record<string, unknown>): Record<string, unkn
   return rest;
 }
 
-function fixtureResponseData(command: string): unknown {
-  const frame = (v17Frames as readonly unknown[]).find(
-    (candidate) =>
-      typeof candidate === "object" &&
-      candidate !== null &&
-      !Array.isArray(candidate) &&
-      (candidate as Record<string, unknown>).type === "response" &&
-      (candidate as Record<string, unknown>).command === command,
-  ) as Record<string, unknown> | undefined;
-  if (!frame || frame.success !== true) {
-    throw new Error(`Missing successful OMP 17 response fixture for ${command}`);
-  }
-  return frame.data;
-}
-
 describe("OMP CLI runtime", () => {
+  test("validates session state with the documented queued message count", async () => {
+    const child = createOmpChild();
+    replyToCommands(child, () => ({
+      model: null,
+      thinkingLevel: "medium",
+      isStreaming: false,
+      isCompacting: false,
+      sessionId: "session-1",
+      messageCount: 3,
+      queuedMessageCount: 1,
+    }));
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    await expect(session.getState()).resolves.toMatchObject({
+      sessionId: "session-1",
+      messageCount: 3,
+      queuedMessageCount: 1,
+    });
+  });
+
+  test("rejects malformed RPC results instead of trusting transport data", async () => {
+    const child = createOmpChild();
+    replyToCommands(child, () => ({
+      thinkingLevel: "medium",
+      isStreaming: "no",
+      isCompacting: false,
+      sessionId: "session-1",
+      messageCount: 0,
+      queuedMessageCount: 0,
+    }));
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    await expect(session.getState()).rejects.toThrow();
+  });
+
+  test("emits validated known events and drops unknown frames", async () => {
+    const child = createOmpChild();
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+    const eventTypes: string[] = [];
+    session.onEvent((event) => eventTypes.push(event.type));
+
+    child.stdout.write(`${JSON.stringify({ type: "future_control", enabled: true })}\n`);
+    child.stdout.write(`${JSON.stringify({ type: "notice", level: "info", message: "ready" })}\n`);
+
+    expect(eventTypes).toEqual(["notice"]);
+  });
+
   test("lists commands through get_available_commands", async () => {
-    const child = createPiChild();
+    const child = createOmpChild();
     const commandTypes: string[] = [];
     replyToCommands(child, (command) => {
       commandTypes.push(String(command.type));
-      return fixtureResponseData("get_available_commands");
+      return {
+        commands: [
+          { name: "prewalk", description: "Prewalk at the next action", source: "builtin" },
+        ],
+      };
     });
     const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
 
@@ -112,21 +146,50 @@ describe("OMP CLI runtime", () => {
     expect(commandTypes).toEqual(["get_available_commands"]);
   });
 
+  test("accepts model catalogs with null maxTokens from newer OMP binaries", async () => {
+    const child = createOmpChild();
+    replyToCommands(child, () => ({
+      models: [
+        {
+          provider: "openai-codex",
+          id: "gpt-5.6-sol",
+          name: "gpt-5.6-sol",
+          maxTokens: null,
+        },
+      ],
+    }));
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    await expect(session.getAvailableModels()).resolves.toEqual([
+      expect.objectContaining({
+        provider: "openai-codex",
+        id: "gpt-5.6-sol",
+        maxTokens: null,
+      }),
+    ]);
+  });
+
   test("wraps OMP subagent RPC commands", async () => {
-    const child = createPiChild();
+    const child = createOmpChild();
     const commands: Record<string, unknown>[] = [];
     replyToCommands(child, (command) => {
       commands.push(command);
-      return fixtureResponseData("set_subagent_subscription");
+      return undefined;
     });
-    const session = asOmpRuntimeSession(
-      await createRuntime(child).startSession({ cwd: "/workspace/project" }),
-    );
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
 
     await session.setSubagentSubscription("events");
 
     expect(commands.map(withoutRequestId)).toEqual([
       { type: "set_subagent_subscription", level: "events" },
     ]);
+  });
+
+  test("accepts the empty prompt acknowledgement emitted by OMP 17", async () => {
+    const child = createOmpChild();
+    replyToCommands(child, () => undefined);
+    const session = await createRuntime(child).startSession({ cwd: "/workspace/project" });
+
+    await expect(session.prompt("hello")).resolves.toEqual({ requestId: "req_1" });
   });
 });

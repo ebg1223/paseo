@@ -1,6 +1,6 @@
 import type { AgentTimelineItem } from "../../agent-sdk-types.js";
-import type { PiSessionState } from "../pi-shared/rpc-types.js";
-import type { PiToolResult } from "../pi-shared/tool-call-mapper.js";
+import type { OmpSessionState } from "./rpc-types.js";
+import type { OmpToolResult } from "./tool-call-detail.js";
 import {
   OmpTodoPhaseSchema,
   OmpTodoReminderEventSchema,
@@ -8,7 +8,7 @@ import {
   type OmpTodoPhase,
 } from "./rpc-types.js";
 
-export function mapOmpTodoToolResult(result: PiToolResult): AgentTimelineItem | null {
+export function mapOmpTodoToolResult(result: OmpToolResult): AgentTimelineItem | null {
   const details = resultDetails(result);
   const phases = OmpTodoPhaseSchema.array().safeParse(details?.phases);
   return phases.success ? mapOmpTodoPhases(phases.data) : null;
@@ -19,7 +19,7 @@ export function mapOmpTodoReminderEvent(event: unknown): AgentTimelineItem | nul
   return parsed.success ? mapOmpTodoItems(parsed.data.todos) : null;
 }
 
-export function mapOmpTodoState(state: PiSessionState): AgentTimelineItem[] {
+export function mapOmpTodoState(state: OmpSessionState): AgentTimelineItem[] {
   const phases = OmpTodoPhaseSchema.array().safeParse(state.todoPhases);
   if (!phases.success) {
     return [];
@@ -46,7 +46,7 @@ function mapOmpTodoItems(items: readonly OmpTodoItem[]): AgentTimelineItem | nul
   };
 }
 
-function resultDetails(result: PiToolResult): Record<string, unknown> | null {
+function resultDetails(result: OmpToolResult): Record<string, unknown> | null {
   if (typeof result === "string" || result === null) {
     return null;
   }

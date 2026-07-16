@@ -10,9 +10,9 @@ import type {
 import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
 import { createRealpathAwarePathMatcher } from "../../../../utils/path.js";
 
-const PI_CONFIG_DIR_NAME = ".pi";
-const PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
-const PI_SESSION_DIR_ENV = "PI_CODING_AGENT_SESSION_DIR";
+const OMP_CONFIG_DIR_NAME = ".omp";
+const OMP_AGENT_DIR_ENV = "OMP_AGENT_DIR";
+const OMP_SESSION_DIR_ENV = "OMP_SESSION_DIR";
 // Import listing intentionally bounds header parsing to this window. Sessions
 // with unusually large preambles may omit their first-prompt preview.
 const HEAD_BYTES = 64 * 1024;
@@ -24,21 +24,20 @@ const FULL_SCAN_LINE_LIMIT = 2_000;
 const IMPORT_CANDIDATE_OVERSCAN = 40;
 const IMPORT_CANDIDATE_MIN = 400;
 
-interface PiSessionDescriptorOptions extends ListImportableSessionsOptions {
+interface OmpSessionDescriptorOptions extends ListImportableSessionsOptions {
   sessionDir?: string;
   runtimeSettings?: ProviderRuntimeSettings;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
-  filterSessionFiles?: (input: { filePaths: readonly string[]; sessionsDir: string }) => string[];
 }
 
-interface PiSessionHeader {
+interface OmpSessionHeader {
   sessionId: string;
   cwd: string;
   createdAt: Date | null;
 }
 
-interface PiSessionTail {
+interface OmpSessionTail {
   title: string | null;
   lastActivityAt: Date | null;
   lastUserMessage: string | null;
@@ -46,14 +45,14 @@ interface PiSessionTail {
   thinkingOptionId: string | null;
 }
 
-interface PiSessionHead {
+interface OmpSessionHead {
   title: string | null;
   firstUserMessage: string | null;
   model: string | null;
   thinkingOptionId: string | null;
 }
 
-interface PiSessionDescriptor {
+interface OmpSessionDescriptor {
   cwd: string;
   title: string | null;
   firstUserMessage: string | null;
@@ -67,27 +66,24 @@ interface RankedSessionFile {
   mtime: Date;
 }
 
-export interface PiImportSessionConfig {
+export interface OmpImportSessionConfig {
   model?: string;
   thinkingOptionId?: string;
 }
 
-export async function listPiImportableSessions(
-  options: PiSessionDescriptorOptions = {},
+export async function listOmpImportableSessions(
+  options: OmpSessionDescriptorOptions = {},
 ): Promise<ImportableProviderSession[]> {
-  const sessionsDir = await resolvePiSessionsDir(options);
+  const sessionsDir = await resolveOmpSessionsDir(options);
   const files = await walkJsonlFiles(sessionsDir);
-  const importableFiles = options.filterSessionFiles
-    ? options.filterSessionFiles({ filePaths: files, sessionsDir })
-    : files;
   const matchesCwd = options.cwd ? createRealpathAwarePathMatcher(options.cwd) : null;
   const limit = options.limit ?? 20;
-  const ranked = await rankSessionFilesByMtime(importableFiles);
+  const ranked = await rankSessionFilesByMtime(files);
   const candidateLimit = Math.max(limit * IMPORT_CANDIDATE_OVERSCAN, IMPORT_CANDIDATE_MIN);
   const sessions: ImportableProviderSession[] = [];
 
   for (const entry of ranked.slice(0, candidateLimit)) {
-    const session = await readPiImportableSession(entry.file);
+    const session = await readOmpImportableSession(entry.file);
     if (!session) continue;
     if (matchesCwd && !matchesCwd(session.cwd)) continue;
     sessions.push(session);
@@ -101,13 +97,15 @@ export async function listPiImportableSessions(
   );
 }
 
-export async function readPiImportSessionConfig(filePath: string): Promise<PiImportSessionConfig> {
-  const descriptor = await readPiSessionDescriptor(filePath);
+export async function readOmpImportSessionConfig(
+  filePath: string,
+): Promise<OmpImportSessionConfig> {
+  const descriptor = await readOmpSessionDescriptor(filePath);
   if (!descriptor) return {};
-  return toPiImportSessionConfig(descriptor);
+  return toOmpImportSessionConfig(descriptor);
 }
 
-async function resolvePiSessionsDir(options: PiSessionDescriptorOptions): Promise<string> {
+async function resolveOmpSessionsDir(options: OmpSessionDescriptorOptions): Promise<string> {
   const env = options.env ?? process.env;
   const homeDir = options.homeDir ?? homedir();
   const baseDir = options.cwd ?? process.cwd();
@@ -116,10 +114,10 @@ async function resolvePiSessionsDir(options: PiSessionDescriptorOptions): Promis
     return resolveConfigPath(options.sessionDir, { baseDir, homeDir });
   }
 
-  const agentDir = resolvePiAgentDir({ runtimeSettings: options.runtimeSettings, env, homeDir });
+  const agentDir = resolveOmpAgentDir({ runtimeSettings: options.runtimeSettings, env, homeDir });
 
   const envSessionDir =
-    options.runtimeSettings?.env?.[PI_SESSION_DIR_ENV] ?? env[PI_SESSION_DIR_ENV];
+    options.runtimeSettings?.env?.[OMP_SESSION_DIR_ENV] ?? env[OMP_SESSION_DIR_ENV];
   if (envSessionDir?.trim()) {
     return resolveConfigPath(envSessionDir, { baseDir, homeDir });
   }
@@ -135,16 +133,17 @@ async function resolvePiSessionsDir(options: PiSessionDescriptorOptions): Promis
   return path.join(agentDir, "sessions");
 }
 
-function resolvePiAgentDir(input: {
+function resolveOmpAgentDir(input: {
   runtimeSettings?: ProviderRuntimeSettings;
   env: NodeJS.ProcessEnv;
   homeDir: string;
 }): string {
-  const configured = input.runtimeSettings?.env?.[PI_AGENT_DIR_ENV] ?? input.env[PI_AGENT_DIR_ENV];
+  const configured =
+    input.runtimeSettings?.env?.[OMP_AGENT_DIR_ENV] ?? input.env[OMP_AGENT_DIR_ENV];
   if (configured?.trim()) {
     return resolveConfigPath(configured, { baseDir: process.cwd(), homeDir: input.homeDir });
   }
-  return path.join(input.homeDir, PI_CONFIG_DIR_NAME, "agent");
+  return path.join(input.homeDir, OMP_CONFIG_DIR_NAME, "agent");
 }
 
 async function readConfiguredSessionDir(input: {
@@ -154,7 +153,7 @@ async function readConfiguredSessionDir(input: {
   const values = await Promise.all([
     readSessionDirFromSettings(path.join(input.agentDir, "settings.json")),
     input.cwd
-      ? readSessionDirFromSettings(path.join(input.cwd, PI_CONFIG_DIR_NAME, "settings.json"))
+      ? readSessionDirFromSettings(path.join(input.cwd, OMP_CONFIG_DIR_NAME, "settings.json"))
       : null,
   ]);
   return values[1] ?? values[0] ?? null;
@@ -215,10 +214,10 @@ async function rankSessionFilesByMtime(files: string[]): Promise<RankedSessionFi
     .sort((left, right) => right.mtime.getTime() - left.mtime.getTime());
 }
 
-async function readPiImportableSession(
+async function readOmpImportableSession(
   filePath: string,
 ): Promise<ImportableProviderSession | null> {
-  const descriptor = await readPiSessionDescriptor(filePath);
+  const descriptor = await readOmpSessionDescriptor(filePath);
   if (!descriptor) return null;
 
   return {
@@ -233,7 +232,7 @@ async function readPiImportableSession(
   };
 }
 
-async function readPiSessionDescriptor(filePath: string): Promise<PiSessionDescriptor | null> {
+async function readOmpSessionDescriptor(filePath: string): Promise<OmpSessionDescriptor | null> {
   // OMP may emit title/session_info lines before the session header.
   const headChunk = await readHeadChunk(filePath);
   if (!headChunk) return null;
@@ -243,7 +242,11 @@ async function readPiSessionDescriptor(filePath: string): Promise<PiSessionDescr
   const tail = await readTail(filePath).catch(() => "");
   const tailInfo = parseSessionTail(tail);
   const headInfo = parseSessionHeadFromChunk(headChunk);
-  const title = tailInfo.title ?? headInfo.title ?? headInfo.firstUserMessage;
+  const title =
+    tailInfo.title ??
+    headInfo.title ??
+    readReadableSessionTitleFromPath(filePath) ??
+    headInfo.firstUserMessage;
   const model = tailInfo.model ?? headInfo.model;
   const thinkingOptionId = tailInfo.thinkingOptionId ?? headInfo.thinkingOptionId;
   const lastActivityAt =
@@ -260,7 +263,7 @@ async function readPiSessionDescriptor(filePath: string): Promise<PiSessionDescr
   };
 }
 
-function toPiImportSessionConfig(descriptor: PiSessionDescriptor): PiImportSessionConfig {
+function toOmpImportSessionConfig(descriptor: OmpSessionDescriptor): OmpImportSessionConfig {
   return {
     ...(descriptor.model ? { model: descriptor.model } : {}),
     ...(descriptor.thinkingOptionId ? { thinkingOptionId: descriptor.thinkingOptionId } : {}),
@@ -280,7 +283,7 @@ async function readHeadChunk(filePath: string): Promise<string | null> {
   }
 }
 
-function parseSessionHeaderFromChunk(chunk: string): PiSessionHeader | null {
+function parseSessionHeaderFromChunk(chunk: string): OmpSessionHeader | null {
   for (const line of chunk.split(/\r?\n/u)) {
     const header = parseSessionHeader(line.trim());
     if (header) return header;
@@ -288,7 +291,7 @@ function parseSessionHeaderFromChunk(chunk: string): PiSessionHeader | null {
   return null;
 }
 
-function parseSessionHeadFromChunk(chunk: string): PiSessionHead {
+function parseSessionHeadFromChunk(chunk: string): OmpSessionHead {
   let title: string | null = null;
   let firstUserMessage: string | null = null;
   let model: string | null = null;
@@ -349,7 +352,7 @@ async function readFileMtime(filePath: string): Promise<Date | null> {
   }
 }
 
-function parseSessionHeader(firstLine: string): PiSessionHeader | null {
+function parseSessionHeader(firstLine: string): OmpSessionHeader | null {
   const entry = parseJsonRecord(firstLine);
   if (!entry || entry.type !== "session") return null;
   const sessionId = typeof entry.id === "string" ? entry.id : null;
@@ -359,7 +362,7 @@ function parseSessionHeader(firstLine: string): PiSessionHeader | null {
   return { sessionId, cwd, createdAt };
 }
 
-function parseSessionTail(tail: string): PiSessionTail {
+function parseSessionTail(tail: string): OmpSessionTail {
   const lines = tail.split(/\r?\n/u);
   let title: string | null = null;
   let lastActivityAt: Date | null = null;
@@ -460,6 +463,20 @@ function normalizePromptPreview(text: string | null): string | null {
   const normalized = text?.trim().replace(/\s+/g, " ") ?? "";
   if (!normalized) return null;
   return normalized.length > 160 ? normalized.slice(0, 160) : normalized;
+}
+
+function readReadableSessionTitleFromPath(filePath: string): string | null {
+  const stem = path.basename(filePath, ".jsonl").trim();
+  if (!stem) {
+    return null;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}[-:]\d{2}[-:]\d{2}/u.test(stem)) {
+    return null;
+  }
+  if (/^[0-9a-f]{8,}$/iu.test(stem)) {
+    return null;
+  }
+  return stem;
 }
 
 function parseDate(value: unknown): Date | null {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { parseToolArgs } from "../pi-shared/tool-call-mapper.js";
+import { parseToolArgs } from "./tool-call-detail.js";
 import { resolveOmpEmittedToolCallId } from "./tool-call-id.js";
 
 describe("OMP tool call ids", () => {

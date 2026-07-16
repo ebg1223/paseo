@@ -1,6 +1,6 @@
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
-import { PiHistoryMapper } from "../pi-shared/history-mapper.js";
-import type { PiAgentMessage, PiAgentSessionEvent } from "../pi-shared/rpc-types.js";
+import { OmpHistoryMapper } from "./message-history.js";
+import type { OmpAgentMessage, OmpAgentSessionEvent } from "./rpc-types.js";
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";
 import { formatOmpSubagentTitle } from "./subagent-title.js";
 import type {
@@ -14,7 +14,7 @@ interface OmpSubagentState {
   description: string | null;
   resolvedModel: string | null;
   toolCallId: string | null;
-  mapper: PiHistoryMapper;
+  mapper: OmpHistoryMapper;
 }
 
 export class OmpSubagentIndex {
@@ -74,7 +74,7 @@ export class OmpSubagentIndex {
       description: null,
       resolvedModel: null,
       toolCallId: null,
-      mapper: new PiHistoryMapper("omp", [], OMP_HISTORY_MAPPER_HOOKS),
+      mapper: new OmpHistoryMapper("omp", [], OMP_HISTORY_MAPPER_HOOKS),
     };
     states.set(id, state);
     this.statesByParent.set(parent, states);
@@ -101,7 +101,7 @@ export class OmpSubagentIndex {
   }
 }
 
-function messagesFromSessionEvent(event: PiAgentSessionEvent): PiAgentMessage[] {
+function messagesFromSessionEvent(event: OmpAgentSessionEvent): OmpAgentMessage[] {
   if (event.type === "message_end") return [event.message];
   return [];
 }

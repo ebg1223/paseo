@@ -1,9 +1,9 @@
 import type { AgentUsage } from "../../agent-sdk-types.js";
-import type { PiSessionState, PiSessionStats } from "../pi-shared/rpc-types.js";
+import type { OmpSessionState, OmpSessionStats } from "./rpc-types.js";
 
 export function mapOmpUsage(input: {
-  stats: PiSessionStats;
-  state: PiSessionState;
+  stats: OmpSessionStats;
+  state: OmpSessionState;
   baseUsage: AgentUsage | undefined;
 }): AgentUsage | undefined {
   const contextWindowUsedTokens = finiteNumber(input.state.contextUsage?.tokens);

@@ -1,8 +1,63 @@
 import { describe, expect, test } from "vitest";
 
-import frames from "./__fixtures__/subagent_lifecycle_progress.json" with { type: "json" };
 import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagent-card-tracker.js";
 import type { OmpSubagentLifecyclePayload, OmpSubagentProgressPayload } from "./rpc-types.js";
+
+const PARENT_TOOL_CALL_ID = "task-1";
+const SESSION_FILE = "/tmp/omp-task/EchoSubagent.jsonl";
+const LIFECYCLE: OmpSubagentLifecyclePayload = {
+  id: "EchoSubagent",
+  agent: "task",
+  description: "Run echo in subagent",
+  status: "started",
+  sessionFile: SESSION_FILE,
+  parentToolCallId: PARENT_TOOL_CALL_ID,
+  index: 0,
+};
+const PROGRESS: OmpSubagentProgressPayload[] = [
+  {
+    index: 0,
+    agent: "task",
+    task: "Run echo",
+    parentToolCallId: PARENT_TOOL_CALL_ID,
+    sessionFile: SESSION_FILE,
+    progress: {
+      id: "EchoSubagent",
+      status: "running",
+      recentTools: [{ tool: "bash", args: "echo subagent-hi", endMs: 1 }],
+    },
+  },
+  {
+    index: 0,
+    agent: "task",
+    task: "Run echo",
+    parentToolCallId: PARENT_TOOL_CALL_ID,
+    sessionFile: SESSION_FILE,
+    progress: {
+      id: "EchoSubagent",
+      status: "running",
+      recentTools: [
+        { tool: "yield", args: "", endMs: 2 },
+        { tool: "bash", args: "echo subagent-hi", endMs: 1 },
+      ],
+    },
+  },
+  {
+    index: 0,
+    agent: "task",
+    task: "Run echo",
+    parentToolCallId: PARENT_TOOL_CALL_ID,
+    sessionFile: SESSION_FILE,
+    progress: {
+      id: "EchoSubagent",
+      status: "completed",
+      recentTools: [
+        { tool: "yield", args: "", endMs: 2 },
+        { tool: "bash", args: "echo subagent-hi", endMs: 1 },
+      ],
+    },
+  },
+];
 
 class ManualScheduler implements OmpSubagentCardScheduler {
   private currentMs = 0;
@@ -40,7 +95,7 @@ class ManualScheduler implements OmpSubagentCardScheduler {
 }
 
 describe("OmpSubagentCardTracker", () => {
-  test("folds real OMP lifecycle and progress frames into one throttled sub-agent detail", () => {
+  test("folds lifecycle and progress into one throttled sub-agent detail", () => {
     const scheduler = new ManualScheduler();
     const emitted: string[] = [];
     const tracker = new OmpSubagentCardTracker({
@@ -50,18 +105,13 @@ describe("OmpSubagentCardTracker", () => {
         return true;
       },
     });
-    const parentToolCallId = firstLifecycle().parentToolCallId;
-    if (!parentToolCallId) {
-      throw new Error("Fixture lifecycle is missing parentToolCallId");
-    }
-
-    tracker.handleLifecycle(firstLifecycle());
-    for (const payload of progressFrames()) {
+    tracker.handleLifecycle(LIFECYCLE);
+    for (const payload of PROGRESS) {
       tracker.handleProgress(payload);
     }
 
-    expect(emitted).toEqual([parentToolCallId]);
-    const detailBeforeTrailing = tracker.detailFor(parentToolCallId, {
+    expect(emitted).toEqual([PARENT_TOOL_CALL_ID]);
+    const detailBeforeTrailing = tracker.detailFor(PARENT_TOOL_CALL_ID, {
       type: "sub_agent",
       subAgentType: "task",
       description: "Task arg description wins",
@@ -71,7 +121,7 @@ describe("OmpSubagentCardTracker", () => {
       type: "sub_agent",
       subAgentType: "task",
       description: "Task arg description wins",
-      childSessionId: "/tmp/omp-task-152709ccd8364628/EchoSubagent.jsonl",
+      childSessionId: SESSION_FILE,
       log: [
         "EchoSubagent started",
         "[bash] echo subagent-hi",
@@ -82,7 +132,7 @@ describe("OmpSubagentCardTracker", () => {
 
     scheduler.advance(500);
 
-    expect(emitted).toEqual([parentToolCallId, parentToolCallId]);
+    expect(emitted).toEqual([PARENT_TOOL_CALL_ID, PARENT_TOOL_CALL_ID]);
   });
 
   test("aggregates batch progress streams into one index-prefixed log", () => {
@@ -190,26 +240,3 @@ describe("OmpSubagentCardTracker", () => {
     ).toBe("static");
   });
 });
-
-function firstLifecycle(): OmpSubagentLifecyclePayload {
-  const frame = (frames as readonly unknown[]).find(
-    (candidate) => isRecord(candidate) && candidate.type === "subagent_lifecycle",
-  );
-  if (!isRecord(frame) || !isRecord(frame.payload)) {
-    throw new Error("Missing lifecycle fixture");
-  }
-  return frame.payload as unknown as OmpSubagentLifecyclePayload;
-}
-
-function progressFrames(): OmpSubagentProgressPayload[] {
-  return (frames as readonly unknown[]).flatMap((frame) => {
-    if (!isRecord(frame) || frame.type !== "subagent_progress" || !isRecord(frame.payload)) {
-      return [];
-    }
-    return [frame.payload as unknown as OmpSubagentProgressPayload];
-  });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

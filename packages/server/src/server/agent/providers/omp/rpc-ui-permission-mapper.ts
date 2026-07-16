@@ -5,7 +5,7 @@ import type {
   AgentProvider,
   ToolCallDetail,
 } from "../../agent-sdk-types.js";
-import type { PiRuntimeEvent } from "../pi-shared/rpc-types.js";
+import type { OmpRuntimeEvent } from "./rpc-types.js";
 
 const OMP_PROVIDER = "omp";
 const OMP_RPC_UI_TOOL_APPROVAL_METADATA = "omp_rpc_ui_tool_approval";
@@ -18,7 +18,7 @@ export type OmpRpcUiPermissionClassification =
   | { kind: "tool"; request: AgentPermissionRequest }
   | { kind: "passthrough" };
 
-type ExtensionUiRequestEvent = Extract<PiRuntimeEvent, { type: "extension_ui_request" }>;
+type ExtensionUiRequestEvent = Extract<OmpRuntimeEvent, { type: "extension_ui_request" }>;
 
 interface ToolApprovalDescriptor {
   toolName: "bash" | "edit" | "write";

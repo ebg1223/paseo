@@ -4,8 +4,8 @@ import { PassThrough } from "node:stream";
 import pino from "pino";
 import { describe, expect, test } from "vitest";
 
-import { PiCliRuntime } from "../pi-shared/cli-runtime.js";
-import type { PiRuntimeLaunch } from "../pi-shared/runtime.js";
+import { PiCliRuntime } from "./cli-runtime.js";
+import type { PiRuntimeLaunch } from "./runtime.js";
 
 type PiChild = ChildProcessWithoutNullStreams & {
   stdin: PassThrough;
@@ -149,7 +149,7 @@ describe("PiCliRuntime", () => {
       runtimeSettings: {
         command: {
           mode: "replace",
-          argv: ["omp"],
+          argv: ["custom-pi"],
         },
       },
       spawnProcess: (launch) => {
@@ -158,13 +158,13 @@ describe("PiCliRuntime", () => {
       },
     });
 
-    await runtime.startSession({ cwd: "/workspace/project", session: "/tmp/omp-session.jsonl" });
+    await runtime.startSession({ cwd: "/workspace/project", session: "/tmp/pi-session.jsonl" });
 
     expect(launches).toEqual([
       expect.objectContaining({
         cwd: "/workspace/project",
-        session: "/tmp/omp-session.jsonl",
-        argv: ["omp", "--mode", "rpc", "--session", "/tmp/omp-session.jsonl"],
+        session: "/tmp/pi-session.jsonl",
+        argv: ["custom-pi", "--mode", "rpc", "--session", "/tmp/pi-session.jsonl"],
       }),
     ]);
   });
