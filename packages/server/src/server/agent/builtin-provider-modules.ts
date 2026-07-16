@@ -6,7 +6,7 @@ import { codexProviderModule } from "./providers/codex-module.js";
 import { copilotProviderModule } from "./providers/copilot-module.js";
 import { mockProviderModule } from "./providers/mock-module.js";
 import { mockSlowProviderModule } from "./providers/mock-slow-module.js";
-import { ompProviderModule } from "./providers/omp/module.js";
+import { ompProviderModule } from "@getpaseo/provider-omp";
 import { opencodeProviderModule } from "./providers/opencode-module.js";
 import { piProviderModule } from "./providers/pi/module.js";
 

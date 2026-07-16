@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 
 import { createTestLogger } from "../../test-utils/test-logger.js";
+import { BUILTIN_PROVIDER_MODULES } from "./builtin-provider-modules.js";
 import type {
   AgentClient,
   AgentMode,
@@ -18,6 +19,10 @@ import {
   resolveSnapshotCwd,
 } from "./provider-snapshot-manager.js";
 import { OpenCodeAgentClient } from "./providers/opencode-agent.js";
+
+const NON_DEV_BUILTIN_PROVIDER_IDS = BUILTIN_PROVIDER_MODULES.filter(
+  (module) => !module.devOnly,
+).map((module) => module.definition.id);
 
 const TEST_CAPABILITIES = {
   supportsStreaming: false,
@@ -73,9 +78,7 @@ describe("ProviderSnapshotManager public surface", () => {
     const manager = new ProviderSnapshotManager({ logger: createTestLogger() });
     try {
       const ids = manager.listRegisteredProviderIds();
-      expect(ids).toEqual(
-        expect.arrayContaining(["claude", "codex", "opencode", "copilot", "pi", "omp"]),
-      );
+      expect(ids).toEqual(expect.arrayContaining(NON_DEV_BUILTIN_PROVIDER_IDS));
     } finally {
       manager.destroy();
     }
@@ -422,7 +425,7 @@ describe("ProviderSnapshotManager public surface", () => {
     try {
       const entries = await manager.listProviders({ cwd: "/tmp/project", wait: true });
       const providers = entries.map((entry) => entry.provider).sort();
-      expect(providers).toEqual(["claude", "codex", "copilot", "omp", "opencode", "pi"]);
+      expect(providers).toEqual([...NON_DEV_BUILTIN_PROVIDER_IDS].sort());
       for (const entry of entries) {
         expect(entry.enabled).toBe(false);
         expect(entry.status).toBe("unavailable");

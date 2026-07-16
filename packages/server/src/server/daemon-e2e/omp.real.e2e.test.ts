@@ -10,10 +10,7 @@ import pino from "pino";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import type { AgentTimelineItem } from "../agent/agent-sdk-types.js";
-import {
-  MIN_SUPPORTED_OMP_VERSION,
-  formatOmpVersionSupport,
-} from "../agent/providers/omp/agent.js";
+import { MIN_SUPPORTED_OMP_VERSION, formatOmpVersionSupport } from "@getpaseo/provider-omp";
 import { DaemonClient } from "../test-utils/daemon-client.js";
 import { createTestPaseoDaemon, type TestPaseoDaemon } from "../test-utils/paseo-daemon.js";
 import { createRealProviderClients, getRealProviderConfig } from "./real-provider-test-config.js";

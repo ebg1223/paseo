@@ -9,7 +9,7 @@ import type { ProviderRuntimeSettings } from "../agent/provider-launch-config.js
 import { ClaudeAgentClient } from "../agent/providers/claude/agent.js";
 import { CodexAppServerAgentClient } from "../agent/providers/codex-app-server-agent.js";
 import { OpenCodeAgentClient } from "../agent/providers/opencode-agent.js";
-import { OmpRpcAgentClient } from "../agent/providers/omp/agent.js";
+import { OmpRpcAgentClient } from "@getpaseo/provider-omp";
 import { PiRpcAgentClient } from "../agent/providers/pi/agent.js";
 import { isCommandAvailable } from "../../executable-resolution/executable-resolution.js";
 

@@ -2,6 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { BUILTIN_PROVIDER_IDS } from "./builtin-provider-modules.js";
 
 import {
   checkProviderLaunchAvailable,
@@ -320,8 +321,6 @@ describe("ProviderOverrideSchema", () => {
 });
 
 describe("migrateProviderSettings", () => {
-  const builtinProviderIds = ["claude", "codex", "copilot", "opencode", "pi", "omp"];
-
   test("passes through entries already in the new format", () => {
     const migrated = migrateProviderSettings(
       {
@@ -334,7 +333,7 @@ describe("migrateProviderSettings", () => {
           },
         },
       },
-      builtinProviderIds,
+      BUILTIN_PROVIDER_IDS,
     );
 
     expect(migrated).toEqual({
@@ -359,7 +358,7 @@ describe("migrateProviderSettings", () => {
           },
         },
       },
-      builtinProviderIds,
+      BUILTIN_PROVIDER_IDS,
     );
 
     expect(migrated).toEqual({
@@ -381,7 +380,7 @@ describe("migrateProviderSettings", () => {
           },
         },
       },
-      builtinProviderIds,
+      BUILTIN_PROVIDER_IDS,
     );
 
     expect(migrated).toEqual({
@@ -406,7 +405,7 @@ describe("migrateProviderSettings", () => {
           },
         },
       },
-      builtinProviderIds,
+      BUILTIN_PROVIDER_IDS,
     );
 
     expect(migrated).toEqual({});
@@ -425,7 +424,7 @@ describe("migrateProviderSettings", () => {
           },
         },
       },
-      builtinProviderIds,
+      BUILTIN_PROVIDER_IDS,
     );
 
     expect(migrated).toEqual({
