@@ -1,4 +1,13 @@
-import type { AgentProvider, AgentTimelineItem } from "../agent-sdk-types.js";
+import type {
+  ProviderSubagentDescriptor,
+  ProviderSubagentInputEvent,
+} from "@getpaseo/provider-sdk";
+export type {
+  ProviderSubagentDescriptor,
+  ProviderSubagentInputEvent,
+  ProviderSubagentStatus,
+} from "@getpaseo/provider-sdk";
+import type { AgentProvider } from "../agent-sdk-types.js";
 import { limitAgentTimelineItemContent } from "../agent-timeline-content.js";
 import { InMemoryAgentTimelineStore } from "../agent-timeline-store.js";
 import type {
@@ -7,40 +16,6 @@ import type {
   AgentTimelineRow,
 } from "../agent-timeline-store-types.js";
 import { selectTimelineWindowByProjectedLimit } from "../timeline-projection.js";
-
-export type ProviderSubagentStatus = "running" | "completed" | "failed" | "canceled";
-
-export interface ProviderSubagentDescriptor {
-  id: string;
-  parentAgentId: string;
-  provider: AgentProvider;
-  title: string | null;
-  description: string | null;
-  status: ProviderSubagentStatus;
-  createdAt: string;
-  updatedAt: string;
-  toolCallId: string | null;
-  cwd: string | null;
-}
-
-export type ProviderSubagentInputEvent =
-  | {
-      type: "upsert";
-      id: string;
-      title?: string | null;
-      description?: string | null;
-      status: ProviderSubagentStatus;
-      toolCallId?: string | null;
-      cwd?: string | null;
-      timestamp?: string;
-    }
-  | {
-      type: "timeline";
-      id: string;
-      item: AgentTimelineItem;
-      timestamp?: string;
-    }
-  | { type: "remove"; id: string };
 
 export type ProviderSubagentStoreEvent =
   | { type: "upsert"; subagent: ProviderSubagentDescriptor }

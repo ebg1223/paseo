@@ -1,2 +1,13 @@
-// Core provider SDK surface. R2 moves agent-sdk-types and the ProviderModule contract here.
 export { PROVIDER_SDK_VERSION } from "./version.js";
+export * from "./tools/types.js";
+export * from "./prompt-attachments.js";
+export * from "./system-prompt.js";
+export * from "./provider-launch-config.js";
+export * from "./diagnostic-utils.js";
+export * from "./agent-sdk-types.js";
+export * from "./provider-subagents.js";
+export * from "./create-agent-mode.js";
+export * from "./provider-session-import.js";
+export * from "./provider-runner.js";
+export * from "./provider-image-output.js";
+export * from "./provider-module.js";
