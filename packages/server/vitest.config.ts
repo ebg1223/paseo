@@ -3,9 +3,24 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@server": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: "@server", replacement: path.resolve(__dirname, "./src") },
+      // Resolve workspace SDK/plugin packages to source so tests and
+      // implementation share one vite-processed module instance (mirrors
+      // the root vitest.config.ts aliases).
+      {
+        find: /^@getpaseo\/provider-sdk\/(launch|history|pi-rpc)$/,
+        replacement: path.resolve(__dirname, "../provider-sdk/src/$1/index.ts"),
+      },
+      {
+        find: /^@getpaseo\/provider-sdk$/,
+        replacement: path.resolve(__dirname, "../provider-sdk/src/index.ts"),
+      },
+      {
+        find: /^@getpaseo\/provider-omp$/,
+        replacement: path.resolve(__dirname, "../provider-omp/src/index.ts"),
+      },
+    ],
   },
   test: {
     testTimeout: 30000,

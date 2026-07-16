@@ -514,6 +514,24 @@ test("builds registry with no overrides — same as built-in count", () => {
   expect(Object.keys(registry)).toHaveLength(NON_DEV_BUILTIN_DEFINITIONS.length);
 });
 
+test("default registry preserves pre-plugin id/label/enabled tuples", () => {
+  const registry = buildProviderRegistry(logger);
+
+  // Independent parity snapshot: hardcoded on purpose. If this fails, the
+  // module refactor changed observable registry output — do not "fix" the
+  // expectation by deriving it from BUILTIN_PROVIDER_MODULES.
+  expect(Object.values(registry).map(({ id, label, enabled }) => ({ id, label, enabled }))).toEqual(
+    [
+      { id: "claude", label: "Claude", enabled: true },
+      { id: "codex", label: "Codex", enabled: true },
+      { id: "copilot", label: "Copilot", enabled: true },
+      { id: "opencode", label: "OpenCode", enabled: true },
+      { id: "pi", label: "Pi", enabled: true },
+      { id: "omp", label: "Oh My Pi", enabled: false },
+    ],
+  );
+});
+
 test("builds registry from an explicit modules list", () => {
   const stubClient = {
     provider: "stub",
