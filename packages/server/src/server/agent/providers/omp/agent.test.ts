@@ -242,4 +242,90 @@ describe("OMP agent client and session", () => {
     await omp.close();
     expect(omp.isClosed()).toBe(true);
   });
+
+  test("interrupt terminalizes in-flight tool calls and running subagents", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    await omp.requireStartTurn("run something slow");
+    const runtime = omp.runtime();
+    runtime.beginTurn();
+    runtime.emit({
+      type: "tool_execution_start",
+      toolCallId: "tool-1",
+      toolName: "bash",
+      args: { command: "sleep 30" },
+    });
+    runtime.emit({
+      type: "subagent_lifecycle",
+      payload: {
+        id: "child-1",
+        agent: "worker",
+        status: "started",
+        parentToolCallId: "tool-1",
+        index: 0,
+      },
+    });
+    expect(omp.runningToolCallIds()).toEqual(["tool-1"]);
+    expect(omp.subagentUpserts()).toEqual([{ id: "child-1", status: "running" }]);
+
+    await omp.interrupt();
+
+    expect(omp.canceledTurnCount()).toBe(1);
+    expect(omp.runningToolCallIds()).toEqual([]);
+    expect(omp.subagentUpserts()).toEqual([
+      { id: "child-1", status: "running" },
+      { id: "child-1", status: "canceled" },
+    ]);
+
+    // Late progress after interrupt must not resurrect a running card.
+    runtime.emit({
+      type: "subagent_progress",
+      payload: {
+        id: "child-1",
+        agent: "worker",
+        index: 0,
+        progress: { id: "child-1", status: "running" },
+        parentToolCallId: "tool-1",
+      },
+    });
+    expect(omp.runningToolCallIds()).toEqual([]);
+  });
+
+  test("a resumed session does not re-emit replayed events as live timeline items", async () => {
+    const omp = new OmpHarness();
+    await omp.resume({
+      user: { id: "user-history", text: "continue the audit" },
+      assistant: { id: "assistant-history", text: "audit context restored" },
+    });
+
+    const runtime = omp.runtime();
+    // OMP replays pre-existing conversation on startup with --session.
+    runtime.acceptPrompt("continue the audit", "user-history");
+    runtime.streamAssistantText("audit context restored", "assistant-history");
+    expect(omp.timeline()).toEqual([]);
+
+    // The first live prompt flows normally.
+    await expect(omp.runPrompt("next step", "on it")).resolves.toMatchObject({
+      finalText: "on it",
+    });
+    expect(omp.timeline()).toEqual([
+      { type: "user_message", text: "next step", messageId: "user-1" },
+      { type: "assistant_message", text: "on it", messageId: "omp-assistant-1" },
+    ]);
+  });
+
+  test("re-emitted user message_end frames dedupe by native entry id", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    await expect(omp.runPrompt("hello OMP", "hello from OMP")).resolves.toMatchObject({
+      finalText: "hello from OMP",
+    });
+    // OMP can re-send message_end for an entry it already surfaced.
+    omp.runtime().acceptPrompt("hello OMP", "user-1");
+    expect(omp.timeline().filter((item) => item.type === "user_message")).toEqual([
+      { type: "user_message", text: "hello OMP", messageId: "user-1" },
+    ]);
+  });
 });

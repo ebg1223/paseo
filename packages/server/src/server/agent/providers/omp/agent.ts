@@ -183,6 +183,12 @@ interface OmpAgentSessionOptions {
   subagentCardScheduler?: OmpSubagentCardScheduler;
   providerIdleScheduler?: OmpProviderIdleScheduler;
   paseoTools?: PaseoToolCatalog;
+  /**
+   * When false (resumed sessions), replayed session events are dropped until
+   * the first prompt or agent_start so history is not re-emitted as live
+   * timeline items.
+   */
+  live?: boolean;
 }
 
 function createOmpProviderIdleScheduler(): OmpProviderIdleScheduler {
@@ -907,6 +913,8 @@ export class OmpAgentSession implements AgentSession {
   private readonly currentModeId: string | null;
   private readonly providerIdleScheduler: OmpProviderIdleScheduler;
   private closed = false;
+  private live: boolean;
+  private readonly emittedUserMessageIds = new Set<string>();
 
   constructor(options: OmpAgentSessionOptions) {
     this.runtimeSession = options.runtimeSession;
@@ -915,6 +923,7 @@ export class OmpAgentSession implements AgentSession {
     this.currentModeId = options.currentModeId ?? null;
     this.logger = options.logger;
     this.paseoTools = options.paseoTools;
+    this.live = options.live ?? true;
     this.providerIdleScheduler = options.providerIdleScheduler ?? createOmpProviderIdleScheduler();
     this.subagentCardTracker = new OmpSubagentCardTracker({
       scheduler: options.subagentCardScheduler,
@@ -970,6 +979,7 @@ export class OmpAgentSession implements AgentSession {
 
     const payload = convertPromptInput(prompt, { model: this.state.model });
     const turnId = randomUUID();
+    this.live = true;
     this.activeTurnId = turnId;
     this.activeAssistantMessageId = null;
     this.activeTurnStarted = false;
@@ -1128,7 +1138,7 @@ export class OmpAgentSession implements AgentSession {
     try {
       await this.runtimeSession.abort();
     } finally {
-      this.clearOmpTurnState();
+      this.terminalizeActiveWork();
     }
     if (turnId && this.activeTurnId === turnId) {
       this.activeTurnId = null;
@@ -1180,6 +1190,17 @@ export class OmpAgentSession implements AgentSession {
     this.subagentCardTracker.clear();
   }
 
+  private terminalizeActiveWork(): void {
+    for (const [toolCallId, toolCall] of this.activeToolCalls) {
+      this.emitToolCallEvent(toolCallId, toolCall, "canceled", null, null);
+    }
+    this.activeToolCalls.clear();
+    for (const event of this.subagentIndex.terminalizeRunning(this.runtimeSession)) {
+      this.emit(event);
+    }
+    this.clearOmpTurnState();
+  }
+
   async listCommands(): Promise<AgentSlashCommand[]> {
     if (this.commandCache) {
       return this.commandCache;
@@ -1198,6 +1219,7 @@ export class OmpAgentSession implements AgentSession {
     if (!parsed) {
       return null;
     }
+    this.live = true;
     const commandName = parsed.commandName.toLowerCase();
     if (commandName === "compact") {
       return {
@@ -1719,6 +1741,14 @@ export class OmpAgentSession implements AgentSession {
       return;
     }
     if (isOmpAgentSessionEvent(event)) {
+      if (event.type === "agent_start") {
+        this.live = true;
+      } else if (!this.live) {
+        // A resumed OMP process replays session events for pre-existing
+        // conversation on startup; that content is delivered via
+        // streamHistory, so replay must not re-enter the live timeline.
+        return;
+      }
       this.handleSessionEvent(event);
       return;
     }
@@ -1726,7 +1756,8 @@ export class OmpAgentSession implements AgentSession {
   }
 
   private handleProcessExit(error: string): void {
-    this.clearOmpSessionState();
+    this.terminalizeActiveWork();
+    this.subagentIndex.clear(this.runtimeSession);
     if (!this.activeTurnId) {
       return;
     }
@@ -1972,6 +2003,15 @@ export class OmpAgentSession implements AgentSession {
     const nativeMessage = event.message as OmpAgentMessage & { id?: unknown; entryId?: unknown };
     const messageId = readNativeMessageId(nativeMessage);
     const emitUserMessage = (resolvedMessageId?: string): void => {
+      if (resolvedMessageId) {
+        // OMP re-emits user message_end frames for entries it has already
+        // surfaced (e.g. after steer or a resumed process); emit each native
+        // entry exactly once.
+        if (this.emittedUserMessageIds.has(resolvedMessageId)) {
+          return;
+        }
+        this.emittedUserMessageIds.add(resolvedMessageId);
+      }
       this.emit({
         type: "timeline",
         provider: this.provider,
@@ -2004,7 +2044,7 @@ export class OmpAgentSession implements AgentSession {
   private emitToolCallEvent(
     toolCallId: string,
     toolCall: OmpTrackedToolCall,
-    status: "running" | "completed" | "failed",
+    status: "running" | "completed" | "failed" | "canceled",
     result: OmpToolResult,
     error: unknown,
   ): boolean {
@@ -2221,6 +2261,7 @@ export class OmpAgentClient implements AgentClient {
         subagentCardScheduler: this.subagentCardScheduler,
         providerIdleScheduler: this.providerIdleScheduler,
         paseoTools: launchContext?.paseoTools,
+        live: false,
       });
     } catch (error) {
       await runtimeSession.close().catch(() => undefined);

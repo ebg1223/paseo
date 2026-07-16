@@ -279,8 +279,42 @@ export class OmpHarness {
     await this.requireSession().interrupt();
   }
 
+  async requireStartTurn(message: string): Promise<void> {
+    const promptStarted = this.omp.latestSession().nextPrompt();
+    await this.requireSession().startTurn(message);
+    await promptStarted;
+  }
+
+  async interrupt(): Promise<void> {
+    await this.requireSession().interrupt();
+  }
+
   wasAborted(): boolean {
     return this.omp.latestSession().abortRequested;
+  }
+
+  runtime() {
+    return this.omp.latestSession();
+  }
+
+  runningToolCallIds(): string[] {
+    const statusByCall = new Map<string, string>();
+    for (const item of this.timeline()) {
+      if (item.type === "tool_call") {
+        statusByCall.set(item.callId, item.status);
+      }
+    }
+    return [...statusByCall.entries()]
+      .filter(([, status]) => status === "running")
+      .map(([callId]) => callId);
+  }
+
+  subagentUpserts(): Array<{ id: string; status: string }> {
+    return this.events.flatMap((event) =>
+      event.type === "provider_subagent" && event.event.type === "upsert"
+        ? [{ id: event.event.id, status: event.event.status }]
+        : [],
+    );
   }
 
   canceledTurnCount(): number {

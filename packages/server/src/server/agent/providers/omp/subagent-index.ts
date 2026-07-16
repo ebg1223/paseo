@@ -14,6 +14,7 @@ interface OmpSubagentState {
   description: string | null;
   resolvedModel: string | null;
   toolCallId: string | null;
+  status: "running" | "completed" | "failed" | "canceled";
   mapper: OmpHistoryMapper;
 }
 
@@ -25,7 +26,8 @@ export class OmpSubagentIndex {
     state.title = payload.agent || state.title;
     state.description = payload.description ?? state.description;
     state.toolCallId = payload.parentToolCallId ?? state.toolCallId;
-    return [this.upsert(payload.id, mapLifecycleStatus(payload.status), state)];
+    state.status = mapLifecycleStatus(payload.status);
+    return [this.upsert(payload.id, state.status, state)];
   }
 
   handleProgress(parent: object, payload: OmpSubagentProgressPayload): AgentStreamEvent[] {
@@ -37,7 +39,8 @@ export class OmpSubagentIndex {
       state.resolvedModel = payload.progress.resolvedModel;
     }
     state.toolCallId = payload.parentToolCallId ?? state.toolCallId;
-    return [this.upsert(id, mapProgressStatus(payload.progress.status), state)];
+    state.status = mapProgressStatus(payload.progress.status);
+    return [this.upsert(id, state.status, state)];
   }
 
   handleEvent(parent: object, payload: OmpSubagentEventPayload): AgentStreamEvent[] {
@@ -61,6 +64,22 @@ export class OmpSubagentIndex {
     );
   }
 
+  terminalizeRunning(parent: object): AgentStreamEvent[] {
+    const states = this.statesByParent.get(parent);
+    if (!states) {
+      return [];
+    }
+    const events: AgentStreamEvent[] = [];
+    for (const [id, state] of states) {
+      if (state.status !== "running") {
+        continue;
+      }
+      state.status = "canceled";
+      events.push(this.upsert(id, state.status, state));
+    }
+    return events;
+  }
+
   clear(parent: object): void {
     this.statesByParent.delete(parent);
   }
@@ -74,6 +93,7 @@ export class OmpSubagentIndex {
       description: null,
       resolvedModel: null,
       toolCallId: null,
+      status: "running",
       mapper: new OmpHistoryMapper("omp", [], OMP_HISTORY_MAPPER_HOOKS),
     };
     states.set(id, state);
