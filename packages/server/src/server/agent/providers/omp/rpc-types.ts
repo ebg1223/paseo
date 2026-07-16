@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { PiAgentMessage, PiAgentSessionEvent } from "../pi-shared/rpc-types.js";
+import type { PiAgentMessage, PiAgentSessionEvent } from "@getpaseo/provider-sdk/pi-rpc";
 
 export type OmpSubagentSubscriptionLevel = "off" | "progress" | "events";
 

@@ -1,4 +1,4 @@
-import type { AgentStreamEvent, AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js";
+import type { AgentStreamEvent, AgentTimelineItem, ToolCallDetail } from "@getpaseo/provider-sdk";
 import type { PiAgentMessage, PiImageContent, PiTextContent } from "./rpc-types.js";
 import {
   extractTextFromToolResult,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import toolExecutionFrames from "./__fixtures__/tool_execution_bash_read_edit_write.json" with { type: "json" };
-import { parseToolArgs, parseToolResult } from "../pi-shared/tool-call-mapper.js";
+import { parseToolArgs, parseToolResult } from "@getpaseo/provider-sdk/pi-rpc";
 import { mapOmpToolDetail } from "./tool-call-mapper.js";
 
 describe("OMP tool call mapper", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import todoFrames from "./__fixtures__/todo_tool_reminder_state.json" with { type: "json" };
-import { parseToolResult } from "../pi-shared/tool-call-mapper.js";
+import { parseToolResult } from "@getpaseo/provider-sdk/pi-rpc";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
 
 describe("OMP todo mapper", () => {

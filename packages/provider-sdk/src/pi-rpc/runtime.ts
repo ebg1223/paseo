@@ -7,7 +7,7 @@ import type {
   PiSessionState,
   PiSessionStats,
 } from "./rpc-types.js";
-import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
+import type { ProviderRuntimeSettings } from "@getpaseo/provider-sdk";
 
 export interface PiRuntimeLaunch {
   cwd: string;

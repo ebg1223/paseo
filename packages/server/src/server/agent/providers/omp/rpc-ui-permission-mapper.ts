@@ -5,7 +5,7 @@ import type {
   AgentProvider,
   ToolCallDetail,
 } from "../../agent-sdk-types.js";
-import type { PiRuntimeEvent } from "../pi-shared/rpc-types.js";
+import type { PiRuntimeEvent } from "@getpaseo/provider-sdk/pi-rpc";
 
 const OMP_PROVIDER = "omp";
 const OMP_RPC_UI_TOOL_APPROVAL_METADATA = "omp_rpc_ui_tool_approval";

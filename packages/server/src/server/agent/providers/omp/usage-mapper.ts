@@ -1,5 +1,5 @@
 import type { AgentUsage } from "../../agent-sdk-types.js";
-import type { PiSessionState, PiSessionStats } from "../pi-shared/rpc-types.js";
+import type { PiSessionState, PiSessionStats } from "@getpaseo/provider-sdk/pi-rpc";
 
 export function mapOmpUsage(input: {
   stats: PiSessionStats;

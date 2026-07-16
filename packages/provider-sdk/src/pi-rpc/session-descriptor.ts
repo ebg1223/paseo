@@ -6,9 +6,9 @@ import path from "node:path";
 import type {
   ImportableProviderSession,
   ListImportableSessionsOptions,
-} from "../../agent-sdk-types.js";
-import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
-import { createRealpathAwarePathMatcher } from "../../../../utils/path.js";
+  ProviderRuntimeSettings,
+} from "@getpaseo/provider-sdk";
+import { createRealpathAwarePathMatcher } from "@getpaseo/provider-sdk/launch";
 
 const PI_CONFIG_DIR_NAME = ".pi";
 const PI_AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";

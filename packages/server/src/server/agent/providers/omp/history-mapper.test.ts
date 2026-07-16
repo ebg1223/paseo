@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
-import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
-import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
-import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
+import { streamPiHistory, type PiCapturedUserMessageEntry } from "@getpaseo/provider-sdk/pi-rpc";
+import type { PiAgentMessage } from "@getpaseo/provider-sdk/pi-rpc";
+import { FakePi } from "@getpaseo/provider-sdk/pi-rpc";
 import subagentSessionFixture from "./__fixtures__/subagent_session_file_paths.json" with { type: "json" };
 import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 import { OMP_HISTORY_MAPPER_HOOKS } from "./history-hooks.js";

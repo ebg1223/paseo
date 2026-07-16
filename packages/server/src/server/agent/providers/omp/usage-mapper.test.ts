@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import stateFrames from "./__fixtures__/get_state_context_usage.json" with { type: "json" };
 import statsFrames from "./__fixtures__/get_session_stats.json" with { type: "json" };
-import type { PiSessionState, PiSessionStats } from "../pi-shared/rpc-types.js";
+import type { PiSessionState, PiSessionStats } from "@getpaseo/provider-sdk/pi-rpc";
 import { mapOmpUsage } from "./usage-mapper.js";
 
 describe("OMP usage mapper", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { parseToolArgs, parseToolResult } from "../pi-shared/tool-call-mapper.js";
+import { parseToolArgs, parseToolResult } from "@getpaseo/provider-sdk/pi-rpc";
 import frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 import { OmpAvailableCommandsUpdateEventSchema } from "./rpc-types.js";
 import { mapOmpToolDetail } from "./tool-call-mapper.js";

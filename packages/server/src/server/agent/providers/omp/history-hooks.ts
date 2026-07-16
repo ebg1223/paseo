@@ -1,4 +1,4 @@
-import type { PiHistoryMapperHooks } from "../pi-shared/history-mapper.js";
+import type { PiHistoryMapperHooks } from "@getpaseo/provider-sdk/pi-rpc";
 import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
 import { mapOmpToolDetail } from "./tool-call-mapper.js";
 import { resolveOmpEmittedToolCallId } from "./tool-call-id.js";

@@ -23,9 +23,9 @@ import {
   type PiDialect,
   type PiToolDetailContext,
   type PiRpcAgentClientOptions,
-} from "../pi-shared/agent.js";
+} from "@getpaseo/provider-sdk/pi-rpc";
 import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagent-card-tracker.js";
-import type { PiRuntimeSession } from "../pi-shared/runtime.js";
+import type { PiRuntimeSession } from "@getpaseo/provider-sdk/pi-rpc";
 import {
   mapOmpAvailableCommandsUpdate,
   mapOmpRuntimeSlashCommands,

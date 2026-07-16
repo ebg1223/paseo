@@ -4,8 +4,8 @@ import { PassThrough } from "node:stream";
 import pino from "pino";
 import { describe, expect, test } from "vitest";
 
-import { PiCliRuntime } from "../pi-shared/cli-runtime.js";
-import type { PiRuntimeLaunch } from "../pi-shared/runtime.js";
+import { PiCliRuntime } from "@getpaseo/provider-sdk/pi-rpc";
+import type { PiRuntimeLaunch } from "@getpaseo/provider-sdk/pi-rpc";
 import { asOmpRuntimeSession } from "./runtime.js";
 import v17Frames from "./__fixtures__/rpc_compat_17_0_0.json" with { type: "json" };
 

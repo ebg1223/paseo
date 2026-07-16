@@ -1,4 +1,4 @@
-import type { PiTrackedToolCall } from "../pi-shared/tool-call-mapper.js";
+import type { PiTrackedToolCall } from "@getpaseo/provider-sdk/pi-rpc";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

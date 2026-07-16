@@ -5,7 +5,7 @@ import {
   buildOmpRpcUiPermissionResponse,
   classifyOmpRpcUiPermissionRequest,
 } from "./rpc-ui-permission-mapper.js";
-import type { PiRuntimeEvent } from "../pi-shared/rpc-types.js";
+import type { PiRuntimeEvent } from "@getpaseo/provider-sdk/pi-rpc";
 
 type ExtensionUiRequestEvent = Extract<PiRuntimeEvent, { type: "extension_ui_request" }>;
 

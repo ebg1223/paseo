@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import pino from "pino";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 
-import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
+import { FakePi } from "@getpaseo/provider-sdk/pi-rpc";
 import { OmpRpcAgentClient } from "./agent.js";
 import { asOmpRuntimeSession } from "./runtime.js";
 

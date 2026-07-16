@@ -39,31 +39,31 @@ import {
   type ListImportableSessionsOptions,
   type ProviderCatalog,
   type ToolCallDetail,
-} from "../../agent-sdk-types.js";
-import type { PaseoToolCatalog } from "../../tools/types.js";
-import { importSessionFromPersistence } from "../../provider-session-import.js";
-import { runProviderTurn } from "../provider-runner.js";
+} from "@getpaseo/provider-sdk";
+import type { PaseoToolCatalog } from "@getpaseo/provider-sdk";
+import { importSessionFromPersistence } from "@getpaseo/provider-sdk";
+import { runProviderTurn } from "@getpaseo/provider-sdk";
 import {
   checkProviderLaunchAvailable,
   resolveProviderLaunch,
   type ProviderRuntimeSettings,
   type ResolvedProviderLaunch,
-} from "../../provider-launch-config.js";
-import { renderPromptAttachmentAsText } from "../../prompt-attachments.js";
-import { composeSystemPromptParts } from "../../system-prompt.js";
+} from "@getpaseo/provider-sdk";
+import { renderPromptAttachmentAsText } from "@getpaseo/provider-sdk";
+import { composeSystemPromptParts } from "@getpaseo/provider-sdk";
 import {
   buildBinaryDiagnosticRows,
   buildCommandResolutionDiagnosticRows,
   formatProviderDiagnostic,
   formatProviderDiagnosticError,
   toDiagnosticErrorMessage,
-} from "../diagnostic-utils.js";
+} from "@getpaseo/provider-sdk";
 import {
   getUserMessageText,
   streamPiHistory,
   type PiCapturedUserMessageEntry,
 } from "./history-mapper.js";
-import { materializeProviderImage } from "../provider-image-output.js";
+import { materializeProviderImage } from "@getpaseo/provider-sdk";
 import { PiCliRuntime } from "./cli-runtime.js";
 import { revertPiConversation } from "./rewind.js";
 import { listPiImportableSessions, readPiImportSessionConfig } from "./session-descriptor.js";

@@ -1,6 +1,6 @@
 import type { AgentTimelineItem } from "../../agent-sdk-types.js";
-import type { PiSessionState } from "../pi-shared/rpc-types.js";
-import type { PiToolResult } from "../pi-shared/tool-call-mapper.js";
+import type { PiSessionState } from "@getpaseo/provider-sdk/pi-rpc";
+import type { PiToolResult } from "@getpaseo/provider-sdk/pi-rpc";
 import {
   OmpTodoPhaseSchema,
   OmpTodoReminderEventSchema,

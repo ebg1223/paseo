@@ -1,2 +1,2 @@
-export { revertPiConversation } from "../pi-shared/rewind.js";
-export type { PiRewindNavigator } from "../pi-shared/rewind.js";
+export { revertPiConversation } from "@getpaseo/provider-sdk/pi-rpc";
+export type { PiRewindNavigator } from "@getpaseo/provider-sdk/pi-rpc";

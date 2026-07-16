@@ -1,9 +1,8 @@
 import { type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Logger } from "pino";
 
-import { spawnProcess } from "../../../../utils/spawn.js";
-import { terminateWithTreeKill } from "../../../../utils/tree-kill.js";
-import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
+import { spawnProcess, terminateWithTreeKill } from "@getpaseo/provider-sdk/launch";
+import type { ProviderRuntimeSettings } from "@getpaseo/provider-sdk";
 import {
   buildPiLaunch,
   type PiRuntime,

@@ -1,4 +1,4 @@
-import type { PiRuntimeSession } from "../pi-shared/runtime.js";
+import type { PiRuntimeSession } from "@getpaseo/provider-sdk/pi-rpc";
 import type { OmpSubagentSubscriptionLevel } from "./rpc-types.js";
 
 export interface OmpRuntimeSession extends PiRuntimeSession {

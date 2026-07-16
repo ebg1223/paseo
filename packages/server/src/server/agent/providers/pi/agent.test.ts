@@ -17,8 +17,8 @@ import { describe, expect, onTestFinished, test } from "vitest";
 
 import type { AgentSession, AgentSessionConfig, AgentStreamEvent } from "../../agent-sdk-types.js";
 import { PiRpcAgentClient, transformPiModels } from "./agent.js";
-import { PiRpcAgentSession } from "../pi-shared/agent.js";
-import { FakePi } from "../pi-shared/test-utils/fake-pi.js";
+import { PiRpcAgentSession } from "@getpaseo/provider-sdk/pi-rpc";
+import { FakePi } from "@getpaseo/provider-sdk/pi-rpc";
 
 const ONE_BY_ONE_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";

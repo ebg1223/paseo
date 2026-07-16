@@ -1,1 +1,1 @@
-export * from "../pi-shared/cli-runtime.js";
+export * from "@getpaseo/provider-sdk/pi-rpc";

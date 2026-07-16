@@ -4,7 +4,7 @@ import {
   mapToolDetail as mapPiToolDetail,
   type PiToolResult,
   type PiTrackedToolCall,
-} from "../pi-shared/tool-call-mapper.js";
+} from "@getpaseo/provider-sdk/pi-rpc";
 
 export function mapOmpToolDetail(
   toolCall: PiTrackedToolCall,

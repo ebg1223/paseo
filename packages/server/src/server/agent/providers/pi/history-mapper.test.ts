@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import type { AgentStreamEvent } from "../../agent-sdk-types.js";
-import type { PiAgentMessage } from "../pi-shared/rpc-types.js";
-import { streamPiHistory, type PiCapturedUserMessageEntry } from "../pi-shared/history-mapper.js";
+import type { PiAgentMessage } from "@getpaseo/provider-sdk/pi-rpc";
+import { streamPiHistory, type PiCapturedUserMessageEntry } from "@getpaseo/provider-sdk/pi-rpc";
 
 async function collectHistory(
   messages: PiAgentMessage[],
