@@ -38,6 +38,14 @@ export default defineConfig({
         find: /^@getpaseo\/relay$/,
         replacement: path.resolve(__dirname, "packages/relay/src/index.ts"),
       },
+      {
+        find: /^@getpaseo\/provider-sdk\/(launch|history|pi-rpc)$/,
+        replacement: path.resolve(__dirname, "packages/provider-sdk/src/$1/index.ts"),
+      },
+      {
+        find: /^@getpaseo\/provider-sdk$/,
+        replacement: path.resolve(__dirname, "packages/provider-sdk/src/index.ts"),
+      },
       { find: "@", replacement: path.resolve(appDir, "src") },
       { find: "@server", replacement: path.resolve(__dirname, "packages/server/src") },
       {

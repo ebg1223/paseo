@@ -5,7 +5,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
-import * as executableUtils from "../../../../executable-resolution/executable-resolution.js";
+// Spy target must be the exact module the SDK's launch resolution uses
+// internally, not the subpath index re-export.
+import * as executableUtils from "../../../../../../provider-sdk/src/launch/executable-resolution.js";
 import {
   ClaudeAgentClient,
   convertClaudeHistoryEntry,
