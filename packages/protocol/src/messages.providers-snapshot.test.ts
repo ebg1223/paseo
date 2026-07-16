@@ -16,6 +16,30 @@ describe("provider snapshot message schemas", () => {
     expect(parsed.enabled).toBe(true);
   });
 
+  test("parses provider presentation metadata", () => {
+    const parsed = ProviderSnapshotEntrySchema.parse({
+      provider: "omp",
+      status: "ready",
+      iconName: "omp",
+      commandTemplates: { resume: "omp --session {sessionId}" },
+    });
+
+    expect(parsed).toMatchObject({
+      iconName: "omp",
+      commandTemplates: { resume: "omp --session {sessionId}" },
+    });
+  });
+
+  test("parses legacy provider entries without presentation metadata", () => {
+    const parsed = ProviderSnapshotEntrySchema.parse({
+      provider: "codex",
+      status: "ready",
+    });
+
+    expect(parsed.iconName).toBeUndefined();
+    expect(parsed.commandTemplates).toBeUndefined();
+  });
+
   test("preserves disabled provider snapshot entries", () => {
     const parsed = ProviderSnapshotEntrySchema.parse({
       provider: "claude",

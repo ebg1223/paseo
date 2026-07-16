@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Logger } from "pino";
 import { z } from "zod";
-import { OMP_MODES } from "@getpaseo/protocol/provider-manifest";
+import { OMP_MODES } from "./module.js";
 
 import type {
   AgentTimelineItem,

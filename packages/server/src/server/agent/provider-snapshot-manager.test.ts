@@ -125,6 +125,35 @@ describe("ProviderSnapshotManager public surface", () => {
     }
   });
 
+  test("ready entries carry registry icon and command metadata", async () => {
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      providerOverrides: { omp: { enabled: true } },
+      extraClients: {
+        claude: createExtraClient("claude", { isAvailable: async () => true }),
+        omp: createExtraClient("omp", { isAvailable: async () => true }),
+      },
+    });
+    try {
+      const entries = await manager.listProviders({
+        cwd: "/tmp/project",
+        providers: ["omp", "claude"],
+        wait: true,
+      });
+
+      expect(entries.find((entry) => entry.provider === "omp")).toMatchObject({
+        iconName: "omp",
+        commandTemplates: { resume: "omp --session {sessionId}" },
+      });
+      expect(entries.find((entry) => entry.provider === "claude")).toMatchObject({
+        iconName: "claude",
+        commandTemplates: { resume: "claude --resume {sessionId}" },
+      });
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("providerOverrides with enabled:false marks the provider as unavailable without probing", async () => {
     const isAvailable = vi.fn(async () => true);
     const fetchCatalog = vi.fn(async () => ({

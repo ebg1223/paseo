@@ -60,7 +60,7 @@ import {
 } from "./agent-stream-coalescer.js";
 import { limitAgentTimelineItemContent } from "./agent-timeline-content.js";
 import { ForegroundRunState, type ForegroundTurnWaiter } from "./foreground-run-state.js";
-import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
+import { getBuiltinDefinition } from "./builtin-provider-modules.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
 import { isSystemInjectedEnvelope } from "./agent-prompt.js";
 import { stripInternalPaseoMcpServer, withRuntimePaseoMcpServer } from "./runtime-mcp-config.js";
@@ -3940,12 +3940,7 @@ export class AgentManager {
     }
 
     if (!normalized.modeId) {
-      try {
-        normalized.modeId =
-          getAgentProviderDefinition(normalized.provider).defaultModeId ?? undefined;
-      } catch {
-        // Unknown provider
-      }
+      normalized.modeId = getBuiltinDefinition(normalized.provider)?.defaultModeId ?? undefined;
     }
 
     return normalized;

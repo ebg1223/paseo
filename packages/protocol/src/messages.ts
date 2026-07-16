@@ -270,6 +270,8 @@ export const ProviderSnapshotEntrySchema = z.object({
   label: z.string().optional(),
   description: z.string().optional(),
   defaultModeId: z.string().nullable().optional(),
+  iconName: z.string().optional(),
+  commandTemplates: z.object({ resume: z.string().optional() }).optional(),
 });
 
 const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z

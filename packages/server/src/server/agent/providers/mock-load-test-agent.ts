@@ -29,11 +29,20 @@ import type {
   ToolCallTimelineItem,
 } from "../agent-sdk-types.js";
 import { importSessionFromPersistence } from "../provider-session-import.js";
-import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
+import type { AgentProviderModeDefinition } from "@getpaseo/protocol/provider-manifest";
 
 export const MOCK_LOAD_TEST_PROVIDER_ID = "mock";
 export const MOCK_LOAD_TEST_DEFAULT_MODEL_ID = "five-minute-stream";
 const MOCK_LOAD_TEST_MODE_ID = "load-test";
+export const MOCK_LOAD_TEST_MODES: AgentProviderModeDefinition[] = [
+  {
+    id: MOCK_LOAD_TEST_MODE_ID,
+    label: "Load Test",
+    description: "Streams repeated markdown, reasoning, and tool calls for app stress testing",
+    icon: "ShieldOff",
+    colorTier: "dangerous",
+  },
+];
 const MOCK_LOAD_TEST_DURATION_MS = 5 * 60 * 1000;
 const MOCK_LOAD_TEST_INTERVAL_MS = 40;
 
@@ -538,7 +547,7 @@ export class MockLoadTestAgentClient implements AgentClient {
   async fetchCatalog(_options: FetchCatalogOptions): Promise<ProviderCatalog> {
     return {
       models: MODELS,
-      modes: getAgentProviderDefinition(MOCK_LOAD_TEST_PROVIDER_ID).modes,
+      modes: MOCK_LOAD_TEST_MODES,
     };
   }
 
@@ -691,7 +700,7 @@ export class MockLoadTestAgentSession implements AgentSession {
   }
 
   async getAvailableModes(): Promise<AgentMode[]> {
-    return getAgentProviderDefinition(MOCK_LOAD_TEST_PROVIDER_ID).modes;
+    return MOCK_LOAD_TEST_MODES;
   }
 
   async getCurrentMode(): Promise<string | null> {

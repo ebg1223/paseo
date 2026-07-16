@@ -56,12 +56,9 @@ export {
 export { findExecutable } from "../executable-resolution/executable-resolution.js";
 export { execCommand, spawnProcess } from "../utils/spawn.js";
 
-// Provider manifest (source of truth for provider definitions)
-export {
-  AGENT_PROVIDER_DEFINITIONS,
-  BUILTIN_PROVIDER_IDS,
-  type AgentProviderDefinition,
-} from "@getpaseo/protocol/provider-manifest";
+// Provider registry (source of truth for built-in provider definitions)
+export { BUILTIN_PROVIDER_IDS, getBuiltinDefinition } from "./agent/builtin-provider-modules.js";
+export type { AgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 
 // Agent SDK types for CLI commands
 export type {

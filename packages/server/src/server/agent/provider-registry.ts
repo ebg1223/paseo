@@ -28,35 +28,21 @@ import type {
   ProviderProfileModel,
   ProviderRuntimeSettings,
 } from "./provider-launch-config.js";
-import { ClaudeAgentClient } from "./providers/claude/agent.js";
-import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
-import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
+import type { ProviderModule } from "./provider-module.js";
 import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
 import { GenericACPAgentClient } from "./providers/generic-acp-agent.js";
 import { KiroACPAgentClient } from "./providers/kiro-acp-agent.js";
-import { OpenCodeAgentClient } from "./providers/opencode-agent.js";
-import { OmpRpcAgentClient } from "./providers/omp/agent.js";
-import { PiRpcAgentClient } from "./providers/pi/agent.js";
 import { TraeACPAgentClient } from "./providers/trae-acp-agent.js";
-import { MockLoadTestAgentClient } from "./providers/mock-load-test-agent.js";
-import { MockSlowProviderClient } from "./providers/mock-slow-provider.js";
-import {
-  AGENT_PROVIDER_DEFINITIONS,
-  BUILTIN_PROVIDER_IDS,
-  DEV_AGENT_PROVIDER_DEFINITIONS,
-  getAgentProviderDefinition,
-  type AgentProviderDefinition,
-} from "@getpaseo/protocol/provider-manifest";
+import { BUILTIN_PROVIDER_MODULES } from "./builtin-provider-modules.js";
+import type { AgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 
 function isNonEmptyStringArray(value: string[]): value is [string, ...string[]] {
   return value.length > 0;
 }
 
-export type { AgentProviderDefinition };
-
-export { AGENT_PROVIDER_DEFINITIONS, getAgentProviderDefinition };
-
 export interface ProviderDefinition extends AgentProviderDefinition {
+  iconName?: string;
+  commandTemplates?: { resume?: string };
   enabled: boolean;
   /**
    * The id of another *registered* provider this one extends (e.g. a Z.AI
@@ -74,34 +60,22 @@ export interface ProviderDefinition extends AgentProviderDefinition {
   fetchCatalog: (options: FetchCatalogOptions, client?: AgentClient) => Promise<ProviderCatalog>;
 }
 
+export type { AgentProviderDefinition };
+
 export interface BuildProviderRegistryOptions {
   runtimeSettings?: AgentProviderRuntimeSettingsMap;
   providerOverrides?: Record<string, ProviderOverride>;
   workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot">;
   managedProcesses?: ManagedProcessRegistry;
   isDev?: boolean;
+  /** Provider modules to register. Defaults to the bundled built-ins. */
+  modules?: ProviderModule[];
 }
-
-interface ProviderClientFactoryOptions extends Pick<
-  BuildProviderRegistryOptions,
-  "workspaceGitService" | "managedProcesses"
-> {
-  providerParams?: unknown;
-  customProvider?: {
-    id: string;
-    label: string;
-    extends: string;
-  };
-}
-
-type ProviderClientFactory = (
-  logger: Logger,
-  runtimeSettings?: ProviderRuntimeSettings,
-  options?: ProviderClientFactoryOptions,
-) => AgentClient;
 
 interface ResolvedProvider {
   definition: AgentProviderDefinition;
+  iconName?: string;
+  commandTemplates?: { resume?: string };
   runtimeSettings?: ProviderRuntimeSettings;
   profileModels: ProviderProfileModel[];
   additionalModels: ProviderProfileModel[];
@@ -110,69 +84,6 @@ interface ResolvedProvider {
   derivedFromProviderId: string | null;
   providerParams?: unknown;
   createBaseClient: (logger: Logger) => AgentClient;
-}
-
-const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
-  claude: (logger, runtimeSettings) =>
-    new ClaudeAgentClient({
-      logger,
-      runtimeSettings,
-    }),
-  codex: (logger, runtimeSettings, options) =>
-    new CodexAppServerAgentClient(logger, runtimeSettings, {
-      workspaceGitService: options?.workspaceGitService,
-      customProvider: options?.customProvider,
-    }),
-  copilot: (logger, runtimeSettings) =>
-    new CopilotACPAgentClient({
-      logger,
-      runtimeSettings,
-    }),
-  cursor: (logger, runtimeSettings) =>
-    new CursorACPAgentClient({
-      logger,
-      command: getCursorACPCommand(runtimeSettings),
-      env: runtimeSettings?.env,
-    }),
-  opencode: (logger, runtimeSettings, options) =>
-    new OpenCodeAgentClient(logger, runtimeSettings, {
-      managedProcesses: options?.managedProcesses,
-    }),
-  pi: (logger, runtimeSettings, options) =>
-    new PiRpcAgentClient({
-      logger,
-      runtimeSettings,
-      providerParams: options?.providerParams,
-    }),
-  omp: (logger, runtimeSettings, options) =>
-    new OmpRpcAgentClient({
-      logger,
-      runtimeSettings,
-      providerParams: options?.providerParams,
-    }),
-  mock: (logger) => new MockLoadTestAgentClient(logger),
-  "mock-slow": () => new MockSlowProviderClient(),
-};
-
-function getCursorACPCommand(
-  runtimeSettings: ProviderRuntimeSettings | undefined,
-): [string, ...string[]] {
-  if (
-    runtimeSettings?.command?.mode === "replace" &&
-    isNonEmptyStringArray(runtimeSettings.command.argv)
-  ) {
-    return runtimeSettings.command.argv;
-  }
-
-  return ["cursor-agent", "acp"];
-}
-
-function getProviderClientFactory(provider: string): ProviderClientFactory {
-  const factory = PROVIDER_CLIENT_FACTORIES[provider];
-  if (!factory) {
-    throw new Error(`No provider client factory registered for '${provider}'`);
-  }
-  return factory;
 }
 
 function toRuntimeSettings(override?: ProviderOverride): ProviderRuntimeSettings | undefined {
@@ -498,6 +409,8 @@ function createRegistryEntry(
 
   return {
     ...resolved.definition,
+    iconName: resolved.iconName,
+    commandTemplates: resolved.commandTemplates,
     enabled: resolved.enabled,
     derivedFromProviderId: resolved.derivedFromProviderId,
     createClient: (providerLogger: Logger) =>
@@ -560,6 +473,7 @@ function createResolvedProviderClient(
 }
 
 function buildResolvedBuiltinProviders(
+  registeredModules: ProviderModule[],
   providerOverrides: Record<string, ProviderOverride>,
   runtimeSettings: AgentProviderRuntimeSettingsMap | undefined,
   options: Pick<BuildProviderRegistryOptions, "workspaceGitService" | "managedProcesses">,
@@ -567,13 +481,12 @@ function buildResolvedBuiltinProviders(
 ): Map<string, ResolvedProvider> {
   const resolvedProviders = new Map<string, ResolvedProvider>();
 
-  const definitions = isDev
-    ? [...AGENT_PROVIDER_DEFINITIONS, ...DEV_AGENT_PROVIDER_DEFINITIONS]
-    : AGENT_PROVIDER_DEFINITIONS;
+  const modules = isDev ? registeredModules : registeredModules.filter((module) => !module.devOnly);
 
-  for (const definition of definitions) {
+  for (const module of modules) {
+    const definition = module.definition;
     const override = providerOverrides[definition.id];
-    const factory = getProviderClientFactory(definition.id);
+    const factory = module.createClient;
     const mergedRuntimeSettings = mergeRuntimeSettings(
       runtimeSettings?.[definition.id],
       toRuntimeSettings(override),
@@ -581,6 +494,8 @@ function buildResolvedBuiltinProviders(
 
     resolvedProviders.set(definition.id, {
       definition: applyOverrideToDefinition(definition, override),
+      iconName: module.iconName,
+      commandTemplates: module.commandTemplates,
       runtimeSettings: mergedRuntimeSettings,
       profileModels: override?.models ?? [],
       additionalModels: override?.additionalModels ?? [],
@@ -601,12 +516,19 @@ function buildResolvedBuiltinProviders(
 }
 
 function addDerivedProviders(
+  registeredModules: ProviderModule[],
   resolvedProviders: Map<string, ResolvedProvider>,
   providerOverrides: Record<string, ProviderOverride>,
   options: Pick<BuildProviderRegistryOptions, "managedProcesses">,
 ): void {
+  // Reserved ids = production builtins (matches pre-refactor BUILTIN_PROVIDER_IDS
+  // semantics: dev-only module ids like "mock" stay overridable in production;
+  // in dev builds resolvedProviders already contains them).
+  const reservedIds = new Set(
+    registeredModules.filter((module) => !module.devOnly).map((module) => module.definition.id),
+  );
   for (const [providerId, override] of Object.entries(providerOverrides)) {
-    if (resolvedProviders.has(providerId) || BUILTIN_PROVIDER_IDS.includes(providerId)) {
+    if (resolvedProviders.has(providerId) || reservedIds.has(providerId)) {
       continue;
     }
 
@@ -677,11 +599,17 @@ function addDerivedProviders(
       toRuntimeSettings(override),
     );
     const baseDefinition = baseProvider.definition;
-    const baseFactory = getProviderClientFactory(baseProviderId);
+    const baseModule = registeredModules.find((module) => module.definition.id === baseProviderId);
+    if (!baseModule) {
+      throw new Error(`No provider client factory registered for '${baseProviderId}'`);
+    }
+    const baseFactory = baseModule.createClient;
     const providerParams = override.params ?? baseProvider.providerParams;
 
     resolvedProviders.set(providerId, {
       definition: createDerivedDefinition(providerId, baseDefinition, override),
+      iconName: baseModule.iconName,
+      commandTemplates: baseModule.commandTemplates,
       runtimeSettings: mergedRuntimeSettings,
       profileModels: override.models ?? [],
       additionalModels: override.additionalModels ?? [],
@@ -709,7 +637,9 @@ export function buildProviderRegistry(
 ): Record<AgentProvider, ProviderDefinition> {
   const runtimeSettings = options?.runtimeSettings;
   const providerOverrides = options?.providerOverrides ?? {};
+  const registeredModules = options?.modules ?? BUILTIN_PROVIDER_MODULES;
   const resolvedProviders = buildResolvedBuiltinProviders(
+    registeredModules,
     providerOverrides,
     runtimeSettings,
     {
@@ -718,7 +648,7 @@ export function buildProviderRegistry(
     },
     options?.isDev === true,
   );
-  addDerivedProviders(resolvedProviders, providerOverrides, {
+  addDerivedProviders(registeredModules, resolvedProviders, providerOverrides, {
     managedProcesses: options?.managedProcesses,
   });
 

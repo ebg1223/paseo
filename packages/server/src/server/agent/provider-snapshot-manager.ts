@@ -506,6 +506,8 @@ export class ProviderSnapshotManager {
         label: definition.label,
         description: definition.description,
         defaultModeId: definition.defaultModeId,
+        iconName: definition.iconName,
+        commandTemplates: definition.commandTemplates,
         error: toErrorMessage(error),
       };
     }
@@ -547,6 +549,8 @@ export class ProviderSnapshotManager {
         label: definition?.label,
         description: definition?.description,
         defaultModeId: definition?.defaultModeId ?? null,
+        iconName: definition?.iconName,
+        commandTemplates: definition?.commandTemplates,
       });
     }
     return entries;
@@ -565,6 +569,8 @@ export class ProviderSnapshotManager {
         label: definition?.label,
         description: definition?.description,
         defaultModeId: definition?.defaultModeId ?? null,
+        iconName: definition?.iconName,
+        commandTemplates: definition?.commandTemplates,
       };
 
       if (!definition?.enabled || !current || current.status === "loading") {
@@ -728,6 +734,8 @@ export class ProviderSnapshotManager {
       label: definition.label,
       description: definition.description,
       defaultModeId: definition.defaultModeId,
+      iconName: definition.iconName,
+      commandTemplates: definition.commandTemplates,
     };
     const setEntry = (entry: ProviderSnapshotEntry) => {
       if (!this.isCurrentProviderLoad(snapshotCwd, provider, load)) {

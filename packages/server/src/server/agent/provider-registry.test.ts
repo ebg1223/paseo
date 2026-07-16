@@ -495,11 +495,12 @@ vi.mock("./providers/trae-acp-agent.js", () => ({
   },
 }));
 
-import {
-  AGENT_PROVIDER_DEFINITIONS,
-  buildProviderRegistry,
-  createAllClients,
-} from "./provider-registry.js";
+import { buildProviderRegistry, createAllClients } from "./provider-registry.js";
+import { BUILTIN_PROVIDER_MODULES } from "./builtin-provider-modules.js";
+
+const NON_DEV_BUILTIN_DEFINITIONS = BUILTIN_PROVIDER_MODULES.filter(
+  (module) => !module.devOnly,
+).map((module) => module.definition);
 
 const logger = createTestLogger();
 
@@ -510,7 +511,40 @@ beforeEach(() => {
 test("builds registry with no overrides — same as built-in count", () => {
   const registry = buildProviderRegistry(logger);
 
-  expect(Object.keys(registry)).toHaveLength(AGENT_PROVIDER_DEFINITIONS.length);
+  expect(Object.keys(registry)).toHaveLength(NON_DEV_BUILTIN_DEFINITIONS.length);
+});
+
+test("builds registry from an explicit modules list", () => {
+  const stubClient = {
+    provider: "stub",
+    capabilities: {},
+    fetchCatalog: async () => ({ models: [], modes: [] }),
+  };
+  const stubModule = {
+    definition: {
+      id: "stub",
+      label: "Stub",
+      description: "Test-only module",
+      defaultModeId: "default",
+      modes: [],
+    },
+    iconName: "stub-icon",
+    commandTemplates: { resume: "stub --session {sessionId}" },
+    createClient: () => stubClient as never,
+  };
+
+  const registry = buildProviderRegistry(logger, { modules: [stubModule] });
+
+  expect(Object.keys(registry)).toEqual(["stub"]);
+  expect(registry.stub).toMatchObject({
+    id: "stub",
+    label: "Stub",
+    iconName: "stub-icon",
+    commandTemplates: { resume: "stub --session {sessionId}" },
+    enabled: true,
+    derivedFromProviderId: null,
+  });
+  expect(registry.stub.createClient(logger).provider).toBe("stub");
 });
 
 test("includes mock provider only for development builds", () => {
@@ -853,7 +887,7 @@ test("enabled: false keeps provider metadata in registry", () => {
     enabled: false,
   });
   expect(registry.claude.modes).toEqual(
-    AGENT_PROVIDER_DEFINITIONS.find((definition) => definition.id === "claude")?.modes,
+    NON_DEV_BUILTIN_DEFINITIONS.find((definition) => definition.id === "claude")?.modes,
   );
   expect(registry.codex.enabled).toBe(true);
 });

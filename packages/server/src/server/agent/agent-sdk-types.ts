@@ -112,6 +112,8 @@ export interface ProviderSnapshotEntry {
   label?: string;
   description?: string;
   defaultModeId?: string | null;
+  iconName?: string;
+  commandTemplates?: { resume?: string };
 }
 
 export interface AgentCreateConfigParent {
