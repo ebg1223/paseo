@@ -1689,7 +1689,7 @@ function WorkspaceScreenContent({
   }, []);
 
   // Warm the workspace-scoped provider snapshot so the model picker is ready when opened.
-  useProvidersSnapshot(normalizedServerId, {
+  const { entries: providerSnapshotEntries } = useProvidersSnapshot(normalizedServerId, {
     cwd: workspaceDirectory,
     enabled: isRouteFocused,
   });
@@ -2634,11 +2634,15 @@ function WorkspaceScreenContent({
         return;
       }
 
+      const snapshotEntry = providerSnapshotEntries?.find(
+        (candidate) => candidate.provider === agent.provider,
+      );
       const command =
         buildProviderCommand({
           provider: agent.provider,
           id: "resume",
           sessionId: providerSessionId,
+          templates: snapshotEntry?.commandTemplates,
         }) ?? null;
       if (!command) {
         toast.error(t("workspace.tabs.toasts.resumeCommandUnavailable"));
@@ -2651,7 +2655,7 @@ function WorkspaceScreenContent({
         toast.error(t("workspace.tabs.toasts.copyFailed"));
       }
     },
-    [normalizedServerId, toast, t],
+    [normalizedServerId, providerSnapshotEntries, toast, t],
   );
 
   const handleReloadAgent = useCallback(

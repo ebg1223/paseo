@@ -61,8 +61,8 @@ function getCatalogProviderIcon(provider: string): ProviderIconComponent {
   return icon;
 }
 
-export function getProviderIcon(provider: string): ProviderIconComponent {
-  const name = resolveProviderIconName(provider);
+export function getProviderIcon(provider: string, iconName?: string): ProviderIconComponent {
+  const name = resolveProviderIconName(provider, iconName);
   if (name.kind === "builtin") {
     return BUILTIN_PROVIDER_ICONS[name.id];
   }

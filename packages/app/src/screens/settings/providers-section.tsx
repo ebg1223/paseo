@@ -80,7 +80,7 @@ function ProviderRow({
 }: ProviderRowProps) {
   const { t } = useTranslation();
   const { theme } = useUnistyles();
-  const ProviderIcon = getProviderIcon(def.id);
+  const ProviderIcon = getProviderIcon(def.id, entry.iconName);
   const providerError =
     enabled &&
     entry.status === "error" &&

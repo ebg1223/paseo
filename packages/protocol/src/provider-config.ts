@@ -45,6 +45,7 @@ export const ProviderProfileModelSchema = z.object({
 
 export const ProviderOverrideSchema = z.object({
   extends: z.string().optional(),
+  module: z.string().optional(),
   label: z.string().optional(),
   description: z.string().optional(),
   command: z.array(z.string().min(1)).min(1).optional(),
@@ -76,11 +77,11 @@ export const ProviderOverridesSchema = z
       }
 
       const isBuiltinProvider = builtinProviderIdSet.has(providerId);
-      if (!isBuiltinProvider && !provider.extends) {
+      if (!isBuiltinProvider && !provider.extends && !provider.module) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [providerId, "extends"],
-          message: `Custom provider "${providerId}" must declare extends.`,
+          message: `Custom provider "${providerId}" must declare extends or module.`,
         });
       }
 
@@ -89,6 +90,22 @@ export const ProviderOverridesSchema = z
           code: z.ZodIssueCode.custom,
           path: [providerId, "label"],
           message: `Custom provider "${providerId}" must declare label.`,
+        });
+      }
+
+      if (provider.extends && provider.module) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [providerId, "module"],
+          message: `Provider "${providerId}" cannot declare both extends and module.`,
+        });
+      }
+
+      if (isBuiltinProvider && provider.module) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [providerId, "module"],
+          message: `Built-in provider "${providerId}" cannot declare module.`,
         });
       }
 

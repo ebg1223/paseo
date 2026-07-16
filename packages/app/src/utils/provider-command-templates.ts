@@ -36,8 +36,10 @@ export function buildProviderCommand(input: {
   provider: string;
   id: ProviderCommandId;
   sessionId: string;
+  templates?: Partial<Record<ProviderCommandId, string>>;
 }): string | null {
-  const template = PROVIDER_COMMAND_TEMPLATES[input.provider]?.[input.id] ?? null;
+  const template =
+    input.templates?.[input.id] ?? PROVIDER_COMMAND_TEMPLATES[input.provider]?.[input.id] ?? null;
   if (!template) {
     return null;
   }

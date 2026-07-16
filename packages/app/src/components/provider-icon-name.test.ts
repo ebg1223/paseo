@@ -24,6 +24,18 @@ describe("resolveProviderIconName", () => {
   it("falls back to the bot icon for unknown custom providers", () => {
     expect(resolveProviderIconName("custom-claude-profile")).toEqual({ kind: "bot" });
   });
+
+  it("prefers a known snapshot icon name and falls back when it is unknown", () => {
+    expect(resolveProviderIconName("custom-provider", "claude")).toEqual({
+      kind: "builtin",
+      id: "claude",
+    });
+    expect(resolveProviderIconName("codex", "not-an-icon")).toEqual({
+      kind: "builtin",
+      id: "codex",
+    });
+    expect(resolveProviderIconName("custom-provider", "not-an-icon")).toEqual({ kind: "bot" });
+  });
 });
 
 describe("known provider icon names", () => {
