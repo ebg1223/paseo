@@ -90,7 +90,7 @@ describe("OMP runtime event mapper", () => {
       handled: true,
       item: {
         type: "tool_call",
-        callId: "omp-auto-retry:1",
+        callId: "omp-auto-retry:1:1",
         name: "omp_auto_retry",
         status: "running",
         error: null,
@@ -121,7 +121,7 @@ describe("OMP runtime event mapper", () => {
       handled: true,
       item: {
         type: "tool_call",
-        callId: "omp-auto-retry:1",
+        callId: "omp-auto-retry:1:1",
         name: "omp_auto_retry",
         status: "failed",
         error: "still failed",
@@ -132,6 +132,25 @@ describe("OMP runtime event mapper", () => {
           icon: "sparkles",
         },
       },
+    });
+
+    const secondStart = mapOmpRuntimeEventToTimelineItem({
+      type: "auto_retry_start",
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 25,
+      errorMessage: "retrying again",
+    });
+    const secondEnd = mapOmpRuntimeEventToTimelineItem({
+      type: "auto_retry_end",
+      success: true,
+      attempt: 1,
+    });
+    expect(secondStart).toMatchObject({
+      item: { type: "tool_call", callId: "omp-auto-retry:2:1", status: "running" },
+    });
+    expect(secondEnd).toMatchObject({
+      item: { type: "tool_call", callId: "omp-auto-retry:2:1", status: "completed" },
     });
 
     expect(

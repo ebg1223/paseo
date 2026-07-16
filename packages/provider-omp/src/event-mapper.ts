@@ -19,6 +19,10 @@ import {
 
 type OmpTelemetryToolCallItem = Extract<AgentTimelineItem, { type: "tool_call" }>;
 
+let autoRetryCycle = 0;
+let previousAutoRetryStartAttempt: number | undefined;
+let autoRetryCycleEnded = true;
+
 export type OmpRuntimeEventMapping =
   | {
       handled: false;
@@ -139,10 +143,19 @@ function mapAutoRetryStartEvent(event: unknown): OmpRuntimeEventMapping {
     return { handled: true, item: null, logReason: "malformed_omp_auto_retry_start" };
   }
   const data = parsed.data;
+  if (
+    autoRetryCycleEnded ||
+    previousAutoRetryStartAttempt === undefined ||
+    data.attempt <= previousAutoRetryStartAttempt
+  ) {
+    autoRetryCycle += 1;
+  }
+  autoRetryCycleEnded = false;
+  previousAutoRetryStartAttempt = data.attempt;
   return {
     handled: true,
     item: buildStatusLineNotice({
-      callId: `omp-auto-retry:${data.attempt}`,
+      callId: `omp-auto-retry:${autoRetryCycle}:${data.attempt}`,
       name: "omp_auto_retry",
       label: `OMP retry ${data.attempt}/${data.maxAttempts}`,
       text: `Retrying in ${formatDelay(data.delayMs)}: ${data.errorMessage}`,
@@ -167,10 +180,11 @@ function mapAutoRetryEndEvent(event: unknown): OmpRuntimeEventMapping {
   }
   const data = parsed.data;
   const status = data.success ? "completed" : "failed";
+  autoRetryCycleEnded = true;
   return {
     handled: true,
     item: buildStatusLineNotice({
-      callId: `omp-auto-retry:${data.attempt}`,
+      callId: `omp-auto-retry:${autoRetryCycle}:${data.attempt}`,
       name: "omp_auto_retry",
       label: data.success
         ? `OMP retry ${data.attempt} recovered`

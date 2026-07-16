@@ -33,4 +33,14 @@ describe("buildProviderCommand", () => {
       }),
     ).toBe("opencode --session ses_abc123");
   });
+
+  test("falls back to the static OMP template against older daemons", () => {
+    expect(
+      buildProviderCommand({
+        provider: "omp",
+        id: "resume",
+        sessionId: "ses_abc123",
+      }),
+    ).toBe("omp --session ses_abc123");
+  });
 });

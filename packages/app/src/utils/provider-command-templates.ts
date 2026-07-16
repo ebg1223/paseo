@@ -23,6 +23,11 @@ export const PROVIDER_COMMAND_TEMPLATES: Record<
   opencode: {
     resume: "opencode --session {sessionId}",
   },
+  // Fallback for daemons that predate snapshot-provided commandTemplates.
+  // Remove once the minimum supported daemon protocol guarantees them.
+  omp: {
+    resume: "omp --session {sessionId}",
+  },
 };
 
 function renderTemplate(template: string, vars: Record<string, string>): string {

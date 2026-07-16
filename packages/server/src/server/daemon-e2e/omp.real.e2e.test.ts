@@ -44,7 +44,7 @@ async function preflight(): Promise<void> {
     });
   }
   const support = formatOmpVersionSupport(stdout);
-  if (!support.includes("supported")) {
+  if (!support.includes("(supported;")) {
     throw new Error(`OMP real E2E gate requires OMP >= ${MIN_SUPPORTED_OMP_VERSION}: ${support}`);
   }
 }
