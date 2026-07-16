@@ -172,7 +172,7 @@ describe("OMP agent client and session", () => {
       cwd: "/workspace/resumed",
       protocolMode: "rpc-ui",
       modeId: "ask",
-      session: expect.stringMatching(/\/paseo-omp-resume-.*\/session\.jsonl$/),
+      session: expect.stringMatching(/[\\/]paseo-omp-resume-.*[\\/]session\.jsonl$/),
       argv: [
         "omp",
         "--mode",
@@ -182,7 +182,7 @@ describe("OMP agent client and session", () => {
         "--thinking",
         "high",
         "--session",
-        expect.stringMatching(/\/paseo-omp-resume-.*\/session\.jsonl$/),
+        expect.stringMatching(/[\\/]paseo-omp-resume-.*[\\/]session\.jsonl$/),
       ],
     });
     await expect(omp.history()).resolves.toEqual([
