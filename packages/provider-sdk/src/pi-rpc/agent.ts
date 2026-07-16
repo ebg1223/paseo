@@ -283,7 +283,11 @@ export interface PiDialect {
     sessionsDir: string;
   }) => string[];
   onSessionStart?: (runtimeSession: PiRuntimeSession, logger: Logger) => void;
-  onSessionInterrupt?: (runtimeSession: PiRuntimeSession) => void;
+  onTurnFinished?: (input: {
+    runtimeSession: PiRuntimeSession;
+    reason: "completed" | "failed" | "canceled";
+    emit: (event: AgentStreamEvent) => void;
+  }) => void;
   beforeSessionClose?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
   onSessionProcessExit?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
   onSessionClose?: (runtimeSession: PiRuntimeSession) => void | Promise<void>;
@@ -372,6 +376,7 @@ interface PiRpcAgentSessionOptions {
   cleanup?: () => void;
   extensionTimeoutMs?: number;
   paseoTools?: PaseoToolCatalog;
+  live?: boolean;
 }
 
 interface PiResumeConfig {
@@ -1341,6 +1346,12 @@ function createRuntime(
   });
 }
 
+const TURN_FINISH_REASONS = {
+  turn_completed: "completed",
+  turn_failed: "failed",
+  turn_canceled: "canceled",
+} as const;
+
 export class PiRpcAgentSession implements AgentSession {
   readonly provider: AgentProvider;
   readonly capabilities: AgentCapabilityFlags;
@@ -1371,6 +1382,7 @@ export class PiRpcAgentSession implements AgentSession {
   private state: PiSessionState;
   private readonly currentModeId: string | null;
   private closed = false;
+  private live: boolean;
 
   constructor(options: PiRpcAgentSessionOptions) {
     this.runtimeSession = options.runtimeSession;
@@ -1389,6 +1401,7 @@ export class PiRpcAgentSession implements AgentSession {
       null;
     this.extensionTimeoutMs = options.extensionTimeoutMs ?? DEFAULT_PI_EXTENSION_RESULT_TIMEOUT_MS;
 
+    this.live = options.live ?? true;
     this.runtimeSession.onEvent((event) => {
       this.handleRuntimeEvent(event);
     });
@@ -1420,6 +1433,7 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   async startTurn(prompt: AgentPromptInput, _options?: AgentRunOptions): Promise<StartTurnResult> {
+    this.live = true;
     if (this.activeTurnId) {
       throw new Error("A Pi turn is already active");
     }
@@ -1460,25 +1474,21 @@ export class PiRpcAgentSession implements AgentSession {
         if (this.activeTurnId !== turnId) {
           return;
         }
-        this.activeTurnId = null;
-        this.activeTurnStarted = false;
-        this.activeAssistantMessageId = null;
-        this.clearNoTurnBuffers();
-        if (isPiRequestAbortError(error)) {
-          this.emit({
-            type: "turn_canceled",
-            provider: this.provider,
-            turnId,
-            reason: toDiagnosticErrorMessage(error),
-          });
-          return;
-        }
-        this.emit({
-          type: "turn_failed",
-          provider: this.provider,
-          turnId,
-          error: toDiagnosticErrorMessage(error),
-        });
+        this.finishTurn(
+          isPiRequestAbortError(error)
+            ? {
+                type: "turn_canceled",
+                provider: this.provider,
+                turnId,
+                reason: toDiagnosticErrorMessage(error),
+              }
+            : {
+                type: "turn_failed",
+                provider: this.provider,
+                turnId,
+                error: toDiagnosticErrorMessage(error),
+              },
+        );
       }
     })();
 
@@ -1597,21 +1607,13 @@ export class PiRpcAgentSession implements AgentSession {
 
   async interrupt(): Promise<void> {
     const turnId = this.activeTurnId;
-    try {
-      await this.runtimeSession.abort();
-    } finally {
-      this.dialect.onSessionInterrupt?.(this.runtimeSession);
-    }
+    await this.runtimeSession.abort();
     if (turnId && this.activeTurnId === turnId) {
-      this.activeTurnId = null;
-      this.activeTurnStarted = false;
-      this.activeAssistantMessageId = null;
-      this.clearNoTurnBuffers();
-      this.emit({
+      this.finishTurn({
         type: "turn_canceled",
         provider: this.provider,
-        reason: "interrupted",
         turnId,
+        reason: "interrupted",
       });
     }
   }
@@ -1717,6 +1719,7 @@ export class PiRpcAgentSession implements AgentSession {
       }
       return {
         run: async () => {
+          this.live = true;
           this.dialect.sendOutOfBandPrompt!(
             this.runtimeSession,
             commandName === "steer" ? "steer" : "follow_up",
@@ -1870,6 +1873,7 @@ export class PiRpcAgentSession implements AgentSession {
     customInstructions: string | undefined,
     emit: (event: AgentStreamEvent) => void,
   ): Promise<void> {
+    this.live = true;
     // D3(omp-native-branch): compaction remains in the shared Pi-lineage core until
     // OMP native command surfaces diverge.
     if (this.outOfBandCompactionEmit) {
@@ -2262,10 +2266,19 @@ export class PiRpcAgentSession implements AgentSession {
       return;
     }
     if (isPiAgentSessionEvent(event)) {
-      this.handleSessionEvent(event);
+      this.handleGatedSessionEvent(event);
       return;
     }
     this.dialect.handleUnknownRuntimeEvent?.(event, { logger: this.logger });
+  }
+
+  private handleGatedSessionEvent(event: PiAgentSessionEvent): void {
+    if (event.type === "agent_start") {
+      this.live = true;
+    } else if (!this.live) {
+      return;
+    }
+    this.handleSessionEvent(event);
   }
 
   private handleProcessExit(error: string): void {
@@ -2277,19 +2290,15 @@ export class PiRpcAgentSession implements AgentSession {
       }
     })();
     this.rejectAllExtensionResults(new Error(error));
-    if (!this.activeTurnId) {
-      return;
-    }
     const turnId = this.activeTurnId;
-    this.activeTurnId = null;
-    this.activeTurnStarted = false;
-    this.clearNoTurnBuffers();
-    this.emit({
-      type: "turn_failed",
-      provider: this.provider,
-      turnId,
-      error,
-    });
+    if (turnId) {
+      this.finishTurn({
+        type: "turn_failed",
+        provider: this.provider,
+        turnId,
+        error,
+      });
+    }
   }
 
   private handleSessionEvent(event: PiAgentSessionEvent): void {
@@ -2297,6 +2306,7 @@ export class PiRpcAgentSession implements AgentSession {
 
     switch (event.type) {
       case "agent_start":
+        this.live = true;
         this.activeTurnStarted = true;
         this.clearNoTurnBuffers();
         this.emit({
@@ -2519,7 +2529,13 @@ export class PiRpcAgentSession implements AgentSession {
       });
     };
     if (this.dialect.usePaseoExtension === false) {
+      if (messageId && this.seenUserEntryIds.has(messageId)) {
+        return;
+      }
       if (messageId || !this.dialect.resolveUserMessageId) {
+        if (messageId) {
+          this.seenUserEntryIds.add(messageId);
+        }
         emitUserMessage(messageId);
         return;
       }
@@ -2554,7 +2570,7 @@ export class PiRpcAgentSession implements AgentSession {
   private emitToolCallEvent(
     toolCallId: string,
     toolCall: PiTrackedToolCall,
-    status: "running" | "completed" | "failed",
+    status: "running" | "completed" | "failed" | "canceled",
     result: PiToolResult,
     error: unknown,
   ): boolean {
@@ -2593,13 +2609,9 @@ export class PiRpcAgentSession implements AgentSession {
   }
 
   private completeTurn(turnId: string | undefined, messages: PiAgentMessage[]): void {
-    this.activeTurnId = null;
-    this.activeAssistantMessageId = null;
-    this.activeTurnStarted = false;
-    this.clearNoTurnBuffers();
     const errorMessage = latestPiErrorMessage(messages);
     if (typeof errorMessage === "string" && errorMessage.length > 0) {
-      this.emit({
+      this.finishTurn({
         type: "turn_failed",
         provider: this.provider,
         turnId,
@@ -2607,12 +2619,33 @@ export class PiRpcAgentSession implements AgentSession {
       });
       return;
     }
-    this.emit({
+    this.finishTurn({
       type: "turn_completed",
       provider: this.provider,
       turnId,
     });
     void this.refreshAfterTurn(turnId);
+  }
+
+  private finishTurn(
+    event: Extract<AgentStreamEvent, { type: "turn_completed" | "turn_failed" | "turn_canceled" }>,
+  ): void {
+    if (event.type === "turn_failed" || event.type === "turn_canceled") {
+      for (const [toolCallId, toolCall] of this.activeToolCalls) {
+        this.emitToolCallEvent(toolCallId, toolCall, "canceled", null, null);
+      }
+    }
+    this.activeToolCalls.clear();
+    this.activeTurnId = null;
+    this.activeAssistantMessageId = null;
+    this.activeTurnStarted = false;
+    this.clearNoTurnBuffers();
+    this.dialect.onTurnFinished?.({
+      runtimeSession: this.runtimeSession,
+      reason: TURN_FINISH_REASONS[event.type],
+      emit: (extraEvent) => this.emit(extraEvent),
+    });
+    this.emit(event);
   }
 
   private async refreshState(): Promise<void> {
@@ -2776,6 +2809,7 @@ export class PiRpcAgentClient implements AgentClient {
         cleanup: combineCleanup([mcpConfig?.cleanup, paseoExtension?.cleanup]),
         extensionTimeoutMs: this.providerParams.extensionTimeoutMs,
         paseoTools: launchContext?.paseoTools,
+        live: false,
       });
     } catch (error) {
       await runtimeSession.close().catch(() => undefined);

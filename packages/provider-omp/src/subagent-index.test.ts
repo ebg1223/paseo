@@ -71,6 +71,90 @@ describe("OMP provider subagent mapper", () => {
     });
   });
 
+  test("terminalizes running subagents without reviving them from later progress", () => {
+    const index = new OmpSubagentIndex();
+    const parent = {};
+    index.handleLifecycle(parent, {
+      id: "running",
+      agent: "explore",
+      status: "started",
+      index: 0,
+    });
+    index.handleLifecycle(parent, {
+      id: "completed",
+      agent: "task",
+      status: "completed",
+      index: 1,
+    });
+
+    expect(index.terminalizeRunning(parent)).toMatchObject([
+      { event: { type: "upsert", id: "running", status: "canceled" } },
+    ]);
+    expect(
+      index.handleProgress(parent, {
+        index: 0,
+        agent: "explore",
+        task: "Inspect files",
+        progress: { id: "running", status: "running" },
+      }),
+    ).toEqual([]);
+  });
+
+  test("maps child tool execution events onto the descriptor timeline", () => {
+    const index = new OmpSubagentIndex();
+    const parent = {};
+    expect(
+      index.handleEvent(parent, {
+        id: "child-1",
+        event: {
+          type: "tool_execution_start",
+          toolCallId: "bash-1",
+          toolName: "bash",
+          args: { command: "echo hello" },
+        },
+      }),
+    ).toMatchObject([
+      {
+        event: {
+          type: "timeline",
+          id: "child-1",
+          item: {
+            type: "tool_call",
+            callId: "bash-1",
+            name: "bash",
+            status: "running",
+            detail: { type: "shell", command: "echo hello" },
+          },
+        },
+      },
+    ]);
+    expect(
+      index.handleEvent(parent, {
+        id: "child-1",
+        event: {
+          type: "tool_execution_end",
+          toolCallId: "bash-1",
+          toolName: "bash",
+          result: { output: "hello\n", exitCode: 0 },
+        },
+      }),
+    ).toMatchObject([
+      {
+        event: {
+          type: "timeline",
+          id: "child-1",
+          item: {
+            type: "tool_call",
+            callId: "bash-1",
+            name: "bash",
+            status: "completed",
+            detail: { type: "shell", command: "echo hello", output: "hello\n" },
+          },
+        },
+      },
+    ]);
+  });
+
   test("maps child message events onto the descriptor timeline", () => {
     const index = new OmpSubagentIndex();
     const parent = {};

@@ -2126,6 +2126,30 @@ test("updateProviderRegistry registers a previously unknown provider", async () 
   expect(snapshot.config.provider).toBe("codex");
 });
 
+test("createAgent applies the registered provider default mode", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-default-mode-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const provider = "module-provider" as AgentProvider;
+  const client = new TestAgentClient();
+  const manager = new AgentManager({
+    clients: { [provider]: client },
+    providerDefinitions: {
+      [provider]: { enabled: true, defaultModeId: "module-default-mode" },
+    },
+    registry: storage,
+    logger,
+  });
+
+  const snapshot = await manager.createAgent({ provider, cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+
+  expect(snapshot.config.modeId).toBe("module-default-mode");
+  expect(client.createdConfigs).toContainEqual(
+    expect.objectContaining({ provider, modeId: "module-default-mode" }),
+  );
+});
+
 test("createAgent passes explicit model strings through to the provider", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-test-"));
   const storagePath = join(workdir, "agents");
@@ -2578,6 +2602,77 @@ test("reloadAgentSession preserves timeline and does not force history replay", 
   await manager.hydrateTimelineFromProvider(snapshot.id);
   const afterHydrate = manager.getTimeline(snapshot.id);
   expect(afterHydrate).toEqual(beforeReload);
+});
+
+test("terminal cancellation cancels running provider children without affecting completed turns", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-provider-child-terminal-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let session: TestAgentSession | null = null;
+  class ProviderChildTerminalClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      session = new TestAgentSession(config);
+      return session;
+    }
+  }
+  const manager = new AgentManager({
+    clients: { codex: new ProviderChildTerminalClient() },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000115",
+  });
+  const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  const events: AgentManagerEvent[] = [];
+  manager.subscribe((event) => events.push(event), {
+    agentId: snapshot.id,
+    replayState: false,
+  });
+
+  session?.pushEvent({
+    type: "provider_subagent",
+    provider: "codex",
+    event: { type: "upsert", id: "canceled-child", status: "running" },
+  });
+  await vi.waitFor(() =>
+    expect(manager.listProviderSubagents(snapshot.id)).toContainEqual(
+      expect.objectContaining({ id: "canceled-child", status: "running" }),
+    ),
+  );
+  session?.pushEvent({
+    type: "turn_canceled",
+    provider: "codex",
+    reason: "Interrupted",
+    turnId: "canceled-turn",
+  });
+  await vi.waitFor(() =>
+    expect(manager.listProviderSubagents(snapshot.id)).toContainEqual(
+      expect.objectContaining({ id: "canceled-child", status: "canceled" }),
+    ),
+  );
+  expect(events).toContainEqual({
+    type: "provider_subagent",
+    event: {
+      type: "upsert",
+      subagent: expect.objectContaining({ id: "canceled-child", status: "canceled" }),
+    },
+  });
+
+  session?.pushEvent({
+    type: "provider_subagent",
+    provider: "codex",
+    event: { type: "upsert", id: "completed-child", status: "running" },
+  });
+  await vi.waitFor(() =>
+    expect(manager.listProviderSubagents(snapshot.id)).toContainEqual(
+      expect.objectContaining({ id: "completed-child", status: "running" }),
+    ),
+  );
+  session?.pushEvent({ type: "turn_completed", provider: "codex", turnId: "completed-turn" });
+  await manager.flush();
+  expect(manager.listProviderSubagents(snapshot.id)).toContainEqual(
+    expect.objectContaining({ id: "completed-child", status: "running" }),
+  );
 });
 
 test("reloadAgentSession clears provider children before rehydrating from disk", async () => {

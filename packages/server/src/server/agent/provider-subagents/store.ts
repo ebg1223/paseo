@@ -94,6 +94,19 @@ export class ProviderSubagentStore {
       .filter((subagent) => subagent.parentAgentId === parentAgentId)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
+  terminalizeRunning(parentAgentId: string): ProviderSubagentStoreEvent[] {
+    return this.list(parentAgentId)
+      .filter(
+        (subagent) => subagent.status === "running" || (subagent.status as string) === "pending",
+      )
+      .map((subagent) =>
+        this.apply(parentAgentId, subagent.provider, {
+          type: "upsert",
+          id: subagent.id,
+          status: "canceled",
+        }),
+      );
+  }
 
   get(parentAgentId: string, subagentId: string): ProviderSubagentDescriptor | null {
     return this.descriptors.get(storeKey(parentAgentId, subagentId)) ?? null;

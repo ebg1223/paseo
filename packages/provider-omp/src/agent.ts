@@ -390,8 +390,13 @@ function createOmpDialect(
       subagentIndex.clear(runtimeSession);
       clearSubagentCardTracker(runtimeSession);
     },
-    onSessionInterrupt: (runtimeSession) => {
-      clearSubagentCardTracker(runtimeSession);
+    onTurnFinished: ({ runtimeSession, reason, emit }) => {
+      if (reason === "canceled" || reason === "failed") {
+        for (const event of subagentIndex.terminalizeRunning(runtimeSession)) {
+          emit(event);
+        }
+        clearSubagentCardTracker(runtimeSession);
+      }
     },
     handleExtraRuntimeEvent: (event, context) => {
       if (event.type === "subagent_lifecycle") {

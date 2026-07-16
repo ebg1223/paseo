@@ -59,8 +59,8 @@ import {
   AgentStreamCoalescer,
 } from "./agent-stream-coalescer.js";
 import { limitAgentTimelineItemContent } from "./agent-timeline-content.js";
-import { ForegroundRunState, type ForegroundTurnWaiter } from "./foreground-run-state.js";
 import { getBuiltinDefinition } from "./builtin-provider-modules.js";
+import { ForegroundRunState, type ForegroundTurnWaiter } from "./foreground-run-state.js";
 import { invokeRewindCapability, type RewindMode } from "./rewind/rewind.js";
 import { isSystemInjectedEnvelope } from "./agent-prompt.js";
 import { stripInternalPaseoMcpServer, withRuntimePaseoMcpServer } from "./runtime-mcp-config.js";
@@ -206,6 +206,7 @@ interface AgentManagerRescueTimeouts {
 interface ProviderEnabledFlag {
   enabled: boolean;
   derivedFromProviderId?: string | null;
+  defaultModeId?: string;
 }
 type ProviderEnabledMap = Partial<Record<AgentProvider, ProviderEnabledFlag>>;
 type ProviderClientMap = Partial<Record<AgentProvider, AgentClient>>;
@@ -537,7 +538,7 @@ function getFirstUserMessageTextFromRows(rows: readonly AgentTimelineRow[]): str
 
 export class AgentManager {
   private readonly clients = new Map<AgentProvider, AgentClient>();
-  private readonly providerEnabled = new Map<AgentProvider, boolean>();
+  private readonly providerEnabled = new Map<AgentProvider, ProviderEnabledFlag>();
   private readonly agents = new Map<string, LiveManagedAgent>();
   private readonly timelineStore = new InMemoryAgentTimelineStore();
   private readonly providerSubagents = new ProviderSubagentStore();
@@ -610,11 +611,20 @@ export class AgentManager {
   }): void {
     for (const [provider, definition] of Object.entries(input.providerDefinitions)) {
       if (definition) {
-        this.providerEnabled.set(provider, definition.enabled);
+        this.providerEnabled.set(provider, definition);
       }
     }
     for (const [provider, client] of Object.entries(input.clients)) {
       if (client) {
+        if (!this.providerEnabled.has(provider)) {
+          const definition = getBuiltinDefinition(provider);
+          if (definition) {
+            this.providerEnabled.set(provider, {
+              enabled: true,
+              defaultModeId: definition.defaultModeId ?? undefined,
+            });
+          }
+        }
         this.clients.set(provider, client);
       }
     }
@@ -808,7 +818,7 @@ export class AgentManager {
     provider: AgentProvider,
     providerFilter: Set<string> | undefined,
   ): boolean {
-    if (this.providerEnabled.get(provider) === false) {
+    if (this.providerEnabled.get(provider)?.enabled === false) {
       return false;
     }
     if (providerFilter && !providerFilter.has(provider)) {
@@ -3439,6 +3449,7 @@ export class AgentManager {
       options,
     );
     this.resolvePendingPermissionsForAgent(agent, event.provider, options, "Turn failed");
+    this.terminalizeProviderSubagents(agent);
     if (!isForegroundEvent) {
       this.emitState(agent);
     }
@@ -3473,8 +3484,15 @@ export class AgentManager {
     }
     agent.lastError = undefined;
     this.resolvePendingPermissionsForAgent(agent, event.provider, options, "Interrupted");
+    this.terminalizeProviderSubagents(agent);
     if (!isForegroundEvent) {
       this.emitState(agent);
+    }
+  }
+
+  private terminalizeProviderSubagents(agent: ActiveManagedAgent): void {
+    for (const update of this.providerSubagents.terminalizeRunning(agent.id)) {
+      this.dispatch({ type: "provider_subagent", event: update });
     }
   }
 
@@ -3940,7 +3958,7 @@ export class AgentManager {
     }
 
     if (!normalized.modeId) {
-      normalized.modeId = getBuiltinDefinition(normalized.provider)?.defaultModeId ?? undefined;
+      normalized.modeId = this.providerEnabled.get(normalized.provider)?.defaultModeId;
     }
 
     return normalized;
@@ -4054,7 +4072,7 @@ export class AgentManager {
   }
 
   private requireEnabledProvider(provider: AgentProvider): void {
-    if (this.providerEnabled.get(provider) === false) {
+    if (this.providerEnabled.get(provider)?.enabled === false) {
       throw new Error(`Provider '${provider}' is disabled`);
     }
   }
