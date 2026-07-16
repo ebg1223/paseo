@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,38 @@ describe("loadProviderModules", () => {
     expect(result.failures).toEqual([]);
     expect(result.modules).toHaveLength(1);
     expect(result.modules[0]?.definition.id).toBe("valid");
+  });
+
+  test("captures a module whose createClient throws", async () => {
+    const result = await loadProviderModules(
+      {
+        "throws-on-create-client": {
+          module: fixturePath("throws-on-create-client.mjs"),
+        },
+      },
+      "/unused",
+      createTestLogger(),
+    );
+
+    expect(result.modules).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.error).toContain("fixture createClient failure");
+  });
+
+  test("captures a module whose createClient returns null", async () => {
+    const result = await loadProviderModules(
+      {
+        "null-create-client": {
+          module: fixturePath("null-create-client.mjs"),
+        },
+      },
+      "/unused",
+      createTestLogger(),
+    );
+
+    expect(result.modules).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.error).toContain("createClient must return a client object");
   });
 
   test("captures a module with an invalid shape", async () => {
@@ -102,6 +134,28 @@ describe("loadProviderModules", () => {
     expect(result.failures).toEqual([]);
     expect(result.modules).toHaveLength(1);
     expect(result.modules[0]?.definition.id).toBe("valid");
+  });
+
+  test("resolves a bare specifier with import-only conditional exports", async () => {
+    const paseoHome = await mkdtemp(join(tmpdir(), "paseo-provider-loader-"));
+    temporaryDirectories.push(paseoHome);
+    await mkdir(join(paseoHome, "providers", "node_modules"), { recursive: true });
+    await writeFile(join(paseoHome, "providers", "package.json"), "{}");
+    await cp(
+      fixturePath("import-only-provider"),
+      join(paseoHome, "providers", "node_modules", "import-only-provider"),
+      { recursive: true },
+    );
+
+    const result = await loadProviderModules(
+      { "import-only": { module: "import-only-provider" } },
+      paseoHome,
+      createTestLogger(),
+    );
+
+    expect(result.failures).toEqual([]);
+    expect(result.modules).toHaveLength(1);
+    expect(result.modules[0]?.definition.id).toBe("import-only");
   });
 
   test("captures an unresolved bare specifier", async () => {

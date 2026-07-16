@@ -131,7 +131,10 @@ export interface ProviderDiagnosticResult {
 
 export interface AgentManagerProviderState {
   providerDefinitions: Partial<
-    Record<AgentProvider, { enabled: boolean; derivedFromProviderId: string | null }>
+    Record<
+      AgentProvider,
+      { enabled: boolean; derivedFromProviderId: string | null; defaultModeId?: string }
+    >
   >;
   clients: Partial<Record<AgentProvider, AgentClient>>;
 }
@@ -267,6 +270,7 @@ export class ProviderSnapshotManager {
       providerDefinitions[provider] = {
         enabled: definition.enabled,
         derivedFromProviderId: definition.derivedFromProviderId,
+        defaultModeId: definition.defaultModeId ?? undefined,
       };
       if (definition.enabled) {
         clients[provider] = this.ensureClient(provider, definition);
@@ -899,7 +903,19 @@ export class ProviderSnapshotManager {
   private entriesToArray(
     entries: Map<AgentProvider, ProviderSnapshotEntry>,
   ): ProviderSnapshotEntry[] {
-    return [...entriesToArray(entries), ...this.loadFailureEntries.map(cloneEntry)];
+    const activeEntries = entriesToArray(entries).map((entry) => {
+      const failure = this.loadFailureEntries.find(
+        (candidate) => candidate.provider === entry.provider,
+      );
+      if (failure) {
+        entry.error = failure.error;
+      }
+      return entry;
+    });
+    const inactiveFailures = this.loadFailureEntries
+      .filter((failure) => !entries.has(failure.provider))
+      .map(cloneEntry);
+    return [...activeEntries, ...inactiveFailures];
   }
   private getProviderIds(): AgentProvider[] {
     return Object.keys(this.providerRegistry);

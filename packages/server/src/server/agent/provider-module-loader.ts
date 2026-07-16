@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { AgentProviderDefinitionSchema } from "@getpaseo/protocol/provider-manifest";
@@ -24,11 +23,14 @@ export async function loadProviderModules(
 
     const specifier = override.module;
     try {
-      const resolvedPath = isAbsolute(specifier)
-        ? specifier
-        : createRequire(join(paseoHome, "providers", "package.json")).resolve(specifier);
+      const moduleUrl = isAbsolute(specifier)
+        ? pathToFileURL(specifier).href
+        : import.meta.resolve(
+            specifier,
+            pathToFileURL(join(paseoHome, "providers", "package.json")).href,
+          );
       // Provider specifiers are chosen at runtime from user configuration.
-      const loaded = await import(pathToFileURL(resolvedPath).href);
+      const loaded = await import(moduleUrl);
       const candidate = loaded.default;
 
       if (!candidate || typeof candidate !== "object") {
@@ -41,6 +43,10 @@ export async function loadProviderModules(
       }
       if (typeof candidate.createClient !== "function") {
         throw new Error("default export createClient must be a function");
+      }
+      const client = candidate.createClient(logger);
+      if (!client || typeof client !== "object") {
+        throw new Error("default export createClient must return a client object");
       }
       if (
         typeof candidate.sdkVersion === "string" &&

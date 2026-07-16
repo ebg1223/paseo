@@ -1,0 +1,9 @@
+{
+  "name": "import-only-provider",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./index.mjs"
+    }
+  }
+}

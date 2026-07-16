@@ -153,6 +153,34 @@ describe("ProviderSnapshotManager public surface", () => {
     }
   });
 
+  test("keeps the builtin snapshot entry ready when its external override fails to load", async () => {
+    const manager = new ProviderSnapshotManager({
+      logger: createTestLogger(),
+      providerOverrides: { claude: { module: "broken-claude-plugin" } },
+      loadFailures: [{ id: "claude", error: "Failed to load provider module" }],
+      extraClients: {
+        claude: createExtraClient("claude", { isAvailable: async () => true }),
+      },
+    });
+    try {
+      const entries = await manager.listProviders({
+        cwd: "/tmp/project",
+        providers: ["claude"],
+        wait: true,
+      });
+      const claudeEntries = entries.filter((entry) => entry.provider === "claude");
+
+      expect(claudeEntries).toHaveLength(1);
+      expect(claudeEntries[0]).toMatchObject({
+        provider: "claude",
+        status: "ready",
+        error: "Failed to load provider module",
+      });
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("ready entries carry registry icon and command metadata", async () => {
     const manager = new ProviderSnapshotManager({
       logger: createTestLogger(),
