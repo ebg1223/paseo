@@ -91,6 +91,7 @@ import { mapOmpAvailableCommandsUpdate, mapOmpRuntimeSlashCommands } from "./com
 import { streamOmpHistory } from "./history.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
 import { mapOmpRuntimeEventToTimelineItem } from "./event-mapper.js";
+import { mapOmpAdvisorMessageToToolCall } from "./advisor-message.js";
 import {
   clearOmpHostToolState,
   handleOmpHostToolRuntimeEvent,
@@ -1981,11 +1982,12 @@ export class OmpAgentSession implements AgentSession {
     if (event.message.role === "custom") {
       const text = getUserMessageText(event.message.content);
       if (text) {
+        const advisorItem = mapOmpAdvisorMessageToToolCall(event.message, text);
         this.emit({
           type: "timeline",
           provider: this.provider,
           turnId,
-          item: { type: "assistant_message", text },
+          item: advisorItem ?? { type: "assistant_message", text },
         });
       }
       if (!this.activeTurnHasUserMessage) {
