@@ -294,11 +294,16 @@ describe("OMP agent client and session", () => {
           "</system-notice>",
         ].join("\n"),
       );
+    omp.runtime().acceptCustomMessage("plain custom status text");
 
     expect(omp.timeline().filter((item) => item.type === "tool_call")).toMatchObject([
       { callId: "omp-notice:DocsSmokeTwo", name: "task_notification", status: "completed" },
     ]);
-    expect(omp.timeline().filter((item) => item.type === "assistant_message")).toHaveLength(1);
+    // Non-notice custom messages still fall through as assistant messages.
+    expect(omp.timeline().filter((item) => item.type === "assistant_message")).toMatchObject([
+      { text: "done" },
+      { text: "plain custom status text" },
+    ]);
   });
 
   test("does not complete a queued model turn from OMP's local-only hint", async () => {
