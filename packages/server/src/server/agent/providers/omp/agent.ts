@@ -66,6 +66,7 @@ import {
 export { formatOmpVersionSupport, resolveOmpDiagnosticPaths } from "./provider-config.js";
 import { OmpSubagentCardTracker, type OmpSubagentCardScheduler } from "./subagent-card-tracker.js";
 import { getUserMessageText } from "./message-history.js";
+import { mapOmpSystemNoticeToToolCall } from "./system-notice.js";
 import { materializeProviderImage } from "../provider-image-output.js";
 import { OmpCliRuntime } from "./cli-runtime.js";
 import { listOmpImportableSessions, readOmpImportSessionConfig } from "./session-descriptor.js";
@@ -1981,11 +1982,12 @@ export class OmpAgentSession implements AgentSession {
     if (event.message.role === "custom") {
       const text = getUserMessageText(event.message.content);
       if (text) {
+        const noticeItem = mapOmpSystemNoticeToToolCall(text);
         this.emit({
           type: "timeline",
           provider: this.provider,
           turnId,
-          item: { type: "assistant_message", text },
+          item: noticeItem ?? { type: "assistant_message", text },
         });
       }
       if (!this.activeTurnHasUserMessage) {

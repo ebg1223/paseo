@@ -155,6 +155,30 @@ describe("OMP agent client and session", () => {
     expect(omp.completedTurnCount()).toBe(1);
   });
 
+  test("renders a live system-notice custom message as a synthetic tool call", async () => {
+    const omp = new OmpHarness();
+    await omp.start();
+
+    await omp.runPrompt("hello OMP", "done");
+    omp
+      .runtime()
+      .acceptCustomMessage(
+        [
+          "<system-notice>",
+          "Background job DocsSmokeTwo has completed.",
+          '<task-result id="DocsSmokeTwo" agent="explore" status="completed" duration="21.6s">',
+          "<output>done</output>",
+          "</task-result>",
+          "</system-notice>",
+        ].join("\n"),
+      );
+
+    expect(omp.timeline().filter((item) => item.type === "tool_call")).toMatchObject([
+      { callId: "omp-notice:DocsSmokeTwo", name: "task_notification", status: "completed" },
+    ]);
+    expect(omp.timeline().filter((item) => item.type === "assistant_message")).toHaveLength(1);
+  });
+
   test("does not complete a queued model turn from OMP's local-only hint", async () => {
     const omp = new OmpHarness();
     await omp.start();
