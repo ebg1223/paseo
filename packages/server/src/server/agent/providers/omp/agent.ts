@@ -511,7 +511,7 @@ function isOmpRequestAbortError(error: unknown): boolean {
 
 function resolveThinkingOptionId(
   cachedThinkingOptionId: string | null,
-  sessionThinkingLevel: OmpThinkingLevel,
+  sessionThinkingLevel: OmpThinkingLevel | undefined,
 ): OmpThinkingLevel | null {
   const currentThinking = cachedThinkingOptionId ?? sessionThinkingLevel;
   return normalizeOmpThinkingOption(currentThinking);
